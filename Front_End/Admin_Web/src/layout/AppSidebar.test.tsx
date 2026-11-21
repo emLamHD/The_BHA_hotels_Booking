@@ -11,13 +11,14 @@ import type { MenuUnseenSummary } from "@/lib/api/menuUnseen";
 
 const EXPANDED = { isExpanded: true, isMobileOpen: false, isHovered: false, setIsHovered: () => undefined };
 const ui = vi.hoisted(() => ({ menus: {} as Record<string, unknown>, pathname: "/", sidebar: {} as Record<string, unknown>, identity: "staff-a" }));
-const api = vi.hoisted(() => ({ changes: vi.fn(), seen: vi.fn() }));
+const api = vi.hoisted(() => ({ changes: vi.fn(), seen: vi.fn(), calendarSeen: vi.fn() }));
 
 vi.mock("next/navigation", () => ({ usePathname: () => ui.pathname }));
 vi.mock("@/context/SidebarContext", () => ({ useSidebar: () => ui.sidebar }));
 vi.mock("@/components/website/NewsletterBadgeProvider", () => ({
   useMenuUnseen: () => ui.menus,
   useUnseenScope: () => ({ identity: ui.identity, ready: true, propertyNames: { "p-0": "Riverside" }, reportAuth: () => undefined }),
+  useCalendarSeen: () => api.calendarSeen,
 }));
 vi.mock("@/lib/api/menuUnseen", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api/menuUnseen")>()), fetchMenuChanges: api.changes, markNewsletterSeen: api.seen }));
 vi.mock("./SidebarWidget", () => ({ default: () => null }));
@@ -44,6 +45,7 @@ beforeEach(() => {
   ui.identity = "staff-a";
   api.changes.mockReset();
   api.seen.mockReset();
+  api.calendarSeen.mockReset();
   api.changes.mockReturnValue(new Promise(() => undefined));                                    // the popover's own reads are tested in MenuChangesPopover.test
 });
 afterEach(cleanup);
@@ -74,7 +76,7 @@ describe("what shows a number", () => {
       expect(link.getAttribute("href")).toBe(path);
       const badgeNode = within(link.parentElement!).getByTestId(`menu-unseen-badge-${key}`);
       expect(link.contains(badgeNode)).toBe(false);
-      expect(badgeNode.tagName).toBe(key === "calendar" ? "SPAN" : "BUTTON");                      // the Calendar's number stays a plain image until its list exists
+      expect(badgeNode.tagName).toBe("BUTTON");                                                    // the Calendar's number opens the shared list too (PR-13)
     }
   });
 
@@ -338,13 +340,25 @@ describe("the badge opens the unseen list", () => {
     expect(popover()).toBeNull();
   });
 
-  it("the Calendar keeps its plain number: no button, no list", async () => {
-    answer({ calendar: perProperty(3) });
+  it("the Calendar badge opens the shared list for its Property, read only: opening it and changing Property read the list and never acknowledge", async () => {
+    answer({ calendar: perProperty(3, 2) });
     renderSidebar();
-    expect(screen.getByTestId("menu-unseen-badge-calendar").tagName).toBe("SPAN");
-    await userEvent.click(screen.getByTestId("menu-unseen-badge-calendar"));
+    const trigger = screen.getByTestId("menu-unseen-badge-calendar");
+    expect(trigger.tagName).toBe("BUTTON");
+    expect(text("calendar")).toBe("5");                                                                 // the API's total over both Properties
+    await userEvent.click(trigger);
+    await waitFor(() => expect(api.changes).toHaveBeenCalledTimes(1));
+    expect(api.changes.mock.calls[0].slice(0, 2)).toEqual(["calendar", "p-0"]);
+    const options = within(screen.getByTestId("unseen-popover-property")).getAllByRole("option").map((option) => option.textContent);
+    expect(options).toEqual(["Riverside (3)", "Cơ sở p-1 (2)"]);                                       // one entry per allowed Property, with the API's own numbers
+    await userEvent.selectOptions(screen.getByTestId("unseen-popover-property"), "p-1");
+    await waitFor(() => expect(api.changes).toHaveBeenCalledTimes(2));
+    expect(api.changes.mock.calls[1].slice(0, 2)).toEqual(["calendar", "p-1"]);
+    expect(api.calendarSeen).not.toHaveBeenCalled();
+    expect(api.seen).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
     expect(popover()).toBeNull();
-    expect(api.changes).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
   });
 });
 

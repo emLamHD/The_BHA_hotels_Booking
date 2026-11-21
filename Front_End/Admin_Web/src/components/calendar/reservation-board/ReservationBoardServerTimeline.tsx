@@ -38,6 +38,7 @@
 
 import React from "react";
 import { clipToVisibleRange, formatMonthDay, generateRangeDates, isWeekendIso, type VisibleRange } from "./dateMath";
+import type { CalendarEntityKind } from "@/lib/api/menuUnseen";
 import type {
   ReservationBoardAssignment,
   ReservationBoardOperationalBlock,
@@ -192,7 +193,18 @@ interface ReservationBoardServerTimelineProps {
   /** `physicalRoomId` is `null` when the pointer is over a row that is not a room. */
   getAssignedSegmentDropRefusal?: (selection: AssignedSegmentSelection, physicalRoomId: string | null) => string | null;
   onAssignedSegmentDrop?: (selection: AssignedSegmentSelection, physicalRoomId: string | null) => string | null;
+  /**
+   * BHA-ADMIN-BADGE-001-PR13: whether the OBJECT behind a bar (the stay's ReservationUnit, or the block's RoomBlockId — never the segment) is unread on screen. Every segment, lane and split row of one
+   * object therefore shares one state. Left out (LocalGate, no Staff) no bar is marked.
+   */
+  isObjectUnread?: (kind: CalendarEntityKind, id: string, activity: unknown) => boolean;
 }
+
+/** One accent for every unread bar, drawn as a dot so the bar's own booking/block cue, focus ring and drag behaviour stay as they are. */
+const UnreadDot: React.FC = () => (
+  <span aria-hidden="true" data-testid="unread-dot" className="mr-1 inline-block h-2 w-2 shrink-0 rounded-full bg-orange-500 ring-1 ring-white dark:ring-gray-900" />
+);
+const UNREAD_TEXT = "Unread change";
 
 /** The room a drag event is over: its own or its nearest ancestor's `data-drop-room-id`, else `null`. */
 function dropRoomIdOf(target: EventTarget | null): string | null {
@@ -227,7 +239,9 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
   onAssignedSegmentDragStart,
   getAssignedSegmentDropRefusal,
   onAssignedSegmentDrop,
+  isObjectUnread,
 }) => {
+  const unreadStay = (stay: ReservationBoardStay) => isObjectUnread?.("reservation-unit", stay.reservationUnitId, stay.activity) ?? false;
   const dragEnabled = !!(onAssignedSegmentDragStart && getAssignedSegmentDropRefusal && onAssignedSegmentDrop);
   /** The segment being dragged; `null` when no drag of ours is in progress. */
   const draggedRef = React.useRef<AssignedSegmentSelection | null>(null);
@@ -486,10 +500,12 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
               if (!clipped) return null;
               const actualRoomType = roomTypeById.get(assignment.actualRoomTypeId);
               const segmentSelection: AssignedSegmentSelection = { stay, segment: assignment };
+              const unread = unreadStay(stay);
               return (
                 <button
                   key={assignment.segmentId}
                   type="button"
+                  data-unread={unread || undefined}
                   data-drop-room-id={assignment.physicalRoomId}
                   draggable={dragEnabled || undefined}
                   onDragStart={
@@ -537,7 +553,9 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
                   style={{ gridColumn: `${clipped.startCol + 2} / span ${clipped.span}`, gridRow: rowIndex + 2 }}
                   title={`${stay.guestDisplayName} — ${stay.confirmationNumber}`}
                 >
+                  {unread && <UnreadDot />}
                   <span className="truncate">{stay.guestDisplayName}</span>
+                  {unread && <span className="sr-only">, {UNREAD_TEXT}</span>}
                 </button>
               );
             })
@@ -553,10 +571,12 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
               isUnassignedRangeUnconfirmed?.(bar.stay.reservationUnitId, unassignedRange) ?? false;
             if (unconfirmed) anyUnconfirmedBar = true;
             const blocked = unassignedActionsBlocked || unconfirmed;
+            const unread = unreadStay(bar.stay);
             return (
               <button
                 key={bar.key}
                 type="button"
+                data-unread={unread || undefined}
                 onClick={() => {
                   if (blocked) return;
                   onSelectUnassignedRange({ stay: bar.stay, unassignedRange });
@@ -565,11 +585,12 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
                 aria-describedby={
                   unassignedActionsBlocked ? blockedNoteId : unconfirmed ? unconfirmedNoteId : undefined
                 }
-                aria-label={`Assign room: ${bar.stay.guestDisplayName}, ${bar.stay.confirmationNumber}, unassigned ${bar.stay.unassignedRanges[bar.rangeIndex].startDate} to ${bar.stay.unassignedRanges[bar.rangeIndex].endDate}`}
+                aria-label={`Assign room: ${bar.stay.guestDisplayName}, ${bar.stay.confirmationNumber}, unassigned ${bar.stay.unassignedRanges[bar.rangeIndex].startDate} to ${bar.stay.unassignedRanges[bar.rangeIndex].endDate}${unread ? `, ${UNREAD_TEXT}` : ""}`}
                 className="z-10 m-1 flex items-center overflow-hidden rounded-md border-2 border-dashed border-purple-500 [contain:inline-size] bg-purple-50 px-2 text-left text-xs font-medium text-purple-700 hover:bg-purple-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-disabled:hover:bg-purple-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-500/60 dark:bg-purple-500/10 dark:text-purple-300"
                 style={{ gridColumn: `${bar.startCol + 2} / span ${bar.span}`, gridRow: rowIndex + 2 }}
                 title={`${bar.stay.guestDisplayName} — unassigned — ${bar.stay.confirmationNumber}`}
               >
+                {unread && <UnreadDot />}
                 <span className="truncate">{bar.stay.guestDisplayName} (unassigned)</span>
               </button>
             );
@@ -583,22 +604,25 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
             const clipped = clipToVisibleRange(block.startDate, block.endDate, range);
             if (!clipped) return null;
             const room = physicalRooms.find((candidate) => candidate.id === block.physicalRoomId);
+            const unread = isObjectUnread?.("room-block", block.roomBlockId, block.activity) ?? false;
+            const statusLabel =
+              room && room.operationalStatus !== "Active"
+                ? `${block.reason} — room ${room.roomNumber}, ${describeRoomStatus(room.operationalStatus)}`
+                : undefined;
             return (
               <button
                 key={block.segmentId}
                 type="button"
+                data-unread={unread || undefined}
                 data-drop-room-id={block.physicalRoomId}
                 onClick={() => onSelectBlock({ block, roomNumber: room?.roomNumber ?? "" })}
                 className="z-10 m-1 flex items-center overflow-hidden rounded-md border border-amber-500 [contain:inline-size] bg-[repeating-linear-gradient(45deg,#fcd34d_0,#fcd34d_2px,transparent_2px,transparent_6px)] px-2 text-left text-xs font-medium text-amber-900 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500/60 dark:bg-[repeating-linear-gradient(45deg,#b45309_0,#b45309_2px,transparent_2px,transparent_6px)] dark:text-amber-100"
                 style={{ gridColumn: `${clipped.startCol + 2} / span ${clipped.span}`, gridRow: rowIndex + 2 }}
                 title={block.reason}
                 // PMS-CAL-004-CP01: a block in a room that is not Active says so; an Active room's bar is unchanged.
-                aria-label={
-                  room && room.operationalStatus !== "Active"
-                    ? `${block.reason} — room ${room.roomNumber}, ${describeRoomStatus(room.operationalStatus)}`
-                    : undefined
-                }
+                aria-label={unread ? `${statusLabel ?? block.reason}, ${UNREAD_TEXT}` : statusLabel}
               >
+                {unread && <UnreadDot />}
                 <span className="truncate">{block.reason}</span>
               </button>
             );

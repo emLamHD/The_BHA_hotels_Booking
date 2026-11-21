@@ -164,6 +164,9 @@ import {
   type ReconciliationTarget,
 } from "./reconciliation";
 import { AlertIcon, CloseLineIcon } from "@/icons";
+import { ackKey, higherWatermark, isUnreadOnScreen, readActivity, type AckedMarks } from "./calendarActivity";
+import { useCalendarSeen, useUnseenScope } from "@/components/website/NewsletterBadgeProvider";
+import type { CalendarEntityKind } from "@/lib/api/menuUnseen";
 import {
   ACCESS_CHECK_MESSAGE,
   LOCAL_GATE_ACCESS,
@@ -974,6 +977,53 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
   );
 
   /**
+   * BHA-ADMIN-BADGE-001-PR13: the Staff member opened an unread bar (a click or the keyboard activating its button) — say "seen" for that ONE object, with the watermark of the board snapshot on
+   * screen, through the shared provider (which sends at most one call per object at a time). Never from opening the board, changing day or Property, focus, hover, drag or a write.
+   * The answer is painted only for the same Staff and Property that sent it, and only as an overlay (`ackedMarks`): the bar clears when the server says it is no longer unread AND the cursor reached
+   * the watermark the bar showed, so a late answer can never clear a bar that a newer read shows with a higher watermark. A server that says "still unread" (a newer event of someone else) keeps the
+   * highlight and makes the board read again for the new watermark — unless a write of this board is waiting for its own read, which will bring it.
+   */
+  const seenCalendarEntity = useCalendarSeen();
+  const unseenIdentity = useUnseenScope().identity;
+  const unseenIdentityRef = useRef(unseenIdentity);
+  useEffect(() => {
+    unseenIdentityRef.current = unseenIdentity;
+  }, [unseenIdentity]);
+  const [ackedMarks, setAckedMarks] = useState<AckedMarks>({});
+  const acknowledgeUnreadBar = useCallback(
+    (kind: CalendarEntityKind, id: string, activity: unknown) => {
+      const shown = boardStateRef.current;
+      const identity = unseenIdentityRef.current;
+      const read = readActivity(activity);
+      if (accessRef.current.mode !== "Staff" || !identity || !read || !read.unread || shown.status !== "loaded") return;
+      const propertyId = shown.board.property.id;
+      const boardKey = boardIdentityKey(propertyId, shown.board.from, shown.board.to);
+      void seenCalendarEntity(identity, { propertyId, entityKind: kind, entityId: id, observedWatermark: read.watermark }).then((result) => {
+        if (result.kind !== "ok") return;
+        const now = boardStateRef.current;
+        if (unseenIdentityRef.current !== identity || now.status !== "loaded" || now.board.property.id !== propertyId) return;
+        if (!capabilitiesFor(accessRef.current, propertyId, sessionEndedRef.current).boardRead) return;
+        if (result.answer.unread) {
+          if (!isBoardAwaitingAnyWrite(boardKey)) setRetryToken((token) => token + 1);
+          return;
+        }
+        const key = ackKey(identity, propertyId, kind, id);
+        setAckedMarks((marks) => {
+          const next = higherWatermark(marks[key], result.answer.lastSeenWatermark);
+          return marks[key] === next ? marks : { ...marks, [key]: next };
+        });
+      });
+    },
+    [seenCalendarEntity, isBoardAwaitingAnyWrite]
+  );
+  const loadedPropertyId = boardState.status === "loaded" ? boardState.board.property.id : "";
+  const isObjectUnread = useCallback(
+    (kind: CalendarEntityKind, id: string, activity: unknown) =>
+      staffMode && isUnreadOnScreen(activity, ackedMarks[ackKey(unseenIdentity, loadedPropertyId, kind, id)]),
+    [staffMode, ackedMarks, unseenIdentity, loadedPropertyId]
+  );
+
+  /**
    * PMS-CAL-001.3-CP03-C1: true while a lost-response write of any type is
    * still unresolved for one of these rooms over overlapping nights on this
    * Property (`isRoomRangeUnresolved`). Read from the refs, so a lock that
@@ -1363,8 +1413,10 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       setSelection(null);
       setDialogReconciliationId(null);
       setAssignmentTarget(target);
+      // The range opens for assignment: that is the Staff member opening this unread bar.
+      acknowledgeUnreadBar("reservation-unit", unassignedSelection.stay.reservationUnitId, unassignedSelection.stay.activity);
     },
-    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, capabilitiesAt]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, capabilitiesAt, acknowledgeUnreadBar]
   );
 
   /**
@@ -3035,6 +3087,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
           // `assignedBarOpenerRef`'s own comment.
           assignedBarOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
           setSelection({ kind: "stay", value });
+          acknowledgeUnreadBar("reservation-unit", value.stay.reservationUnitId, value.stay.activity);
         }}
         onSelectUnassignedRange={handleSelectUnassignedRange}
         onSelectBlock={(value) => {
@@ -3043,12 +3096,14 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
           // closes without a notice taking over.
           assignedBarOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
           setSelection({ kind: "block", value });
+          acknowledgeUnreadBar("room-block", value.block.roomBlockId, value.block.activity);
         }}
         unassignedActionsBlocked={displayedBoardAwaitingReconciliation || !capabilities.assignmentWrite}
         isUnassignedRangeUnconfirmed={isRangeUnconfirmed}
         onAssignedSegmentDragStart={handleAssignedSegmentDragStart}
         getAssignedSegmentDropRefusal={moveDragRefusal}
         onAssignedSegmentDrop={handleAssignedSegmentDrop}
+        isObjectUnread={isObjectUnread}
       />
     );
   }, [
@@ -3067,6 +3122,8 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     handleAssignedSegmentDragStart,
     moveDragRefusal,
     handleAssignedSegmentDrop,
+    acknowledgeUnreadBar,
+    isObjectUnread,
   ]);
 
   const toolbarProperties = propertiesState.status === "loaded" ? propertiesState.properties : [];

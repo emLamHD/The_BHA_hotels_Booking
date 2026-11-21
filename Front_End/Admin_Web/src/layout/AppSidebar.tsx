@@ -20,7 +20,7 @@ import {
   UserCircleIcon,
 } from "../icons/index";
 import SidebarWidget from "./SidebarWidget";
-import { UnseenBadge, UnseenBadgeButton } from "./UnseenBadge";
+import { UnseenBadgeButton } from "./UnseenBadge";
 import { useMenuUnseen, useUnseenScope } from "../components/website/NewsletterBadgeProvider";
 import MenuChangesPopover, { type PopoverTarget } from "../components/activity/MenuChangesPopover";
 import { ADMIN_MENU, type AdminMenuKey } from "../lib/adminMenus";
@@ -165,15 +165,11 @@ const AppSidebar: React.FC = () => {
   const openPopover = (triggerId: string, menus: readonly AdminMenuKey[], initial: AdminMenuKey) => (anchor: HTMLElement) =>
     setPopover((current) => (current?.triggerId === triggerId ? null : { menus, initial, anchor, identity, triggerId, pathname }));
 
-  /** A badge is a button that opens the unseen list, except the Calendar's, which stays a plain number until its list exists (PR-12/13). It is placed over its entry, never inside it. */
+  /** A badge is a button that opens the unseen list (the Calendar's too, BHA-ADMIN-BADGE-001-PR13). It is placed over its entry, never inside it. */
   const renderBadge = (triggerId: string, name: string, count: number, where: "inline" | "parent" | "corner", menus: readonly AdminMenuKey[], initial: AdminMenuKey) => {
     const className = where === "inline" ? "absolute right-3 top-1/2 -translate-y-1/2" : where === "parent" ? "absolute right-10 top-1/2 -translate-y-1/2" : "absolute right-1 top-0 ring-2 ring-white dark:ring-gray-900";
     const placement = where === "corner" ? "corner" : "inline";
-    return initial === "calendar" ? (
-      <UnseenBadge count={count} testId={triggerId} label={badgeLabel(name)} className={className} placement={placement} />
-    ) : (
-      <UnseenBadgeButton count={count} testId={triggerId} label={badgeLabel(name)} className={className} placement={placement} expanded={popover?.triggerId === triggerId} onOpen={openPopover(triggerId, menus, initial)} />
-    );
+    return <UnseenBadgeButton count={count} testId={triggerId} label={badgeLabel(name)} className={className} placement={placement} expanded={popover?.triggerId === triggerId} onOpen={openPopover(triggerId, menus, initial)} />;
   };
 
   const renderMenuItems = (

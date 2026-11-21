@@ -50,7 +50,7 @@ export function actorLabel(kind: string): string {
   return kind === "Staff" ? "Nhân viên" : kind === "Public" ? "Khách truy cập" : kind === "System" ? "Hệ thống" : kind;
 }
 
-/** The menus this summary allows, in the registry's order; `among` narrows them (a parent's children). Calendar included: it has no popover, but it has a history. */
+/** The menus this summary allows, in the registry's order; `among` narrows them (a parent's children). Calendar included (its popover, PR-13, and its history). */
 export function allowedMenus(summary: MenuUnseenSummary, among?: readonly AdminMenuKey[]): AdminMenuKey[] {
   return ADMIN_MENUS.filter((menu) => summary[menu.key] !== undefined && (!among || among.includes(menu.key))).map((menu) => menu.key);
 }

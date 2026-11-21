@@ -62,6 +62,8 @@ export interface ReservationBoardStay {
   coverageStatus: CoverageStatus;
   assignments: ReservationBoardAssignment[];
   unassignedRanges: ReservationBoardUnassignedRange[];
+  /** BHA-ADMIN-BADGE-001-PR12: Staff mode only, one per ReservationUnit (shared by every segment and lane). Read it through `readActivity`: the board answer is not validated. */
+  activity?: ReservationBoardActivity;
 }
 
 export interface ReservationBoardOperationalBlock {
@@ -72,6 +74,14 @@ export interface ReservationBoardOperationalBlock {
   startDate: string;
   endDate: string;
   reason: string;
+  /** BHA-ADMIN-BADGE-001-PR12: Staff mode only, one per RoomBlockId (shared by split rows). */
+  activity?: ReservationBoardActivity;
+}
+
+/** `watermark` is a decimal string (the object's newest number, the viewer's own events included); it is compared as a BigInt only. */
+export interface ReservationBoardActivity {
+  unread: boolean;
+  watermark: string;
 }
 
 export interface ReservationBoardResponse {
