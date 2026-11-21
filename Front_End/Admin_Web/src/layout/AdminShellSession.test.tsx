@@ -102,12 +102,12 @@ describe.each(GATES)("%s, under the real Admin shell", (_name, gate, signOutLabe
     expect(vi.mocked(fetchStaffSession)).toHaveBeenCalledTimes(1);
   });
 
-  it("Sign out from the page ends the shell's session: the number is gone at once, both live connections stop, and nothing is asked afterwards", async () => {
+  it("Sign out from the page ends the shell's session: the number is gone at once, the live connection stops, and nothing is asked afterwards", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       mount();
       await vi.waitFor(() => expect(badge()).toBe("5"));
-      expect(openOf("legacy")).toHaveLength(1);
+      expect(openOf("legacy")).toHaveLength(0);                                                 // the legacy Newsletter Hub is never opened (BHA-ADMIN-BADGE-001-PR14)
       expect(openOf("activity")).toHaveLength(1);
       await signOutFromPage();
       expect(badge()).toBe("0");
@@ -135,7 +135,7 @@ describe.each(GATES)("%s, under the real Admin shell", (_name, gate, signOutLabe
     await waitFor(() => expect(badge()).toBe("5"));
     const lateGet = deferred<ReturnType<typeof summary>>();
     getCount.mockImplementationOnce(() => lateGet.promise as never);
-    await act(async () => { openOf("legacy")[0].options.handlers.onReady(); });
+    await act(async () => { openOf("activity")[0].options.handlers.onReady(); });
     await vi.waitFor(() => expect(getCount).toHaveBeenCalledTimes(2));
     const lateAck = deferred<unknown>();
     postSeen.mockImplementationOnce(() => lateAck.promise as never);
@@ -149,7 +149,7 @@ describe.each(GATES)("%s, under the real Admin shell", (_name, gate, signOutLabe
     getCount.mockResolvedValue(summary(7, "7"));
     await act(async () => { session!.retry(); });
     await waitFor(() => expect(badge()).toBe("7"));
-    expect(openOf("legacy")).toHaveLength(1);
+    expect(openOf("legacy")).toHaveLength(0);                                                 // the legacy Newsletter Hub is never opened (BHA-ADMIN-BADGE-001-PR14)
     expect(openOf("activity")).toHaveLength(1);
 
     await act(async () => { lateGet.resolve(summary(99, "99")); });
@@ -157,7 +157,7 @@ describe.each(GATES)("%s, under the real Admin shell", (_name, gate, signOutLabe
     await flush(50);
     expect(badge()).toBe("7");
     expect(session!.state.status).toBe("authenticated");
-    expect(openOf("legacy")).toHaveLength(1);
+    expect(openOf("legacy")).toHaveLength(0);                                                 // the legacy Newsletter Hub is never opened (BHA-ADMIN-BADGE-001-PR14)
     expect(openOf("activity")).toHaveLength(1);
   });
 

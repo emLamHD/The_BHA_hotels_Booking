@@ -125,6 +125,10 @@ describe("starting", () => {
     connections[0].emit("menuActivity", "noise");
     connections[0].emit("menuActivityReady");
     expect(handlers.onSignal).toHaveBeenCalledTimes(1);
+    // BHA-ADMIN-BADGE-001-PR14: what the hint names is handed over (the menu and the Property) and nothing else; a hint without a Property carries none.
+    expect(handlers.onSignal).toHaveBeenCalledWith({ eventId: "", occurredAtUtc: "", menuKey: "calendar", propertyId: "p-1" });
+    connections[0].emit("menuActivity", { menuKey: "newsletter", title: "x@example.com", count: 9 });
+    expect(handlers.onSignal).toHaveBeenLastCalledWith({ eventId: "", occurredAtUtc: "", menuKey: "newsletter" });
     expect(handlers.onReady).toHaveBeenCalledTimes(1);
     controller.dispose();
     expect(connections[0].calls).toContain("off:menuActivity");

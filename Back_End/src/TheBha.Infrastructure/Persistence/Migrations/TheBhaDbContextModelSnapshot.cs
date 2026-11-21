@@ -2292,6 +2292,26 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Website.MenuActivityCutover", b =>
+                {
+                    b.Property<string>("MenuKey")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("CutoverAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("LegacyMaxSequence")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("MenuKey");
+
+                    b.ToTable("MenuActivityCutovers", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MenuActivityCutovers_LegacyMaxSequence", "\"LegacyMaxSequence\" >= 0");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Website.MenuActivityStream", b =>
                 {
                     b.Property<string>("MenuKey")
@@ -4288,6 +4308,15 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("PropertyId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.MenuActivityCutover", b =>
+                {
+                    b.HasOne("TheBha.Domain.Website.MenuActivityStream", null)
+                        .WithMany()
+                        .HasForeignKey("MenuKey")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("TheBha.Domain.Website.NewsletterSubscription", b =>

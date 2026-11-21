@@ -16,7 +16,7 @@ namespace TheBha.Infrastructure.Persistence.Activity;
 /// read in the statement itself), so permission, Property scope, counter, cursor and the rows that are counted or listed always come from one snapshot, and what the Staff may not read
 /// contributes nothing. SQL text is built only from constants in this file; every value is a parameter.
 /// </summary>
-internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvider timeProvider, AdminMenuRoles roles, IMenuUnseen legacyNewsletter) : IAdminMenuUnseen, IAdminMenuAccess
+internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvider timeProvider, AdminMenuRoles roles) : IAdminMenuUnseen, IAdminMenuAccess
 {
     private const int GroupWindow = 50, DefaultLimit = 50, MaxLimit = 100;
     private const string Newsletter = MenuActivityStream.Newsletter;
@@ -72,6 +72,21 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
 
     private static string Watermark(long value) => value.ToString(CultureInfo.InvariantCulture);
     private static int Clamp(long count) => (int)Math.Min(count, int.MaxValue);
+
+    /// <summary>The Newsletter's rule for the shared rows, written once for the badge and the unseen list (ADR 0011 §E "How the D2 exception reads the marker").</summary>
+    private static class NewsletterShared
+    {
+        /// <summary>
+        /// D2 for a row of <paramref name="rows"/>: it was made at or after the Staff member's account (<paramref name="createdAt"/>), OR it is a legacy row (<c>Sequence ≤ LegacyMaxSequence</c>) and the Staff
+        /// member existed at the cutover (<c>CreatedAtUtc ≤ CutoverAtUtc</c>). A missing cursor row never means "new account"; no cursor is raised to make this smaller.
+        /// </summary>
+        public static string Baseline(string rows, string createdAt, string marker) =>
+            $"""({rows}."OccurredAtUtc" >= {createdAt} OR ({rows}."Sequence" <= {marker}."LegacyMaxSequence" AND {createdAt} <= {marker}."CutoverAtUtc"))""";
+    }
+
+    /// <summary>One menu's entry for the legacy Newsletter route (an adapter over this service); null when the Staff member may not read it.</summary>
+    internal async Task<MenuUnseenEntry?> GetEntryAsync(Guid staffId, string menu, CancellationToken cancellationToken) =>
+        (await SummaryAsync(staffId, menu, cancellationToken)).Menus.GetValueOrDefault(menu);
 
     /// <summary>
     /// The scopes of one menu, or an early refusal. Order (anti-disclosure): unknown or not readable → 404 (the same answer); then the shape of <c>propertyId</c> (400); then a Property outside the
@@ -132,14 +147,20 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
     private async Task<MenuUnseenSummary> SummaryAsync(Guid staffId, string? onlyMenu, CancellationToken cancellationToken)
     {
         // ONE statement, so one snapshot. The count is by logical event over the rows left after the Staff's scope, own events, the D2 baseline and the cursor (never current − lastSeen).
-        // Newsletter keeps its legacy expression exactly (no baseline, no actor filter, no cursor = 0). Calendar counts distinct unread objects against each object's own cursor.
+        // Newsletter (BHA-ADMIN-BADGE-001-PR14) reads the marker in this same statement: with no marker its legacy expression exactly (no baseline, no actor filter, no cursor = 0); with one,
+        // AdminActivities with the one-time D2 exception for a Staff member who existed at the cutover (see NewsletterShared). The copy and the marker commit together, so this statement sees both or
+        // neither. Calendar counts distinct unread objects against each object's own cursor.
 #pragma warning disable EF1002 // the interpolated parts are constants of this class and CalendarUnreadSql; every value is a parameter
         var rows = await database.Database.SqlQueryRaw<SummaryRow>(
             $"""
             WITH {Scopes}
             SELECT sc."MenuKey", sc."PropertyId", sc."Current", ls."LastSeen",
               CASE
-                WHEN sc."MenuKey" = 'newsletter' THEN (SELECT count(*) FROM "NewsletterVerificationActivities" n WHERE n."Sequence" > ls."LastSeen")
+                WHEN sc."MenuKey" = 'newsletter' THEN
+                  CASE WHEN cut."MenuKey" IS NULL THEN (SELECT count(*) FROM "NewsletterVerificationActivities" n WHERE n."Sequence" > ls."LastSeen")
+                       ELSE (SELECT count(DISTINCT COALESCE(a."CorrelationId", a."Id")) FROM "AdminActivities" a
+                             WHERE a."MenuKey" = 'newsletter' AND a."Sequence" > ls."LastSeen" AND a."ActorStaffId" IS DISTINCT FROM sc."StaffId"
+                               AND {NewsletterShared.Baseline("a", "sc.\"CreatedAtUtc\"", "cut")}) END
                 WHEN sc."MenuKey" = 'calendar' THEN (SELECT count(*) FROM (
                     SELECT 1 FROM "AdminActivities" a
                     {CalendarUnreadSql.JoinSeen("sc.\"StaffId\"")}
@@ -150,6 +171,7 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
                         AND a."OccurredAtUtc" >= sc."CreatedAtUtc" AND a."ActorStaffId" IS DISTINCT FROM sc."StaffId")
               END AS "Count"
             FROM scopes sc CROSS JOIN LATERAL (SELECT {LastSeen} AS "LastSeen") ls
+            LEFT JOIN "MenuActivityCutovers" cut ON cut."MenuKey" = sc."MenuKey"
             WHERE @only::text IS NULL OR sc."MenuKey" = @only
             """, Access([staffId], Text("only", onlyMenu))).ToListAsync(cancellationToken);
 #pragma warning restore EF1002
@@ -181,11 +203,17 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
         var calendar = menu == AdminMenuKeys.Calendar;
         var legacy = menu == Newsletter;
         // f: the physical rows left after the Staff's filters. Newsletter reads its legacy table (Public actor, a generic title, no baseline); Calendar compares each object with its own cursor.
+        // Newsletter: the marker is read in this statement (cut), so the list and the badge choose the source from one snapshot. No marker: the legacy table (Public actor, a generic title, no baseline).
+        // Marker: AdminActivities under the same filters as the badge, own events excluded and the one-time D2 exception for a Staff member who existed at the cutover.
         var source = legacy
-            ? """
+            ? $"""
               SELECT n."Sequence", 'Public' AS "ActorKind", NULL::uuid AS "ActorStaffId", 'subscription' AS "EntityKind", n."SubscriptionId"::text AS "EntityKey", 'verified' AS "Action",
                      'a subscription' AS "TitleSnapshot", 1 AS "ItemCount", n."OccurredAtUtc", n."Sequence"::text AS "EventKey"
-              FROM "NewsletterVerificationActivities" n WHERE n."Sequence" > @cursor
+              FROM "NewsletterVerificationActivities" n WHERE n."Sequence" > @cursor AND NOT EXISTS (SELECT 1 FROM cut)
+              UNION ALL
+              SELECT a."Sequence", a."ActorKind", a."ActorStaffId", a."EntityKind", a."EntityKey", a."Action", a."TitleSnapshot", a."ItemCount", a."OccurredAtUtc", COALESCE(a."CorrelationId", a."Id")::text
+              FROM "AdminActivities" a CROSS JOIN cut
+              WHERE a."MenuKey" = 'newsletter' AND a."Sequence" > @cursor AND a."ActorStaffId" IS DISTINCT FROM @staff AND {NewsletterShared.Baseline("a", "@created", "cut")}
               """
             : calendar
                 ? $"""
@@ -219,7 +247,8 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
 #pragma warning disable EF1002 // the interpolated parts are constants of this method; every value is a parameter
         var rows = await database.Database.SqlQueryRaw<GroupRow>(
             $"""
-            WITH f AS ({source}),
+            WITH cut AS (SELECT c."LegacyMaxSequence", c."CutoverAtUtc" FROM "MenuActivityCutovers" c WHERE c."MenuKey" = 'newsletter'),
+            f AS ({source}),
             g AS (SELECT {keys}, max(f."Sequence") AS "Latest", count(DISTINCT f."EventKey") AS "Events", sum(f."ItemCount") AS "Items",
                          jsonb_agg(DISTINCT jsonb_build_object('kind', f."ActorKind", 'staffId', f."ActorStaffId")) AS "Actors"
                   FROM f GROUP BY {keys}),
@@ -254,18 +283,6 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
         // "0" or digits without a leading zero; no sign, space, exponent or fraction. An overflow is refused, never clamped.
         if (!IsPlainInteger(viewWatermark) || !long.TryParse(viewWatermark, NumberStyles.None, CultureInfo.InvariantCulture, out var watermark))
             return new AdminMenuResult<MenuUnseenEntry>(AdminMenuStatus.InvalidWatermark);
-
-        if (menu == Newsletter)
-        {
-            // Same code as the legacy route, so the cursor, the counter check and the refusal are identical by construction.
-            var legacy = await legacyNewsletter.MarkSeenAsync(staffId, menu, watermark, cancellationToken);
-            return legacy.Status switch
-            {
-                MenuSeenStatus.Succeeded => new AdminMenuResult<MenuUnseenEntry>(AdminMenuStatus.Succeeded, new MenuUnseenEntry(legacy.Value!.Newsletter.Count, legacy.Value.Newsletter.LastSeenWatermark, legacy.Value.Newsletter.CurrentWatermark)),
-                MenuSeenStatus.UnknownMenu => new AdminMenuResult<MenuUnseenEntry>(AdminMenuStatus.UnknownMenu),
-                _ => new AdminMenuResult<MenuUnseenEntry>(AdminMenuStatus.InvalidWatermark)
-            };
-        }
 
         var now = timeProvider.GetUtcNow();
         // One atomic statement; permission and Property scope are re-read in it. It writes only while the watermark is not above the menu's counter (nothing is clamped), and GREATEST keeps
@@ -411,13 +428,21 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
         }
 
         // Newest first by Sequence; date and actor are filters, never the order. History keeps the Staff's own events and the ones before the D2 baseline.
+        // Newsletter: no marker reads the legacy table (no Staff actor exists there, so an actor filter matches nothing); with the marker it reads AdminActivities, own events and the ones before the D2
+        // baseline included. The marker is read in this statement, in the same snapshot as the rows.
+        const string newsletterMarker = """EXISTS (SELECT 1 FROM "MenuActivityCutovers" c WHERE c."MenuKey" = 'newsletter')""";
         var table = menu == Newsletter
-            ? """
-              SELECT n."Sequence", n."OccurredAtUtc", 'Public' AS "ActorKind", NULL::uuid AS "ActorStaffId", 'verified' AS "Action", 'subscription' AS "EntityKind", n."SubscriptionId"::text AS "EntityKey",
-                     'a subscription' AS "TitleSnapshot", 1 AS "ItemCount"
-              FROM "NewsletterVerificationActivities" n WHERE @actor::uuid IS NULL AND (@after::bigint IS NULL OR n."Sequence" < @after)
-                AND (@from::timestamptz IS NULL OR n."OccurredAtUtc" >= @from) AND (@to::timestamptz IS NULL OR n."OccurredAtUtc" < @to)
-              ORDER BY n."Sequence" DESC LIMIT @take
+            ? $"""
+              SELECT u.* FROM (
+                SELECT n."Sequence", n."OccurredAtUtc", 'Public' AS "ActorKind", NULL::uuid AS "ActorStaffId", 'verified' AS "Action", 'subscription' AS "EntityKind", n."SubscriptionId"::text AS "EntityKey",
+                       'a subscription' AS "TitleSnapshot", 1 AS "ItemCount"
+                FROM "NewsletterVerificationActivities" n WHERE NOT {newsletterMarker} AND @actor::uuid IS NULL AND (@after::bigint IS NULL OR n."Sequence" < @after)
+                  AND (@from::timestamptz IS NULL OR n."OccurredAtUtc" >= @from) AND (@to::timestamptz IS NULL OR n."OccurredAtUtc" < @to)
+                UNION ALL
+                SELECT a."Sequence", a."OccurredAtUtc", a."ActorKind", a."ActorStaffId", a."Action", a."EntityKind", a."EntityKey", a."TitleSnapshot", a."ItemCount"
+                FROM "AdminActivities" a WHERE {newsletterMarker} AND a."MenuKey" = @menu AND (@actor::uuid IS NULL OR a."ActorStaffId" = @actor)
+                  AND (@after::bigint IS NULL OR a."Sequence" < @after) AND (@from::timestamptz IS NULL OR a."OccurredAtUtc" >= @from) AND (@to::timestamptz IS NULL OR a."OccurredAtUtc" < @to)
+              ) u ORDER BY u."Sequence" DESC LIMIT @take
               """
             : """
               SELECT a."Sequence", a."OccurredAtUtc", a."ActorKind", a."ActorStaffId", a."Action", a."EntityKind", a."EntityKey", a."TitleSnapshot", a."ItemCount"
@@ -425,8 +450,10 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
                 AND (@after::bigint IS NULL OR a."Sequence" < @after) AND (@from::timestamptz IS NULL OR a."OccurredAtUtc" >= @from) AND (@to::timestamptz IS NULL OR a."OccurredAtUtc" < @to)
               ORDER BY a."Sequence" DESC LIMIT @take
               """;
+#pragma warning disable EF1002 // the interpolated parts are constants of this method; every value is a parameter
         var rows = await database.Database.SqlQueryRaw<ItemRow>(
             table, Text("menu", menu), Uuid("prop", scope!.PropertyId), Uuid("actor", actor), Big("after", after), Time("from", from), Time("to", to), new NpgsqlParameter("take", limit + 1)).ToListAsync(cancellationToken);
+#pragma warning restore EF1002
         await transaction.CommitAsync(cancellationToken);
 
         var page = rows.Take(limit).ToList();

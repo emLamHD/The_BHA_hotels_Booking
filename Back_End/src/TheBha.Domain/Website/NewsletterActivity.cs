@@ -38,3 +38,15 @@ public sealed class StaffMenuSeen
     public long LastSeenSequence { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; }
 }
+
+/// <summary>
+/// BHA-ADMIN-BADGE-001-PR14 (ADR 0011 §E): the one-row marker of the Newsletter cutover. Written once, in the transaction that copies the legacy activity rows into <c>AdminActivities</c>, and never
+/// updated. <see cref="LegacyMaxSequence"/> is the counter's <c>LastSequence</c> read under the lock (a deleted tail does not lower it); <see cref="CutoverAtUtc"/> is read after the table lock was
+/// granted, from the clock that stamps <c>StaffAccounts.CreatedAtUtc</c>. While no marker exists the legacy table is the only source of the Newsletter's activity.
+/// </summary>
+public sealed class MenuActivityCutover
+{
+    public string MenuKey { get; set; } = string.Empty;
+    public long LegacyMaxSequence { get; set; }
+    public DateTimeOffset CutoverAtUtc { get; set; }
+}

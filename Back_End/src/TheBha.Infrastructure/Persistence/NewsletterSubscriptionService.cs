@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
+using TheBha.Application.Activity;
 using TheBha.Application.Website;
 using TheBha.Domain.Website;
 using TheBha.Infrastructure.Persistence.Newsletter;
@@ -8,7 +10,7 @@ namespace TheBha.Infrastructure.Persistence;
 
 internal sealed class NewsletterSubscriptionService(
     TheBhaDbContext database, TimeProvider timeProvider, NewsletterOptions options, NewsletterSecretProtector protector,
-    INewsletterLiveSignal live, ILogger<NewsletterSubscriptionService> log) : INewsletterSubscriptions
+    INewsletterLiveSignal live, IAdminActivityRecorder recorder, IAdminActivityHint hint, ILogger<NewsletterSubscriptionService> log) : INewsletterSubscriptions
 {
     /// <summary>How many times a request looks for the row of its address: each extra round needs Staff to have renamed or deleted that row again in between.</summary>
     private const int MaxLockAttempts = 5;
@@ -73,7 +75,28 @@ internal sealed class NewsletterSubscriptionService(
 
     public async Task<NewsletterConfirmOutcome> ConfirmAsync(string token, CancellationToken cancellationToken)
     {
-        if (!NewsletterTokens.LooksLikeToken(token)) return NewsletterConfirmOutcome.Invalid;
+        (NewsletterConfirmOutcome Outcome, DateTimeOffset? VerifiedAt) result;
+        try
+        {
+            result = await ConfirmOnceAsync(token, cancellationToken);
+        }
+        catch (PostgresException exception) when (NewsletterActivityLog.IsFence(exception))
+        {
+            // ADR 0011 §E: a writer that decided "legacy" reached the legacy table after the cutover committed, and the fence refused it. Its whole transaction is already rolled back (the scope
+            // inside ConfirmOnceAsync ended), so nothing it did exists; what the failed attempt tracked is dropped and the verification runs ONCE more, which now decides "shared". Only this exact
+            // error is retried, and only once: a timeout, a deadlock or an unknown commit result are never run again here, and a second failure goes to the caller.
+            database.ChangeTracker.Clear();
+            result = await ConfirmOnceAsync(token, cancellationToken);
+        }
+
+        // Only the call whose UPDATE really moved the row, and only once the commit has succeeded (a rollback or a failed commit never gets here).
+        if (result.VerifiedAt is { } verifiedAt) await SignalVerifiedAsync(verifiedAt);
+        return result.Outcome;
+    }
+
+    private async Task<(NewsletterConfirmOutcome Outcome, DateTimeOffset? VerifiedAt)> ConfirmOnceAsync(string token, CancellationToken cancellationToken)
+    {
+        if (!NewsletterTokens.LooksLikeToken(token)) return (NewsletterConfirmOutcome.Invalid, null);
         var hash = NewsletterTokens.Hash(token);
         var now = timeProvider.GetUtcNow();
 
@@ -83,13 +106,13 @@ internal sealed class NewsletterSubscriptionService(
         var subscriptionId = await database.NewsletterVerificationRequests.AsNoTracking()
             .Where(request => request.TokenHash == hash && request.Purpose == NewsletterVerificationRequest.PurposeVerification && request.RevokedAtUtc == null)
             .Select(request => (Guid?)request.SubscriptionId).SingleOrDefaultAsync(cancellationToken);
-        if (subscriptionId is null) return NewsletterConfirmOutcome.Invalid;
+        if (subscriptionId is null) return (NewsletterConfirmOutcome.Invalid, null);
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
         // The address may have been deleted between the lookup and the lock: then the link has nothing left to confirm.
         if (!await NewsletterLifecycle.LockAsync(database, subscriptionId.Value, cancellationToken))
         {
             await transaction.RollbackAsync(cancellationToken);
-            return NewsletterConfirmOutcome.Invalid;
+            return (NewsletterConfirmOutcome.Invalid, null);
         }
 
         // The token is spent by one conditional UPDATE: of two concurrent confirmations one gets the row, the other nothing.
@@ -124,9 +147,10 @@ internal sealed class NewsletterSubscriptionService(
                     cancellationToken);
                 var language = await database.NewsletterSubscriptions.AsNoTracking().Where(s => s.Id == subscriptionId.Value).Select(s => s.Language).SingleAsync(cancellationToken);
                 await NewsletterLifecycle.QueueWelcomeAsync(database, options, protector, subscriptionId.Value, language, now, cancellationToken);
-                // BHA-NEWSLETTER-BADGE-001: the verification is counted in the SAME transaction (a rollback leaves no trace). It is the last statement before the commit, because it locks the
-                // stream's counter row until then: lock order is subscription → mails → counter, and nothing that reads or acknowledges the stream ever locks a subscription.
-                await NewsletterActivityLog.RecordVerifiedAsync(database, subscriptionId.Value, now, cancellationToken);
+                // BHA-NEWSLETTER-BADGE-001 / PR14: the verification is counted in the SAME transaction (a rollback leaves no trace). It is the last statement before the commit: it takes the legacy table's
+                // lock, decides legacy or shared from the marker, then locks the stream's counter row until the commit. Lock order: subscription → mails → table → counter, and nothing that reads or
+                // acknowledges the stream ever locks a subscription.
+                await NewsletterActivityLog.RecordVerifiedAsync(database, recorder, subscriptionId.Value, now, cancellationToken);
                 outcome = NewsletterConfirmOutcome.Verified;
                 verifiedNow = true;
             }
@@ -157,9 +181,7 @@ internal sealed class NewsletterSubscriptionService(
         }
 
         await transaction.CommitAsync(cancellationToken);
-        // BHA-NEWSLETTER-LIVE-001: only the call whose UPDATE really moved the row, and only once the commit has succeeded (a rollback or a failed commit never gets here).
-        if (verifiedNow) await SignalVerifiedAsync(now);
-        return outcome;
+        return (outcome, verifiedNow ? now : null);
     }
 
     /// <summary>
@@ -170,11 +192,22 @@ internal sealed class NewsletterSubscriptionService(
     {
         try
         {
+            // The legacy signal stays (an Admin build that still listens to it keeps working during the rollout).
             await live.PublishVerifiedAsync(new NewsletterVerifiedSignal(Guid.NewGuid(), now), CancellationToken.None);
         }
         catch (Exception exception)
         {
             log.LogWarning(exception, "Newsletter: a verification is committed but its live signal to the Admin screens could not be sent.");
+        }
+
+        try
+        {
+            // The shared hint goes out beside it, after COMMIT, in its own guard so a failure of the old signal never skips it: it only asks a screen to read again.
+            await WebsiteActivity.HintAsync(hint, MenuActivityStream.Newsletter);
+        }
+        catch (Exception exception)
+        {
+            log.LogWarning(exception, "Newsletter: a verification is committed but its shared hint to the Admin screens could not be sent.");
         }
     }
 

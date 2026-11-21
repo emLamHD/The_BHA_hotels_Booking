@@ -36,3 +36,32 @@ public interface IMenuUnseen
     /// </summary>
     Task<MenuSeenResult> MarkSeenAsync(Guid staffId, string menuKey, long viewWatermark, CancellationToken cancellationToken);
 }
+
+public enum NewsletterCutoverStatus
+{
+    /// <summary>This run copied the surviving legacy rows and wrote the marker.</summary>
+    Committed,
+    /// <summary>A marker already existed: nothing was copied and it was not touched.</summary>
+    AlreadyCutOver,
+    /// <summary><c>AdminActivities</c> already holds Newsletter rows but there is no marker: an inconsistent state, never merged. Nothing was written.</summary>
+    SharedRowsWithoutMarker,
+    /// <summary>The table lock (or the counter) was not granted within the timeout, before the marker was read. THIS run wrote nothing; it says nothing about an earlier run or about which source is in use. Run it again later.</summary>
+    LockTimeout,
+    /// <summary>
+    /// COMMIT was requested but its answer never arrived (connection lost, timeout, cancellation): the cutover may or may not have committed. Neither a commit nor a rollback is claimed; check the marker
+    /// on a new connection or run the same, idempotent command again.
+    /// </summary>
+    OutcomeUnknown
+}
+
+/// <summary>The outcome of one cutover run. The marker values are the ones now in the database (new, or the existing ones); both are null when no marker exists.</summary>
+public sealed record NewsletterCutoverResult(NewsletterCutoverStatus Status, long? LegacyMaxSequence, DateTimeOffset? CutoverAtUtc, int CopiedRows);
+
+/// <summary>
+/// BHA-ADMIN-BADGE-001-PR14 (ADR 0011 §E): the one-time move of the Newsletter's activity to <c>AdminActivities</c>. One transaction takes the legacy-table lock, then the counter, reads the legacy
+/// set under them, copies it with its original <c>Sequence</c> and writes the marker; any failure rolls all of it back. Only an operator command runs it, never startup or a migration.
+/// </summary>
+public interface INewsletterActivityCutover
+{
+    Task<NewsletterCutoverResult> RunAsync(TimeSpan lockTimeout, CancellationToken cancellationToken);
+}

@@ -228,7 +228,7 @@ export default function NewsletterSubscriptionsPanel() {
   }, []);
   const [behind, setBehind] = useState<"new" | "gap" | null>(null);
   const [deferred, setDeferred] = useState(false);
-  const [toast, setToast] = useState<{ count: number; token: number } | null>(null);
+  const [toast, setToast] = useState<{ token: number } | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
   // Quiet = nothing under Staff's hands. Read from the refs, never from state, so a callback from an earlier render or a timer sees the truth of this instant.
   const liveSafe = () => dialogRef.current === null && !writingRef.current && !readingRef.current && !heldRef.current && staleRef.current.size === 0;
@@ -272,7 +272,7 @@ export default function NewsletterSubscriptionsPanel() {
     onNew: (count) => {
       if (lifeRef.current === null) return;
       liveDirtyRef.current = { ...liveDirtyRef.current, news: liveDirtyRef.current.news + count };
-      setToast((previous) => ({ count: (previous?.count ?? 0) + count, token: (previous?.token ?? 0) + 1 }));
+      setToast((previous) => ({ token: (previous?.token ?? 0) + 1 }));
       applyLiveRef.current();
     },
   });
@@ -292,7 +292,7 @@ export default function NewsletterSubscriptionsPanel() {
   useEffect(() => {
     if (page === 1) setBehind(null);
   }, [page]);
-  // "Xem đăng ký mới" (banner AND toast) moves the page, which aborts and replaces any read that is out: so it answers to the same rule as the live read itself. `viewLocked` is the
+  // "Xem thay đổi" (banner AND toast) moves the page, which aborts and replaces any read that is out: so it answers to the same rule as the live read itself. `viewLocked` is the
   // picture of it for both buttons; the handler checks the refs itself, first, so a callback of an earlier render, or a click in the same tick as the one that took a slot, is refused
   // before it touches the page, the banner or a request, and the refused click leaves the sign that there is something new where it was.
   const listPendingRef = useRef(false);
@@ -314,7 +314,7 @@ export default function NewsletterSubscriptionsPanel() {
       </PageHeader>
       <LiveStatusLine status={live.status} stoppedFor={live.stoppedFor} onRetry={live.retry} />
       {bannerKind && <LiveBanner kind={bannerKind} onView={viewNew} disabled={viewLocked} />}
-      {toast && <LiveToast count={toast.count} token={toast.token} onDismiss={dismissToast} onView={behind ? viewNew : null} disabled={viewLocked} />}
+      {toast && <LiveToast token={toast.token} onDismiss={dismissToast} onView={behind ? viewNew : null} disabled={viewLocked} />}
       {notice && <Banner tone="success" testId="newsletter-notice" onDismiss={() => setNotice(null)}>{notice}</Banner>}
       {dialog === null && <WriteOutcome status={write.status} reconcile={reconcileProps} />}
       {dialog === null && staleRowIds.size > 0 && (

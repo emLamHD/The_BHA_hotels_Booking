@@ -645,6 +645,14 @@ if (ContentPackCommand.IsCommand(args))
     return;
 }
 
+// BHA-ADMIN-BADGE-001-PR14: the one-time Newsletter activity cutover (ADR 0011 §E). An explicit operator command with its own confirmations; never a startup step or a migration.
+if (NewsletterActivityCutoverCommand.IsCommand(args))
+{
+    Environment.ExitCode = await NewsletterActivityCutoverCommand.RunAsync(
+        args, app.Services, app.Environment.EnvironmentName, Console.Out, app.Lifetime.ApplicationStopping);
+    return;
+}
+
 // BHA-BLOG-001-CP02: the operator's picture maintenance (backfill of pictures from before the pipeline, files nothing refers to). Any environment; the operator names the database.
 if (BlogMediaMaintenanceCommand.IsCommand(args))
 {

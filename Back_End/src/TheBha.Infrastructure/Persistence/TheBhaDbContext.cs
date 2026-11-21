@@ -57,6 +57,7 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<NewsletterVerificationActivity> NewsletterVerificationActivities => Set<NewsletterVerificationActivity>();
     public DbSet<MenuActivityStream> MenuActivityStreams => Set<MenuActivityStream>();
     public DbSet<StaffMenuSeen> StaffMenuSeen => Set<StaffMenuSeen>();
+    public DbSet<MenuActivityCutover> MenuActivityCutovers => Set<MenuActivityCutover>();
     public DbSet<AdminActivity> AdminActivities => Set<AdminActivity>();
     public DbSet<StaffMenuPropertySeen> StaffMenuPropertySeen => Set<StaffMenuPropertySeen>();
     public DbSet<StaffEntitySeen> StaffEntitySeen => Set<StaffEntitySeen>();

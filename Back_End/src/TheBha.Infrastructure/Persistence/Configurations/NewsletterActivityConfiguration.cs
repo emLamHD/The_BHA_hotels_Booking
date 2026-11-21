@@ -45,3 +45,14 @@ internal sealed class StaffMenuSeenConfiguration : IEntityTypeConfiguration<Staf
         builder.HasOne<MenuActivityStream>().WithMany().HasForeignKey(row => row.MenuKey).OnDelete(DeleteBehavior.Restrict);
     }
 }
+
+internal sealed class MenuActivityCutoverConfiguration : IEntityTypeConfiguration<MenuActivityCutover>
+{
+    public void Configure(EntityTypeBuilder<MenuActivityCutover> builder)
+    {
+        builder.ToTable("MenuActivityCutovers", table => table.HasCheckConstraint("CK_MenuActivityCutovers_LegacyMaxSequence", "\"LegacyMaxSequence\" >= 0"));
+        builder.HasKey(row => row.MenuKey);
+        builder.Property(row => row.MenuKey).HasMaxLength(40);
+        builder.HasOne<MenuActivityStream>().WithMany().HasForeignKey(row => row.MenuKey).OnDelete(DeleteBehavior.Restrict);
+    }
+}

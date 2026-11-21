@@ -76,8 +76,9 @@ const click = async (testId: string) => userEvent.click(buttonOf(testId));
 const badge = () => screen.getByTestId("badge").textContent;
 const openOf = (kind: "legacy" | "activity") =>
   live.started.filter((started) => !started.controller.dispose.mock.calls.length && (kind === "activity") === (started.options.events !== undefined));
-const connection = () => openOf("legacy").at(-1)!;
-const signal = (id: string) => act(async () => { connection().options.handlers.onSignal({ eventId: id, occurredAtUtc: "" }); });
+// BHA-ADMIN-BADGE-001-PR14: the shell's shared activity Hub is the only connection; a hint for the Newsletter menu is what the screen hears (it carries no id: `_id` only labels the call site).
+const connection = () => openOf("activity").at(-1)!;
+const signal = (_id?: string) => { void _id; return act(async () => { connection().options.handlers.onSignal({ eventId: "", occurredAtUtc: "", menuKey: "newsletter" }); }); };
 
 let server: NewsletterSubscription[];
 let watermark: string | undefined;
@@ -269,10 +270,35 @@ describe("one source, one connection", () => {
     serve();
     mount(true);
     await screen.findByTestId("newsletter-row-r01@example.com");
-    expect(openOf("legacy")).toHaveLength(1);                                                 // the screen shares the shell's legacy connection, and the activity Hub is the shell's too
-    expect(openOf("activity")).toHaveLength(1);
+    expect(openOf("legacy")).toHaveLength(0);                                                 // the legacy Newsletter Hub is never opened by this build
+    expect(openOf("activity")).toHaveLength(1);                                               // the screen shares the shell's one shared Hub
     await signal("e1");
     await screen.findByTestId("newsletter-live-toast");
+    expect(screen.getAllByTestId("newsletter-live-toast")).toHaveLength(1);
+  });
+
+  it("C1: from the shared Hub through the provider to the panel, a burst is one notice and exactly ONE list reload, and a later burst is one more", async () => {
+    await open();
+    const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+    const reads = list.mock.calls.length;
+    vi.useFakeTimers();
+    await signal();
+    await advance(150);
+    await signal();
+    await advance(140);
+    await signal();                                                                           // three hints inside the window opened by the first
+    await advance(5);
+    expect(list.mock.calls.length).toBe(reads);                                               // the window (300 ms from the first hint) has not ended
+    expect(screen.queryByTestId("newsletter-live-toast")).toBeNull();
+    await advance(10);
+    expect(list.mock.calls.length).toBe(reads + 1);                                           // ONE reload for the whole burst
+    expect(screen.getAllByTestId("newsletter-live-toast")).toHaveLength(1);
+    expect(screen.getByTestId("newsletter-live-toast-text").textContent).toBe("Có thay đổi đăng ký");
+    await advance(3000);
+    expect(list.mock.calls.length).toBe(reads + 1);
+    await signal();
+    await advance(301);
+    expect(list.mock.calls.length).toBe(reads + 2);                                           // the next burst, one more
     expect(screen.getAllByTestId("newsletter-live-toast")).toHaveLength(1);
   });
 });

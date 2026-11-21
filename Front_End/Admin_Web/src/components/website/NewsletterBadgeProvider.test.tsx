@@ -87,23 +87,20 @@ const mount = (ui: React.ReactNode = null, strict = false) => {
 };
 const badge = () => screen.getByTestId("badge").textContent;
 const flush = (ms = BADGE_COALESCE_MS + 100) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)); });
-/** The legacy Newsletter connection (no `events`), and the shared activity Hub (it names its own). */
+/** BHA-ADMIN-BADGE-001-PR14: the shared activity Hub (it names its own events) is the ONLY connection; "legacy" (a connection with no `events`: the old Newsletter Hub) must never exist. */
 const openOf = (kind: "legacy" | "activity") =>
   live.started.filter((started) => !started.controller.dispose.mock.calls.length && (kind === "activity") === (started.options.events !== undefined));
-const connection = () => {
-  const open = openOf("legacy");
-  expect(open.length).toBeGreaterThan(0);
-  return open[open.length - 1];
-};
 const activityHub = () => {
   const open = openOf("activity");
   expect(open.length).toBeGreaterThan(0);
   return open[open.length - 1];
 };
-const hint = (payload: unknown = { menuKey: "calendar", propertyId: "prop-a" }) => act(async () => { activityHub().options.handlers.onSignal({ eventId: String((payload as { menuKey?: string }).menuKey ?? ""), occurredAtUtc: "" }); });
+const hint = (payload: { menuKey: string; propertyId?: string; [extra: string]: unknown } = { menuKey: "calendar", propertyId: "prop-a" }) => act(async () => { activityHub().options.handlers.onSignal({ eventId: "", occurredAtUtc: "", ...payload }); });
 const activityReady = () => act(async () => { activityHub().options.handlers.onReady(); });
-const signal = (id: string) => act(async () => { connection().options.handlers.onSignal({ eventId: id, occurredAtUtc: "2026-11-19T01:00:00+00:00" }); });
-const ready = () => act(async () => { connection().options.handlers.onReady(); });
+/** A hint for the Newsletter menu: it schedules the GET and reaches a mounted Newsletter screen. `_id` only labels the call site (a hint carries no id). */
+const signal = (_id?: string) => { void _id; return hint({ menuKey: "newsletter" }); };
+const ready = () => activityReady();
+const connection = () => activityHub();
 const ack = (watermark: string, identity = ALLOWED.staffAccountId) => act(async () => { shared!.ack(watermark, identity); });
 
 beforeEach(() => {
@@ -149,11 +146,12 @@ describe("who gets numbers", () => {
     }
   });
 
-  it("a Staff member with the website permission has both: the activity Hub and the legacy Newsletter connection, one of each, also under Strict Mode and with the screen mounted", async () => {
+  it("a Staff member with the website permission has ONE connection, the shared activity Hub, and never the legacy Newsletter one, also under Strict Mode and with the screen mounted", async () => {
     mount(gated(<Screen />), true);
     await waitFor(() => expect(badge()).toBe("3"));
     expect(openOf("activity")).toHaveLength(1);
-    expect(openOf("legacy")).toHaveLength(1);
+    expect(openOf("legacy")).toHaveLength(0);
+    expect(live.started.every((started) => started.options.events?.signal === "menuActivity")).toBe(true);   // nothing was ever started on the legacy Hub's message names
   });
 
   it("without a session nothing is asked and nothing is connected", async () => {
@@ -485,7 +483,7 @@ describe("one connection for the sidebar and the screen", () => {
   it("the shell and a mounted screen share ONE connection, also under Strict Mode; the screen never opens its own", async () => {
     mount(gated(<Screen />), true);
     await waitFor(() => expect(badge()).toBe("3"));
-    expect(openOf("legacy")).toHaveLength(1);
+    expect(openOf("activity")).toHaveLength(1);
     expect(openOf("activity")).toHaveLength(1);
   });
 
@@ -510,6 +508,33 @@ describe("one connection for the sidebar and the screen", () => {
     expect(feedCalls).toEqual(["new:1", "ready"]);
   });
 
+  it("the screen is told only about the Newsletter's hints (one `new` per hint, never a number of subscriptions); another menu's hint only schedules the GET", async () => {
+    mount(gated(<Screen />));
+    await waitFor(() => expect(badge()).toBe("3"));
+    await screen.findByTestId("screen");
+    feedCalls = [];
+    await hint({ menuKey: "website-hero" });
+    await hint({ menuKey: "calendar", propertyId: "prop-a" });
+    await flush(300 + BADGE_COALESCE_MS + 100);
+    expect(feedCalls).toEqual([]);
+    expect(getCount.mock.calls.length).toBeGreaterThan(1);                                     // … yet each of them asked for the numbers again
+    await hint({ menuKey: "newsletter" });
+    await flush(300 + BADGE_COALESCE_MS + 100);
+    expect(feedCalls).toEqual(["new:1"]);
+  });
+
+  it("the shared Hub's status and its retry reach the screen: the one connection serves both", async () => {
+    mount(gated(<Screen />));
+    await waitFor(() => expect(badge()).toBe("3"));
+    expect(shared!.status).toBe("connecting");
+    await act(async () => { activityHub().options.handlers.onStatus("connected"); });
+    expect(shared!.status).toBe("connected");
+    await act(async () => { activityHub().options.handlers.onStatus("stopped", "denied"); });
+    expect(shared).toMatchObject({ status: "stopped", stoppedFor: "denied" });
+    shared!.retry();
+    expect(activityHub().controller.retryNow).toHaveBeenCalledTimes(1);
+  });
+
   it("a screen that leaves stops being told, the connection stays for the badge", async () => {
     function Toggle() {
       const [on, setOn] = React.useState(true);
@@ -522,7 +547,7 @@ describe("one connection for the sidebar and the screen", () => {
     await signal("late");
     await flush(300 + BADGE_COALESCE_MS + 100);
     expect(feedCalls).toEqual([]);
-    expect(openOf("legacy")).toHaveLength(1);
+    expect(openOf("activity")).toHaveLength(1);
     expect(openOf("activity")).toHaveLength(1);
   });
 
@@ -530,11 +555,11 @@ describe("one connection for the sidebar and the screen", () => {
     mount();
     await waitFor(() => expect(badge()).toBe("3"));
     const checks = vi.mocked(fetchStaffSession).mock.calls.length;
-    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
+    await waitFor(() => expect(openOf("activity")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await waitFor(() => expect(vi.mocked(fetchStaffSession).mock.calls.length).toBe(checks + 1));
     expect(session!.state.status).toBe("authenticated");
-    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
+    await waitFor(() => expect(openOf("activity")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onUnauthenticated());
     await waitFor(() => expect(session!.state.status).toBe("unauthenticated"));
   });
@@ -549,8 +574,8 @@ const Form = () => (
 );
 const gatedForm = () => <WebsiteAccessGate returnTo="/website/languages"><Form /></WebsiteAccessGate>;
 const openConnections = () => live.started.filter((started) => !started.controller.dispose.mock.calls.length);
-/** A Staff member with the website permission is served by two connections: the shared activity Hub and the legacy Newsletter one. */
-const BOTH = 2;
+/** Every Staff member is served by ONE connection: the shared activity Hub (the legacy Newsletter Hub is no longer opened by this build). */
+const BOTH = 1;
 const meFails = () => vi.mocked(fetchStaffSession).mockResolvedValueOnce({ kind: "error", message: "Could not reach the Admin API." });
 
 /**
@@ -577,7 +602,7 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
     mount(gatedForm());
     await screen.findByTestId("website-form");
     meFails();
-    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
+    await waitFor(() => expect(openOf("activity")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await retryReopens(await closedWithRetry());
   });
@@ -607,7 +632,7 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
     mount(gatedForm());
     await screen.findByTestId("website-form");
     vi.mocked(fetchStaffSession).mockResolvedValueOnce({ kind: "unauthenticated" });
-    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
+    await waitFor(() => expect(openOf("activity")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await screen.findByTestId("staff-session-required");
     expect(screen.queryByTestId("website-form")).toBeNull();
@@ -616,7 +641,7 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
   it("`me` confirms the permission: nothing closes and nobody is signed out", async () => {
     mount(gatedForm());
     await screen.findByTestId("website-form");
-    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
+    await waitFor(() => expect(openOf("activity")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await flush(200);
     expect(screen.getByTestId("website-form")).toBeTruthy();
@@ -628,11 +653,11 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
     mount(gatedForm());
     await screen.findByTestId("website-form");
     vi.mocked(fetchStaffSession).mockResolvedValueOnce({ kind: "authenticated", session: WITHOUT_PERMISSION });
-    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
+    await waitFor(() => expect(openOf("activity")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await screen.findByTestId("website-no-permission");
     expect(screen.queryByTestId("website-form")).toBeNull();
-    await waitFor(() => expect(openOf("legacy")).toHaveLength(0));                              // without the permission the legacy Newsletter connection is gone …
+    await waitFor(() => expect(openOf("legacy")).toHaveLength(0));                              // … and without the permission there is none of it either …
     expect(openOf("activity")).toHaveLength(1);                                                // … while the shared Hub stays: which menus they may read is the API's answer
   });
 
@@ -641,7 +666,7 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
     await screen.findByTestId("website-form");
     const first = deferred<Awaited<ReturnType<typeof fetchStaffSession>>>();
     vi.mocked(fetchStaffSession).mockImplementationOnce(() => first.promise);
-    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
+    await waitFor(() => expect(openOf("activity")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());                                       // the shell's check is out …
     await flush(50);
     vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: ALLOWED });
@@ -657,7 +682,7 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
     await screen.findByTestId("website-form");
     const late = deferred<Awaited<ReturnType<typeof fetchStaffSession>>>();
     vi.mocked(fetchStaffSession).mockImplementationOnce(() => late.promise);
-    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
+    await waitFor(() => expect(openOf("activity")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await flush(50);
     vi.mocked(staffLogout).mockResolvedValue({ kind: "logged-out" });
@@ -687,7 +712,7 @@ describe("C1 F1: a late result of the old identity or of an unmounted tree never
     await waitFor(() => expect(badge()).toBe("3"));
     const first = deferred<Awaited<ReturnType<typeof fetchStaffSession>>>();
     vi.mocked(fetchStaffSession).mockImplementationOnce(() => first.promise);
-    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
+    await waitFor(() => expect(openOf("activity")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());                                       // the old Staff member's 403: its `me` check is out
     await flush(50);
     const other = { ...ALLOWED, staffAccountId: "22222222-2222-2222-2222-222222222222", email: "b@example.com" };
@@ -702,7 +727,7 @@ describe("C1 F1: a late result of the old identity or of an unmounted tree never
     expect(session!.state.status).toBe("authenticated");
     expect(badge()).toBe("7");
     const open = openConnections();
-    expect(open).toHaveLength(BOTH);                                                           // one of each, the new member's
+    expect(open).toHaveLength(BOTH);                                                           // the new member's one
     expect(live.started.length - open.length).toBe(live.started.length - BOTH);                // every earlier one disposed
   });
 
@@ -711,7 +736,7 @@ describe("C1 F1: a late result of the old identity or of an unmounted tree never
     await screen.findByTestId("website-form");
     const late = deferred<Awaited<ReturnType<typeof fetchStaffSession>>>();
     vi.mocked(fetchStaffSession).mockImplementationOnce(() => late.promise);
-    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
+    await waitFor(() => expect(openOf("activity")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await flush(50);
     view.unmount();
@@ -979,7 +1004,7 @@ describe("PR-4: a hint, a poll and a reconnect only schedule the GET", () => {
     await waitFor(() => expect(badge()).toBe("4"));
   });
 
-  it("the activity Hub's reconnect asks again, like the legacy one", async () => {
+  it("the activity Hub's reconnect asks again", async () => {
     mount();
     await waitFor(() => expect(badge()).toBe("3"));
     getCount.mockResolvedValue(answer(entry(6, "0", "6")));
@@ -1153,5 +1178,98 @@ describe("C2: a GET covers every refresh asked for before it started", () => {
     await advance(BADGE_COALESCE_MS * 4);
     expect(getCount).toHaveBeenCalledTimes(3);
     expect(badge()).toBe("9");
+  });
+});
+
+describe("C1: the Newsletter hint window (shared Hub → provider → screen)", () => {
+  const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+  const newsletter = () => hint({ menuKey: "newsletter" });
+  /** Mounted on real timers (the first GET and the gate need them), then switched to fake ones: every timer a hint starts from here on is under the test's control. */
+  const open = async () => {
+    mount(gated(<Screen />));
+    await waitFor(() => expect(badge()).toBe("3"));
+    await screen.findByTestId("screen");
+    feedCalls = [];
+    vi.useFakeTimers();
+  };
+
+  it("a burst is ONE onNew counting its hints; the 300 ms window runs from the FIRST hint and a later hint never moves it; the next burst is a new window", async () => {
+    await open();
+    await newsletter();                                                                        // t = 0
+    await advance(200);
+    await newsletter();                                                                        // t = 200
+    await advance(90);
+    await newsletter();                                                                        // t = 290
+    await advance(9);                                                                          // t = 299
+    expect(feedCalls).toEqual([]);
+    await advance(2);                                                                          // t = 301: the window of the first hint has ended
+    expect(feedCalls).toEqual(["new:3"]);
+    await advance(100);
+    await newsletter();                                                                        // a later burst: its own window, from ITS first hint
+    await advance(299);
+    expect(feedCalls).toEqual(["new:3"]);
+    await advance(2);
+    expect(feedCalls).toEqual(["new:3", "new:1"]);
+    await advance(2000);
+    expect(feedCalls).toEqual(["new:3", "new:1"]);                                             // nothing is announced twice
+  });
+
+  it("another menu's hint starts no window and tells the screen nothing, yet still schedules the summary GET", async () => {
+    await open();
+    const gets = getCount.mock.calls.length;
+    await hint({ menuKey: "website-hero" });
+    await hint({ menuKey: "calendar", propertyId: "prop-a" });
+    await advance(2000);
+    expect(feedCalls).toEqual([]);
+    expect(getCount.mock.calls.length).toBeGreaterThan(gets);
+  });
+
+  it("a reconnect is announced at once and without a notice (catch-up), and a pending burst is not merged into it", async () => {
+    await open();
+    await newsletter();
+    await ready();
+    expect(feedCalls).toEqual(["ready"]);
+    await advance(301);
+    expect(feedCalls).toEqual(["ready", "new:1"]);
+  });
+
+  it("a subscriber that joins after the first hint is not handed that burst; one that leaves loses it", async () => {
+    await open();
+    const late: number[] = [];
+    const gone: number[] = [];
+    const leave = shared!.subscribe({ onReady: () => undefined, onNew: (n) => gone.push(n) });
+    await newsletter();
+    await advance(100);
+    const join = shared!.subscribe({ onReady: () => undefined, onNew: (n) => late.push(n) });
+    leave();
+    await advance(250);
+    expect(feedCalls).toEqual(["new:1"]);
+    expect(late).toEqual([]);
+    expect(gone).toEqual([]);
+    await newsletter();
+    await advance(301);
+    expect(late).toEqual([1]);
+    join();
+  });
+
+  it("the burst dies with the Staff session and with the unmount: nothing is announced afterwards, to this subscriber or to a new one", async () => {
+    await open();
+    await newsletter();
+    await advance(100);
+    act(() => session!.expire());                                                              // the identity ends: the batch is dropped
+    await advance(2000);
+    expect(feedCalls).toEqual([]);
+
+    vi.useRealTimers();
+    cleanup();
+    feedCalls = [];
+    mount(gated(<Screen />));
+    await waitFor(() => expect(badge()).toBe("3"));
+    await screen.findByTestId("screen");
+    vi.useFakeTimers();
+    await newsletter();
+    cleanup();                                                                                 // unmount with a window open
+    await advance(2000);
+    expect(feedCalls).toEqual([]);
   });
 });
