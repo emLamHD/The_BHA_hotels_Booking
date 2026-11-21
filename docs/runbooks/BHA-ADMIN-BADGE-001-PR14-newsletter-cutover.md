@@ -39,14 +39,27 @@ What it does, in **one transaction** (READ COMMITTED), in this order:
 
 **Run it at low traffic.** While the command waits for an in-flight writer it holds a pending lock request, so a verification or a Staff write that starts meanwhile queues behind it until it gets the lock or `--lock-timeout-seconds` runs out (30 s by default, 600 at most). A shorter timeout limits that wait; a timeout is harmless (see below) and the command can simply be run again.
 
-| Exit | Meaning | What to do |
-|---|---|---|
-| 0 `COMMITTED` | copied N rows, marker written | step 5 |
-| 0 `ALREADY DONE` | the marker already existed; **nothing was copied or changed** | step 5 |
-| 1 `LOCK TIMEOUT` / `failed` | the transaction rolled back: **no marker and no copied row**; legacy is still the only source | run it again (a short wait for the lock is normal while a verification is in flight) |
-| 2 | a confirmation or the database name is missing | fix the arguments |
-| 3 | `--expected-database` is not this database | fix the target |
-| 4 `ABORTED` | `AdminActivities` has `newsletter` rows but no marker | stop and investigate; do not delete rows to "make it work" |
+| Exit | Output | Meaning | What to do |
+|---|---|---|---|
+| 0 | `COMMITTED` | PostgreSQL **confirmed** the commit: copied N rows, marker written | step 5 |
+| 0 | `ALREADY DONE` | the marker already existed; **nothing was copied or changed** | step 5 |
+| 1 | `LOCK TIMEOUT after Ns` | the **server** answered 55P03 before any COMMIT: no marker, no copied row; legacy is still the only source | run it again (a short wait for the lock is normal while a verification is in flight) |
+| 1 | `failed — the server answered with an error (SQLSTATE …)` | **confirmed not committed**: the server rejected a statement or the COMMIT itself and the transaction was aborted | run it again; if it repeats, read the SQLSTATE and stop |
+| 1 | `failed (…) before COMMIT was requested` | an error on the connection before COMMIT was sent, so this run committed nothing | check the marker (below) or run it again |
+| **5** | **`OUTCOME UNKNOWN`** | COMMIT **was requested and its answer never arrived** (lost connection, timeout, cancellation). **It may or may not have committed; nothing is claimed in either direction.** The command does **not** retry | **Do not assume rollback and do not assume success.** Check on a **new connection to the same database** (below), or run the same command again |
+| 2 | usage | a confirmation or the database name is missing | fix the arguments |
+| 3 | `REFUSED` | `--expected-database` is not this database | fix the target |
+| 4 | `ABORTED` | `AdminActivities` has `newsletter` rows but no marker | stop and investigate; do not delete rows to "make it work" |
+
+**After `OUTCOME UNKNOWN`** — on a new connection to the database the command named:
+
+```sql
+SELECT "LegacyMaxSequence", "CutoverAtUtc" FROM "MenuActivityCutovers" WHERE "MenuKey" = 'newsletter';
+```
+
+One row: it **did** commit (the copy is in `AdminActivities`; carry on with step 5). No row: it did **not** commit (legacy is still the source) and the command can be run again. Running the **same command again** answers the same question without a query: `ALREADY DONE` if it committed (nothing is copied twice and the marker does not move), otherwise it performs the cutover.
+
+**Timeouts.** The command sets the PostgreSQL `lock_timeout` to `--lock-timeout-seconds` and gives its database commands a client timeout 30 s longer, so the server always gives up first and answers 55P03 (the output then says `LOCK TIMEOUT`, not a transport error). Only the cutover's own commands get that longer timeout; the application's default is unchanged.
 
 **After a timeout or a rollback**: run the same command again; it is safe and starts from the beginning. **After a commit**: running it again only reports the marker; the marker and the copy are never redone. A committed cutover is **not reverted by a migration** (Down of migration 27 refuses while the marker exists); there is no "undo" command.
 

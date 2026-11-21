@@ -1180,3 +1180,96 @@ describe("C2: a GET covers every refresh asked for before it started", () => {
     expect(badge()).toBe("9");
   });
 });
+
+describe("C1: the Newsletter hint window (shared Hub → provider → screen)", () => {
+  const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+  const newsletter = () => hint({ menuKey: "newsletter" });
+  /** Mounted on real timers (the first GET and the gate need them), then switched to fake ones: every timer a hint starts from here on is under the test's control. */
+  const open = async () => {
+    mount(gated(<Screen />));
+    await waitFor(() => expect(badge()).toBe("3"));
+    await screen.findByTestId("screen");
+    feedCalls = [];
+    vi.useFakeTimers();
+  };
+
+  it("a burst is ONE onNew counting its hints; the 300 ms window runs from the FIRST hint and a later hint never moves it; the next burst is a new window", async () => {
+    await open();
+    await newsletter();                                                                        // t = 0
+    await advance(200);
+    await newsletter();                                                                        // t = 200
+    await advance(90);
+    await newsletter();                                                                        // t = 290
+    await advance(9);                                                                          // t = 299
+    expect(feedCalls).toEqual([]);
+    await advance(2);                                                                          // t = 301: the window of the first hint has ended
+    expect(feedCalls).toEqual(["new:3"]);
+    await advance(100);
+    await newsletter();                                                                        // a later burst: its own window, from ITS first hint
+    await advance(299);
+    expect(feedCalls).toEqual(["new:3"]);
+    await advance(2);
+    expect(feedCalls).toEqual(["new:3", "new:1"]);
+    await advance(2000);
+    expect(feedCalls).toEqual(["new:3", "new:1"]);                                             // nothing is announced twice
+  });
+
+  it("another menu's hint starts no window and tells the screen nothing, yet still schedules the summary GET", async () => {
+    await open();
+    const gets = getCount.mock.calls.length;
+    await hint({ menuKey: "website-hero" });
+    await hint({ menuKey: "calendar", propertyId: "prop-a" });
+    await advance(2000);
+    expect(feedCalls).toEqual([]);
+    expect(getCount.mock.calls.length).toBeGreaterThan(gets);
+  });
+
+  it("a reconnect is announced at once and without a notice (catch-up), and a pending burst is not merged into it", async () => {
+    await open();
+    await newsletter();
+    await ready();
+    expect(feedCalls).toEqual(["ready"]);
+    await advance(301);
+    expect(feedCalls).toEqual(["ready", "new:1"]);
+  });
+
+  it("a subscriber that joins after the first hint is not handed that burst; one that leaves loses it", async () => {
+    await open();
+    const late: number[] = [];
+    const gone: number[] = [];
+    const leave = shared!.subscribe({ onReady: () => undefined, onNew: (n) => gone.push(n) });
+    await newsletter();
+    await advance(100);
+    const join = shared!.subscribe({ onReady: () => undefined, onNew: (n) => late.push(n) });
+    leave();
+    await advance(250);
+    expect(feedCalls).toEqual(["new:1"]);
+    expect(late).toEqual([]);
+    expect(gone).toEqual([]);
+    await newsletter();
+    await advance(301);
+    expect(late).toEqual([1]);
+    join();
+  });
+
+  it("the burst dies with the Staff session and with the unmount: nothing is announced afterwards, to this subscriber or to a new one", async () => {
+    await open();
+    await newsletter();
+    await advance(100);
+    act(() => session!.expire());                                                              // the identity ends: the batch is dropped
+    await advance(2000);
+    expect(feedCalls).toEqual([]);
+
+    vi.useRealTimers();
+    cleanup();
+    feedCalls = [];
+    mount(gated(<Screen />));
+    await waitFor(() => expect(badge()).toBe("3"));
+    await screen.findByTestId("screen");
+    vi.useFakeTimers();
+    await newsletter();
+    cleanup();                                                                                 // unmount with a window open
+    await advance(2000);
+    expect(feedCalls).toEqual([]);
+  });
+});

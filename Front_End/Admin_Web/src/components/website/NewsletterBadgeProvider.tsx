@@ -18,7 +18,7 @@
  * Staff, a sign-out or an unmount shows nothing of the old one from the very next render; a new generation also drops whatever is still on the wire.
  *
  * One connection, one GET path (BHA-ADMIN-BADGE-001-PR14): the shared activity Hub (any identity). Its hints for the `newsletter` menu are also handed to the Newsletter screen through
- * `useNewsletterLiveFeed` for its notice, refresh and catch-up; the legacy Newsletter Hub is no longer opened by this build (the API keeps it only for an older Admin build during the rollout).
+ * `useNewsletterLiveFeed` for its notice, refresh and catch-up (hints are gathered in a 300 ms window from the first one: one `onNew` per burst and subscriber; a reconnect is announced at once and is never merged into a burst); the legacy Newsletter Hub is no longer opened by this build (the API keeps it only for an older Admin build during the rollout).
  *
  * "Seen" is said by a menu's own screen after a list answered successfully, with the watermark THAT answer carried, to `POST menu-unseen/{menu}/seen`: the Newsletter screen through `ack`,
  * the Blog (BHA-ADMIN-BADGE-001-PR07), Website (PR09) and Promotions (PR10) screens through `useMenuSeen`. It is never optimistic: the number changes when the server answers, and a failed call is
@@ -52,7 +52,7 @@ import {
 import { ADMIN_MENU, type AdminMenuKey } from "@/lib/adminMenus";
 import { startNewsletterLive, type LiveController, type LiveStatus, type LiveStopReason } from "@/lib/website/newsletterLive";
 import { useStaffSession } from "@/components/auth/StaffSession";
-import { NEWSLETTER_MENU, useNewsletterLive, type LiveCallbacks } from "./useNewsletterLive";
+import { LIVE_COALESCE_MS, NEWSLETTER_MENU, useNewsletterLive, type LiveCallbacks } from "./useNewsletterLive";
 
 /** How often the numbers are asked for while the tab is visible, whatever the sockets say. */
 export const BADGE_POLL_MS = 30_000;
@@ -520,10 +520,17 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
 
   // ---- the shared activity Hub: a hint only schedules the GET; its payload is never read for a number. The Newsletter screen listens through `subscribe` (toast, refresh, catch-up).
   const listeners = useRef(new Set<LiveCallbacks>());
+  /**
+   * The Newsletter hints of one burst, per subscriber. The window is LIVE_COALESCE_MS from the FIRST hint (a later hint never moves it), and each subscriber gets at most ONE `onNew` per window, with
+   * the number of hints it was there to hear. A subscriber that joins after the first hint has no count until a hint arrives after it joined, so an old burst is never handed to a new screen; one that
+   * leaves loses its count. The whole batch dies with the Staff identity or the unmount (the effect below), so nothing of an old session is delivered to the next.
+   */
+  const batch = useRef<{ timer: ReturnType<typeof setTimeout> | null; counts: Map<LiveCallbacks, number> }>({ timer: null, counts: new Map() });
   const subscribe = useCallback((callbacks: LiveCallbacks) => {
     listeners.current.add(callbacks);
     return () => {
       listeners.current.delete(callbacks);
+      batch.current.counts.delete(callbacks);
     };
   }, []);
   const [hubState, setHubState] = useState<{ status: LiveStatus; stoppedFor?: LiveStopReason }>({ status: "connecting" });
@@ -543,7 +550,16 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
         },
         onSignal: (signal) => {
           requestRefresh();
-          if (!closed && signal.menuKey === NEWSLETTER_MENU) for (const listener of [...listeners.current]) listener.onNew(1);
+          if (closed || signal.menuKey !== NEWSLETTER_MENU) return;
+          const pending = batch.current;
+          for (const listener of listeners.current) pending.counts.set(listener, (pending.counts.get(listener) ?? 0) + 1);
+          pending.timer ??= setTimeout(() => {
+            pending.timer = null;
+            const due = [...pending.counts];
+            pending.counts.clear();
+            if (closed) return;
+            for (const [listener, count] of due) if (listeners.current.has(listener)) listener.onNew(count);
+          }, LIVE_COALESCE_MS);
         },
         onStatus: (status, stoppedFor) => {
           if (!closed) setHubState({ status, stoppedFor: status === "stopped" ? stoppedFor : undefined });
@@ -557,6 +573,8 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
       closed = true;
       hub.dispose();
       if (hubController.current === hub) hubController.current = null;
+      if (batch.current.timer) clearTimeout(batch.current.timer);                    // a burst of the old identity is never announced to the next
+      batch.current = { timer: null, counts: new Map() };
     };
   }, [identity, requestRefresh, authFailure]);
   const retry = useCallback(() => hubController.current?.retryNow(), []);

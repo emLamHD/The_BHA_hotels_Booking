@@ -276,4 +276,29 @@ describe("one source, one connection", () => {
     await screen.findByTestId("newsletter-live-toast");
     expect(screen.getAllByTestId("newsletter-live-toast")).toHaveLength(1);
   });
+
+  it("C1: from the shared Hub through the provider to the panel, a burst is one notice and exactly ONE list reload, and a later burst is one more", async () => {
+    await open();
+    const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+    const reads = list.mock.calls.length;
+    vi.useFakeTimers();
+    await signal();
+    await advance(150);
+    await signal();
+    await advance(140);
+    await signal();                                                                           // three hints inside the window opened by the first
+    await advance(5);
+    expect(list.mock.calls.length).toBe(reads);                                               // the window (300 ms from the first hint) has not ended
+    expect(screen.queryByTestId("newsletter-live-toast")).toBeNull();
+    await advance(10);
+    expect(list.mock.calls.length).toBe(reads + 1);                                           // ONE reload for the whole burst
+    expect(screen.getAllByTestId("newsletter-live-toast")).toHaveLength(1);
+    expect(screen.getByTestId("newsletter-live-toast-text").textContent).toBe("Có thay đổi đăng ký");
+    await advance(3000);
+    expect(list.mock.calls.length).toBe(reads + 1);
+    await signal();
+    await advance(301);
+    expect(list.mock.calls.length).toBe(reads + 2);                                           // the next burst, one more
+    expect(screen.getAllByTestId("newsletter-live-toast")).toHaveLength(1);
+  });
 });
