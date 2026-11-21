@@ -568,6 +568,8 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
                 path.Name != "/api/admin/v1/auth/logout" &&
                 // BHA-ADMIN-BADGE-001-PR03: the one shared "seen" cursor write (asserted in full by AdminMenuUnseenApiTests).
                 path.Name != "/api/admin/v1/menu-unseen/{menu}/seen" &&
+                // BHA-ADMIN-BADGE-001-PR12: the Calendar per-object "seen" cursor write (asserted in full by CalendarActivityApiTests).
+                path.Name != "/api/admin/v1/menu-unseen/calendar/entities/seen" &&
                 !PromotionMutationPaths.Contains(path.Name) &&
                 !BlogMutationPaths.Contains(path.Name) &&
                 !WebsiteMutationPaths.Contains(path.Name))
