@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TheBha.Application.Activity;
 using TheBha.Application.Website;
 using TheBha.Domain.Website;
 
@@ -14,7 +15,8 @@ namespace TheBha.Infrastructure.Persistence;
 /// editor carry it. The file system is outside the transaction: an upload is written completely before its row exists, a Save
 /// refuses a picture whose row or file is missing, and nothing here ever deletes a recorded picture.
 /// </summary>
-internal sealed class WebsiteHeroService(TheBhaDbContext database, TimeProvider timeProvider, IHeroMediaStorage storage) : IWebsiteHero
+internal sealed class WebsiteHeroService(
+    TheBhaDbContext database, TimeProvider timeProvider, IHeroMediaStorage storage, IAdminActivityRecorder recorder, IAdminActivityHint hint) : IWebsiteHero
 {
     private const string Shared = "heroSlideshow";
     private const string SharedId = "main";
@@ -23,16 +25,21 @@ internal sealed class WebsiteHeroService(TheBhaDbContext database, TimeProvider 
     private static readonly string[] SlideFields = ["alt", "caption"];
     private static readonly string[] KeyPrefixes = [ContentKey.Prefix + Shared + ".", ContentKey.Prefix + SlideEntity + "."];
 
-    public async Task<HeroAdminDto> GetAdminAsync(CancellationToken cancellationToken)
-    {
-        var settings = await database.WebsiteHero.AsNoTracking().SingleAsync(cancellationToken);
-        var slides = await database.WebsiteHeroSlides.AsNoTracking().OrderBy(slide => slide.SortOrder).ToListAsync(cancellationToken);
-        var media = await database.WebsiteHeroMedia.AsNoTracking().OrderByDescending(item => item.CreatedAtUtc).ThenBy(item => item.StorageKey).ToListAsync(cancellationToken);
-        var languages = await database.WebsiteLanguages.AsNoTracking()
-            .OrderBy(language => language.SortOrder).ThenBy(language => language.NormalizedCode)
-            .ToListAsync(cancellationToken);
-        return BuildAdmin(settings, slides, media, languages, await TextRowsAsync(cancellationToken));
-    }
+    // BHA-ADMIN-BADGE-001-PR08 (ADR 0011): one Save of the whole hero and one picture upload are each ONE event of the website-hero stream, appended as the last statement before COMMIT
+    // (see WebsiteTransaction); a no-op Save, a refusal and a stale Save record nothing. The hint goes out only after COMMIT. The read answers its watermark from its own snapshot.
+    private const string Menu = AdminMenuKeys.WebsiteHero;
+
+    public Task<HeroAdminDto> GetAdminAsync(CancellationToken cancellationToken) =>
+        WebsiteActivity.InSnapshotAsync(database, Menu, async watermark =>
+        {
+            var settings = await database.WebsiteHero.AsNoTracking().SingleAsync(cancellationToken);
+            var slides = await database.WebsiteHeroSlides.AsNoTracking().OrderBy(slide => slide.SortOrder).ToListAsync(cancellationToken);
+            var media = await database.WebsiteHeroMedia.AsNoTracking().OrderByDescending(item => item.CreatedAtUtc).ThenBy(item => item.StorageKey).ToListAsync(cancellationToken);
+            var languages = await database.WebsiteLanguages.AsNoTracking()
+                .OrderBy(language => language.SortOrder).ThenBy(language => language.NormalizedCode)
+                .ToListAsync(cancellationToken);
+            return BuildAdmin(settings, slides, media, languages, await TextRowsAsync(cancellationToken)) with { ViewWatermark = watermark };
+        }, cancellationToken);
 
     public async Task<WebsiteMutationResult<HeroAdminDto>> SaveAsync(SaveHeroCommand command, CancellationToken cancellationToken)
     {
@@ -41,7 +48,7 @@ internal sealed class WebsiteHeroService(TheBhaDbContext database, TimeProvider 
             return WebsiteMutationResult<HeroAdminDto>.Invalid("expectedRevision", "expectedRevision is the revision the editor loaded.");
         }
 
-        return await WebsiteTransaction.InLockAsync(database, timeProvider, async now =>
+        return await WebsiteTransaction.InLockAsync(database, timeProvider, new WebsiteActivityScope(recorder, hint, Menu, command.ActorStaffId), async (now, activity) =>
         {
             var settings = await database.WebsiteHero.SingleAsync(cancellationToken);
             var existingSlides = await database.WebsiteHeroSlides.AsNoTracking().ToListAsync(cancellationToken);
@@ -106,7 +113,10 @@ internal sealed class WebsiteHeroService(TheBhaDbContext database, TimeProvider 
             await database.SaveChangesAsync(cancellationToken);
 
             var saved = await TextRowsAsync(cancellationToken);
-            return WebsiteMutationResult<HeroAdminDto>.Success(BuildAdmin(settings, slides, media, OrderLanguages(languages), saved));
+            var admin = BuildAdmin(settings, slides, media, OrderLanguages(languages), saved);
+            // One object (the home hero), one generic title: the texts, captions and picture names never go into the history.
+            activity.Set("Saved", "hero", "home-hero", "Home hero");
+            return WebsiteMutationResult<HeroAdminDto>.Success(admin);
         }, cancellationToken);
     }
 
@@ -142,19 +152,29 @@ internal sealed class WebsiteHeroService(TheBhaDbContext database, TimeProvider 
         var id = Guid.NewGuid();
         var key = $"hero/{id:N}.{info.Extension}";
         await storage.WriteAsync(key, bytes, cancellationToken);
+        // The file is complete before any database work, and no counter row is held while it is written: the short transaction below takes the counter last.
+        var committing = false;
+        WebsiteHeroMedia row;
         try
         {
-            var row = new WebsiteHeroMedia(id, HeroMediaKind.Upload, key, info.ContentType, bytes.Length, info.Width, info.Height, timeProvider.GetUtcNow(), actorStaffId);
+            await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+            row = new WebsiteHeroMedia(id, HeroMediaKind.Upload, key, info.ContentType, bytes.Length, info.Width, info.Height, timeProvider.GetUtcNow(), actorStaffId);
             database.WebsiteHeroMedia.Add(row);
             await database.SaveChangesAsync(cancellationToken);
-            return WebsiteMutationResult<HeroMediaDto>.Success(ToMediaDto(row));
+            await recorder.RecordAsync(new AdminActivityEntry(Menu, null, AdminActorKind.Staff, actorStaffId, "PictureUploaded", "hero-picture", id.ToString("D"), "Hero picture"), cancellationToken);
+            committing = true;
+            await transaction.CommitAsync(cancellationToken);
         }
-        catch
+        catch when (!committing)
         {
-            // The row did not commit, so nothing refers to this file: remove only this just-written file.
+            // Nothing committed (the transaction is already rolled back), so nothing refers to this file: remove only this just-written file.
+            // A failure FROM the commit is not caught here: whether it landed is unknown, and a recorded picture whose file is gone is worse than an unreferenced file.
             await storage.DeleteAsync(key, CancellationToken.None);
             throw;
         }
+
+        await WebsiteActivity.HintAsync(hint, Menu);
+        return WebsiteMutationResult<HeroMediaDto>.Success(ToMediaDto(row));
     }
 
     public async Task<PublicHeroDto> GetPublicAsync(string? locale, CancellationToken cancellationToken)

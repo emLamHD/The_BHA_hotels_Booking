@@ -24,6 +24,6 @@ public static class AdminBlogHeaders
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class AdminBlogCorrelationHeaderAttribute : Attribute;
 
-/// <summary>Marks a Blog GET that answers <c>X-Admin-View-Watermark</c>; its CORS policy exposes that response header to the Admin origin.</summary>
+/// <summary>Marks an Admin GET whose body is a bare JSON array (the Blog categories; from PR-8 the Languages, language-pack library and Currencies reads) and that answers <c>X-Admin-View-Watermark</c>; its CORS policy exposes that response header to the Admin origin.</summary>
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class AdminBlogViewWatermarkHeaderAttribute : Attribute;

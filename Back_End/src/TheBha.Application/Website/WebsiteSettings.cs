@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using TheBha.Domain.Website;
 
 namespace TheBha.Application.Website;
@@ -97,6 +98,9 @@ public sealed record WebsiteTranslationRowDto(
     int? Version,
     DateTimeOffset? UpdatedAtUtc);
 
+/// <summary>A bare-array read of an Admin screen plus the stream number of the SAME snapshot (BHA-ADMIN-BADGE-001-PR08); the HTTP body stays the array and the number travels in <c>X-Admin-View-Watermark</c>.</summary>
+public sealed record WatermarkedList<T>(IReadOnlyList<T> Items, string ViewWatermark);
+
 public sealed record FacetCount(string Name, int Count);
 
 public sealed record TranslationFacets(
@@ -108,7 +112,10 @@ public sealed record TranslationFacets(
     IReadOnlyList<FacetCount> Scopes,
     IReadOnlyList<FacetCount> Groups);
 
-/// <summary>A page of the editor. Filtering, paging and counting are the server's: the editor lists thousands of rows.</summary>
+/// <summary>
+/// A page of the editor. Filtering, paging and counting are the server's: the editor lists thousands of rows. <c>ViewWatermark</c> (BHA-ADMIN-BADGE-001-PR08) is the
+/// <c>website-translations</c> number of the same snapshot as the rows.
+/// </summary>
 public sealed record WebsiteTranslationListDto(
     string Locale,
     string ReferenceLocale,
@@ -118,7 +125,8 @@ public sealed record WebsiteTranslationListDto(
     int Page,
     int PageSize,
     TranslationFacets Facets,
-    IReadOnlyList<WebsiteTranslationRowDto> Rows);
+    IReadOnlyList<WebsiteTranslationRowDto> Rows,
+    string ViewWatermark);
 
 public sealed record TranslationQuery(
     string Locale,
@@ -180,12 +188,16 @@ public sealed record CurrencyVersionCommand(string Code, int ExpectedVersion, Gu
 /// </summary>
 public interface IWebsiteSettingsStore
 {
+    /// <summary>Runs inside a caller's transaction too (pack apply), so it opens none. The Languages screen reads <see cref="ReadLanguagesAsync"/>.</summary>
     Task<IReadOnlyList<WebsiteLanguageDto>> ListLanguagesAsync(CancellationToken cancellationToken);
+
+    /// <summary>The Admin read: the same rows plus the <c>website-languages</c> number of their own snapshot.</summary>
+    Task<WatermarkedList<WebsiteLanguageDto>> ReadLanguagesAsync(CancellationToken cancellationToken);
 
     /// <summary><c>null</c> when the language does not exist.</summary>
     Task<WebsiteTranslationListDto?> ListTranslationsAsync(TranslationQuery query, CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<WebsiteCurrencyDto>> ListCurrenciesAsync(CancellationToken cancellationToken);
+    Task<WatermarkedList<WebsiteCurrencyDto>> ListCurrenciesAsync(CancellationToken cancellationToken);
 
     Task<WebsiteMutationResult<WebsiteLanguageDto>> CreateLanguageAsync(CreateLanguageCommand command, CancellationToken cancellationToken);
 

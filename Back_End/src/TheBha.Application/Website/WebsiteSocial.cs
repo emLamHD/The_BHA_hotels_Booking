@@ -1,15 +1,19 @@
+using System.Text.Json.Serialization;
+
 namespace TheBha.Application.Website;
 
 public sealed record SaveWebsiteSocialCommand(
     int ExpectedRevision, bool PhoneEnabled, string? PhoneNumber, bool MessengerEnabled, string? MessengerUrl,
     bool ZaloEnabled, string? ZaloNumber, bool BackToTopEnabled, Guid ActorStaffId);
 
+/// <summary><c>ViewWatermark</c> (BHA-ADMIN-BADGE-001-PR08): the <c>website-social</c> number of the same snapshot; present on the read, absent on the answer of a write.</summary>
 public sealed record WebsiteSocialAdminDto(
     int Revision, DateTimeOffset UpdatedAtUtc, Guid? UpdatedByStaffId,
     bool PhoneEnabled, string PhoneNumber, string PhoneHref,
     bool MessengerEnabled, string? MessengerUrl,
     bool ZaloEnabled, string? ZaloNumber, string? ZaloUrl,
-    bool BackToTopEnabled);
+    bool BackToTopEnabled,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ViewWatermark = null);
 
 public sealed record WebsiteSocialPublicDto(
     int Revision, DateTimeOffset GeneratedAtUtc,

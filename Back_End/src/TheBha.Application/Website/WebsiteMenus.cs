@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using TheBha.Domain.Website;
 
 namespace TheBha.Application.Website;
@@ -47,13 +48,15 @@ public sealed record MenuItemDto(
     bool OpenInNewTab,
     IReadOnlyDictionary<string, string?> Labels);
 
+/// <summary><c>ViewWatermark</c> (BHA-ADMIN-BADGE-001-PR08): the <c>website-menus</c> number of the same snapshot; present on the read, absent on the answer of a write.</summary>
 public sealed record MenuAdminDto(
     string Revision,
     int Version,
     DateTimeOffset UpdatedAtUtc,
     Guid? UpdatedByStaffId,
     IReadOnlyList<MenuLocaleDto> Locales,
-    IReadOnlyList<MenuItemDto> Items);
+    IReadOnlyList<MenuItemDto> Items,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ViewWatermark = null);
 
 public sealed record PublicMenuItemDto(Guid Id, string Label, string Href, bool NewTab, IReadOnlyList<PublicMenuItemDto> Children);
 

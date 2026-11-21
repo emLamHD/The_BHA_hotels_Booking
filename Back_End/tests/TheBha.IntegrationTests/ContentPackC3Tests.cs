@@ -38,7 +38,7 @@ public sealed class ContentPackC3Tests(PostgreSqlWebApplicationFactory factory)
         var actor = await ActorAsync(t);
         await using var scope = t.Host.Services.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<IWebsiteSettingsStore>();
-        var usd = (await store.ListCurrenciesAsync(CancellationToken.None)).Single(c => c.Code == "USD");
+        var usd = (await store.ListCurrenciesAsync(CancellationToken.None)).Items.Single(c => c.Code == "USD");
         var rated = await store.SetCurrencyRateAsync(new SetCurrencyRateCommand("USD", usd.Version, rate, actor), CancellationToken.None);
         Assert.True(rated.Status == WebsiteMutationStatus.Succeeded, rated.Message);
         var active = await store.SetCurrencyActiveAsync(new SetCurrencyActiveCommand("USD", rated.Value!.Version, true, actor), CancellationToken.None);
@@ -55,7 +55,7 @@ public sealed class ContentPackC3Tests(PostgreSqlWebApplicationFactory factory)
         var actor = await ActorAsync(t);
         await using var scope = t.Host.Services.CreateAsyncScope();
         var packs = scope.ServiceProvider.GetRequiredService<IWebsiteLanguagePacks>();
-        var source = new PackSource((await packs.ListLibraryAsync(CancellationToken.None)).Single(p => p.Locale == "en").Id, null);
+        var source = new PackSource((await packs.ListLibraryAsync(CancellationToken.None)).Items.Single(p => p.Locale == "en").Id, null);
         var preview = await packs.PreviewAsync(source, PackModes.KeepManual, CancellationToken.None);
         Assert.True(preview.Status == WebsiteMutationStatus.Succeeded, preview.Message);
         var applied = await packs.ApplyAsync(new ApplyPackCommand(source, PackModes.KeepManual, preview.Value!.PreviewToken, true, actor), CancellationToken.None);

@@ -81,7 +81,7 @@ public sealed record LibraryPackDto(
 
 public interface IWebsiteLanguagePacks
 {
-    Task<IReadOnlyList<LibraryPackDto>> ListLibraryAsync(CancellationToken cancellationToken);
+    Task<WatermarkedList<LibraryPackDto>> ListLibraryAsync(CancellationToken cancellationToken);
 
     /// <summary>Validates a pack and reports what installing it would do. Nothing is changed.</summary>
     Task<WebsiteMutationResult<PackPreviewDto>> PreviewAsync(PackSource source, string mode, CancellationToken cancellationToken);

@@ -30,7 +30,7 @@ public sealed class AdminWebsiteNewsletterSenderController(INewsletterSender sen
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
     public async Task<ActionResult<NewsletterSenderDto>> SaveProfile([FromBody] SaveNewsletterSenderProfileRequest request, CancellationToken cancellationToken)
     {
-        var result = await sender.SaveProfileAsync(request.SenderName, request.ReplyTo, request.ExpectedVersion, cancellationToken);
+        var result = await sender.SaveProfileAsync(request.SenderName, request.ReplyTo, request.ExpectedVersion, ActorStaffId, cancellationToken);
         if (result.Succeeded) return Ok(result.Value);
         var status = result.Code == "newsletter-sender-version-conflict" ? StatusCodes.Status409Conflict : StatusCodes.Status400BadRequest;
         return Fail(status, "Sender profile not saved", result.Code, result.Code switch
@@ -59,5 +59,5 @@ public sealed class AdminWebsiteNewsletterSenderController(INewsletterSender sen
 
     [HttpPost("disconnect")]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
-    public async Task<ActionResult<NewsletterSenderDto>> Disconnect(CancellationToken cancellationToken) => Ok(await sender.DisconnectAsync(cancellationToken));
+    public async Task<ActionResult<NewsletterSenderDto>> Disconnect(CancellationToken cancellationToken) => Ok(await sender.DisconnectAsync(ActorStaffId, cancellationToken));
 }

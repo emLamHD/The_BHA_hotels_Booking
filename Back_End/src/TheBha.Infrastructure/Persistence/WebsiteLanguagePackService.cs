@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using TheBha.Application.Activity;
 using TheBha.Application.Website;
 using TheBha.Domain.Website;
 
@@ -14,8 +15,12 @@ namespace TheBha.Infrastructure.Persistence;
 /// or applying after somebody else changed the language changes nothing and says why.
 /// </summary>
 internal sealed class WebsiteLanguagePackService(
-    TheBhaDbContext database, TimeProvider timeProvider, IContentCatalog content, IWebsiteSettingsStore settings) : IWebsiteLanguagePacks
+    TheBhaDbContext database, TimeProvider timeProvider, IContentCatalog content, IWebsiteSettingsStore settings, IAdminActivityRecorder recorder, IAdminActivityHint hint) : IWebsiteLanguagePacks
 {
+    // BHA-ADMIN-BADGE-001-PR08 (ADR 0011): a pack belongs to the website-languages stream. One committed Apply is ONE event (however many texts it wrote); preview, export, template and the library write
+    // nothing. The title is the language code: never a pack text. The library read answers its watermark from its own snapshot (the installed state it shows is the Languages screen's data).
+    private const string Menu = AdminMenuKeys.WebsiteLanguages;
+
     private const int MaxIssues = 300;
     // Entities whose Vietnamese text is a column edited on its own Admin screen (Menu, Hero banner): a pack never rewrites it.
     private static readonly HashSet<string> SourceColumnEntities = ["menuItem", "heroSlideshow", "heroSlide"];
@@ -24,7 +29,10 @@ internal sealed class WebsiteLanguagePackService(
 
     // ------------------------------------------------------------------ library
 
-    public async Task<IReadOnlyList<LibraryPackDto>> ListLibraryAsync(CancellationToken cancellationToken)
+    public Task<WatermarkedList<LibraryPackDto>> ListLibraryAsync(CancellationToken cancellationToken) =>
+        WebsiteActivity.InSnapshotAsync(database, Menu, async watermark => new WatermarkedList<LibraryPackDto>(await LibraryAsync(cancellationToken), watermark), cancellationToken);
+
+    private async Task<IReadOnlyList<LibraryPackDto>> LibraryAsync(CancellationToken cancellationToken)
     {
         var languages = await database.WebsiteLanguages.AsNoTracking().ToListAsync(cancellationToken);
         var catalogKeys = LocalizationAssets.Catalog.Select(definition => definition.Key).ToList();
@@ -82,7 +90,7 @@ internal sealed class WebsiteLanguagePackService(
             return failure!.ToApplyFailure();
         }
 
-        return await WebsiteTransaction.InLockAsync(database, timeProvider, async now =>
+        return await WebsiteTransaction.InLockAsync(database, timeProvider, new WebsiteActivityScope(recorder, hint, Menu, command.ActorStaffId), async (now, activity) =>
         {
             // The preview is recomputed inside the lock against the committed state; the token must still describe it.
             var plan = await PlanAsync(pack, command.Mode, command.Source, cancellationToken);
@@ -139,6 +147,7 @@ internal sealed class WebsiteLanguagePackService(
             }
 
             var dto = (await settings.ListLanguagesAsync(cancellationToken)).Single(item => item.Code == language.Code);
+            activity.Set("PackApplied", "language", language.NormalizedCode, language.Code);
             return WebsiteMutationResult<PackApplyResultDto>.Success(new PackApplyResultDto(plan.Preview.Counts, enabled || language.IsActive, dto));
         }, cancellationToken);
     }

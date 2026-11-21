@@ -14,13 +14,19 @@ namespace TheBha.Api.Controllers;
 [Route("api/admin/v1/website/languages")]
 public sealed class AdminWebsiteLanguagesController(IWebsiteSettingsStore store) : AdminWebsiteControllerBase
 {
+    /// <summary>A bare JSON array; the <c>website-languages</c> number of the same snapshot travels in <c>X-Admin-View-Watermark</c> (BHA-ADMIN-BADGE-001-PR08).</summary>
     [HttpGet]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
+    [AdminBlogViewWatermarkHeader]
     [ProducesResponseType(typeof(IReadOnlyList<WebsiteLanguageDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
-    public async Task<ActionResult<IReadOnlyList<WebsiteLanguageDto>>> List(CancellationToken cancellationToken) =>
-        Ok(await store.ListLanguagesAsync(cancellationToken));
+    public async Task<ActionResult<IReadOnlyList<WebsiteLanguageDto>>> List(CancellationToken cancellationToken)
+    {
+        var list = await store.ReadLanguagesAsync(cancellationToken);
+        Response.Headers[AdminBlogHeaders.ViewWatermark] = list.ViewWatermark;
+        return Ok(list.Items);
+    }
 
     [HttpPost]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
