@@ -37,6 +37,8 @@ What it does, in **one transaction** (READ COMMITTED), in this order:
 3. If the marker exists: nothing is copied, it reports the marker. If `AdminActivities` already holds `newsletter` rows with no marker: **abort** (never merged).
 4. Copy exactly the legacy rows that exist now, then insert the marker once: `LegacyMaxSequence` = the counter's `LastSequence` **under the lock** (a deleted tail does not lower it), `CutoverAtUtc` as above. COMMIT.
 
+**Run it at low traffic.** While the command waits for an in-flight writer it holds a pending lock request, so a verification or a Staff write that starts meanwhile queues behind it until it gets the lock or `--lock-timeout-seconds` runs out (30 s by default, 600 at most). A shorter timeout limits that wait; a timeout is harmless (see below) and the command can simply be run again.
+
 | Exit | Meaning | What to do |
 |---|---|---|
 | 0 `COMMITTED` | copied N rows, marker written | step 5 |

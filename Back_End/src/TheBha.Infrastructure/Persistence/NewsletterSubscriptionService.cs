@@ -192,13 +192,22 @@ internal sealed class NewsletterSubscriptionService(
     {
         try
         {
-            // The legacy signal stays (an Admin build that still listens to it keeps working during the rollout), and the shared hint is sent beside it, after COMMIT: it only asks a screen to read again.
+            // The legacy signal stays (an Admin build that still listens to it keeps working during the rollout).
             await live.PublishVerifiedAsync(new NewsletterVerifiedSignal(Guid.NewGuid(), now), CancellationToken.None);
-            await WebsiteActivity.HintAsync(hint, MenuActivityStream.Newsletter);
         }
         catch (Exception exception)
         {
             log.LogWarning(exception, "Newsletter: a verification is committed but its live signal to the Admin screens could not be sent.");
+        }
+
+        try
+        {
+            // The shared hint goes out beside it, after COMMIT, in its own guard so a failure of the old signal never skips it: it only asks a screen to read again.
+            await WebsiteActivity.HintAsync(hint, MenuActivityStream.Newsletter);
+        }
+        catch (Exception exception)
+        {
+            log.LogWarning(exception, "Newsletter: a verification is committed but its shared hint to the Admin screens could not be sent.");
         }
     }
 
