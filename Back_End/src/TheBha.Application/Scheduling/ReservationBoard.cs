@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Text.Json.Serialization;
+using TheBha.Application.Activity;
 using TheBha.Domain.Properties;
 
 namespace TheBha.Application.Scheduling;
@@ -69,6 +72,12 @@ public sealed record ReservationBoardUnassignedRangeDto(
     DateOnly StartDate,
     DateOnly EndDate);
 
+/// <summary>
+/// BHA-ADMIN-BADGE-001-PR12 (ADR 0011 §D): the Staff member's read state of ONE Calendar object, read in the same snapshot as the board. <see cref="Watermark"/> is a decimal string (never a
+/// JSON number): the object's newest activity number in that snapshot, "0" when it has none. A click on the bar sends it back as <c>observedWatermark</c>.
+/// </summary>
+public sealed record ReservationBoardActivityDto(bool Unread, string Watermark);
+
 public sealed record ReservationBoardStayDto(
     Guid ReservationId,
     Guid ReservationUnitId,
@@ -79,7 +88,8 @@ public sealed record ReservationBoardStayDto(
     DateOnly CheckOut,
     StayCoverageStatus CoverageStatus,
     IReadOnlyList<ReservationBoardAssignmentDto> Assignments,
-    IReadOnlyList<ReservationBoardUnassignedRangeDto> UnassignedRanges);
+    IReadOnlyList<ReservationBoardUnassignedRangeDto> UnassignedRanges,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ReservationBoardActivityDto? Activity = null);
 
 public sealed record ReservationBoardOperationalBlockDto(
     Guid RoomBlockId,
@@ -88,7 +98,8 @@ public sealed record ReservationBoardOperationalBlockDto(
     Guid PhysicalRoomId,
     DateOnly StartDate,
     DateOnly EndDate,
-    string Reason);
+    string Reason,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ReservationBoardActivityDto? Activity = null);
 
 public sealed record ReservationBoardDto(
     ReservationBoardPropertyDto Property,
@@ -174,6 +185,9 @@ public sealed record ReservationBoardOperationalBlockData(
     DateOnly EndDate,
     string Reason);
 
+/// <summary>One object's read state for the viewing Staff member; the key is (entity kind, canonical entity key) of <see cref="TheBha.Application.Activity.CalendarEntityKinds"/>.</summary>
+public sealed record ReservationBoardActivityData(bool Unread, long Watermark);
+
 /// <summary>
 /// Everything the Application layer needs to assemble one
 /// <see cref="ReservationBoardDto"/>, already scoped to one Property and the
@@ -187,7 +201,8 @@ public sealed record ReservationBoardRawData(
     IReadOnlyList<ReservationBoardUnitData> Units,
     IReadOnlyList<ReservationBoardUnitNightData> UnitNights,
     IReadOnlyList<ReservationBoardAssignmentData> Assignments,
-    IReadOnlyList<ReservationBoardOperationalBlockData> OperationalBlocks);
+    IReadOnlyList<ReservationBoardOperationalBlockData> OperationalBlocks,
+    IReadOnlyDictionary<(string Kind, string Key), ReservationBoardActivityData>? Activity = null);
 
 /// <summary>
 /// Infrastructure-owned raw loader. Returns <c>null</c> only when the Property
@@ -202,6 +217,7 @@ public interface IReservationBoardDataSource
         Guid propertyId,
         DateOnly from,
         DateOnly to,
+        Guid? viewerStaffId,
         CancellationToken cancellationToken);
 }
 
@@ -212,16 +228,36 @@ public interface IReservationBoardQuery
         DateOnly from,
         DateOnly to,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The board with the per-object read state of <paramref name="viewerStaffId"/> (verified Staff session only), from the same snapshot as the board. <c>null</c> (LocalGate, no Staff) adds
+    /// nothing. Default so a caller that only needs the plain board, and any test double of it, keeps compiling.
+    /// </summary>
+    Task<ReservationBoardResult> GetBoardAsync(
+        Guid propertyId,
+        DateOnly from,
+        DateOnly to,
+        Guid? viewerStaffId,
+        CancellationToken cancellationToken) =>
+        GetBoardAsync(propertyId, from, to, cancellationToken);
 }
 
 public sealed class ReservationBoardQuery(
     IReservationBoardDataSource dataSource,
     TimeProvider timeProvider) : IReservationBoardQuery
 {
+    public Task<ReservationBoardResult> GetBoardAsync(
+        Guid propertyId,
+        DateOnly from,
+        DateOnly to,
+        CancellationToken cancellationToken) =>
+        GetBoardAsync(propertyId, from, to, null, cancellationToken);
+
     public async Task<ReservationBoardResult> GetBoardAsync(
         Guid propertyId,
         DateOnly from,
         DateOnly to,
+        Guid? viewerStaffId,
         CancellationToken cancellationToken)
     {
         var validationError = Validate(propertyId, from, to);
@@ -230,7 +266,7 @@ public sealed class ReservationBoardQuery(
             return ReservationBoardResult.Invalid(validationError);
         }
 
-        var raw = await dataSource.LoadAsync(propertyId, from, to, cancellationToken);
+        var raw = await dataSource.LoadAsync(propertyId, from, to, viewerStaffId, cancellationToken);
         if (raw is null)
         {
             return ReservationBoardResult.NotFound();
@@ -334,7 +370,8 @@ public sealed class ReservationBoardQuery(
                 checkOut,
                 coverageStatus,
                 visibleAssignments,
-                unassignedRanges));
+                unassignedRanges,
+                ActivityOf(raw, CalendarEntityKinds.ReservationUnit, unit.ReservationUnitId)));
         }
 
         stays = stays
@@ -351,7 +388,8 @@ public sealed class ReservationBoardQuery(
                 block.PhysicalRoomId,
                 block.StartDate,
                 block.EndDate,
-                block.Reason))
+                block.Reason,
+                ActivityOf(raw, CalendarEntityKinds.RoomBlock, block.RoomBlockId)))
             .OrderBy(block => block.StartDate)
             .ThenBy(block => block.PhysicalRoomId)
             .ThenBy(block => block.RoomBlockId)
@@ -362,6 +400,14 @@ public sealed class ReservationBoardQuery(
             propertyDto, from, to, roomTypes, physicalRooms, stays, operationalBlocks);
         return ReservationBoardResult.Success(board);
     }
+
+    /// <summary>The object's state, shared by every segment and lane of it; <c>null</c> when the board was read without a Staff viewer. An object with no activity is read, watermark 0.</summary>
+    private static ReservationBoardActivityDto? ActivityOf(ReservationBoardRawData raw, string kind, Guid id) =>
+        raw.Activity is null
+            ? null
+            : raw.Activity.TryGetValue((kind, id.ToString("D")), out var found)
+                ? new ReservationBoardActivityDto(found.Unread, found.Watermark.ToString(CultureInfo.InvariantCulture))
+                : new ReservationBoardActivityDto(false, "0");
 
     /// <summary>
     /// Groups a sorted, distinct set of uncovered booked dates into maximal

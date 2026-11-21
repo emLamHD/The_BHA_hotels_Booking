@@ -1,9 +1,12 @@
 using System.Data;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using TheBha.Application.Activity;
 using TheBha.Application.Scheduling;
 using TheBha.Domain.Bookings;
 using TheBha.Domain.Properties;
 using TheBha.Domain.Scheduling;
+using TheBha.Infrastructure.Persistence.Activity;
 
 namespace TheBha.Infrastructure.Persistence;
 
@@ -54,6 +57,7 @@ internal sealed class ReservationBoardDataLoader(TheBhaDbContext dbContext) : IR
         Guid propertyId,
         DateOnly from,
         DateOnly to,
+        Guid? viewerStaffId,
         CancellationToken cancellationToken)
     {
         // A caller-owned ambient transaction already provides one snapshot for
@@ -62,7 +66,7 @@ internal sealed class ReservationBoardDataLoader(TheBhaDbContext dbContext) : IR
         // rather than assuming keeps the loader safe if that ever changes.
         if (dbContext.Database.CurrentTransaction is not null)
         {
-            return await LoadFromCurrentSnapshotAsync(propertyId, from, to, cancellationToken);
+            return await LoadFromCurrentSnapshotAsync(propertyId, from, to, viewerStaffId, cancellationToken);
         }
 
         await using var transaction = await dbContext.Database.BeginTransactionAsync(
@@ -72,7 +76,7 @@ internal sealed class ReservationBoardDataLoader(TheBhaDbContext dbContext) : IR
         // Any throw or cancellation below disposes the transaction (rolling the
         // read back) without committing; the Property-not-found path still
         // commits so the snapshot is released promptly.
-        var data = await LoadFromCurrentSnapshotAsync(propertyId, from, to, cancellationToken);
+        var data = await LoadFromCurrentSnapshotAsync(propertyId, from, to, viewerStaffId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return data;
     }
@@ -81,6 +85,7 @@ internal sealed class ReservationBoardDataLoader(TheBhaDbContext dbContext) : IR
         Guid propertyId,
         DateOnly from,
         DateOnly to,
+        Guid? viewerStaffId,
         CancellationToken cancellationToken)
     {
         var property = await dbContext.Properties
@@ -208,7 +213,47 @@ internal sealed class ReservationBoardDataLoader(TheBhaDbContext dbContext) : IR
                 roomType.Id, roomType.Code, roomType.Name, roomType.IsActive))
             .ToListAsync(cancellationToken);
 
+        var activity = viewerStaffId is { } staffId
+            ? await LoadActivityAsync(propertyId, staffId, candidateUnitIds, operationalBlocks, cancellationToken)
+            : null;
+
         return new ReservationBoardRawData(
-            property, physicalRooms, roomTypes, units, unitNights, assignments, operationalBlocks);
+            property, physicalRooms, roomTypes, units, unitNights, assignments, operationalBlocks, activity);
+    }
+
+    private sealed record ActivityRow(string EntityKind, string EntityKey, long Watermark, bool Unread);
+
+    /// <summary>
+    /// BHA-ADMIN-BADGE-001-PR12 (ADR 0011 §D): the viewing Staff member's read state of every object on this board (a unit once, a block once whatever its segments), in the SAME snapshot as the
+    /// rows above — this runs on the board's REPEATABLE READ transaction — and in ONE statement keyed by the objects' ids, never one query per bar. <c>Watermark</c> is the object's newest
+    /// activity number in the snapshot (the Staff member's own events included: a later click moves the cursor up to what was on screen); <c>Unread</c> is the shared
+    /// <see cref="CalendarUnreadSql"/> predicate. An object with no activity has no row and is read. Nothing is written.
+    /// </summary>
+    private async Task<Dictionary<(string Kind, string Key), ReservationBoardActivityData>> LoadActivityAsync(
+        Guid propertyId,
+        Guid staffId,
+        IReadOnlyList<Guid> unitIds,
+        IReadOnlyList<ReservationBoardOperationalBlockData> blocks,
+        CancellationToken cancellationToken)
+    {
+#pragma warning disable EF1002 // the interpolated parts are constants of CalendarUnreadSql and CalendarEntityKinds; every value is a parameter
+        var rows = await dbContext.Database.SqlQueryRaw<ActivityRow>(
+            $"""
+            SELECT a."EntityKind", a."EntityKey", max(a."Sequence") AS "Watermark", COALESCE(bool_or({CalendarUnreadSql.Unread("s.\"CreatedAtUtc\"", "s.\"Id\"")}), false) AS "Unread"
+            FROM "StaffAccounts" s
+            JOIN "AdminActivities" a ON a."MenuKey" = 'calendar' AND a."PropertyId" = @prop
+              AND ((a."EntityKind" = '{CalendarEntityKinds.ReservationUnit}' AND a."EntityKey" = ANY(@units))
+                OR (a."EntityKind" = '{CalendarEntityKinds.RoomBlock}' AND a."EntityKey" = ANY(@blocks)))
+            {CalendarUnreadSql.JoinSeen("s.\"Id\"")}
+            WHERE s."Id" = @staff
+            GROUP BY a."EntityKind", a."EntityKey"
+            """,
+            new NpgsqlParameter("prop", propertyId),
+            new NpgsqlParameter("staff", staffId),
+            new NpgsqlParameter("units", unitIds.Select(id => id.ToString("D")).ToArray()),
+            new NpgsqlParameter("blocks", blocks.Select(block => block.RoomBlockId.ToString("D")).Distinct().ToArray()))
+            .ToListAsync(cancellationToken);
+#pragma warning restore EF1002
+        return rows.ToDictionary(row => (row.EntityKind, row.EntityKey), row => new ReservationBoardActivityData(row.Unread, row.Watermark));
     }
 }

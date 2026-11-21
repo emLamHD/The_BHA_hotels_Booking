@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TheBha.Application.Activity;
 using TheBha.Application.Bookings;
 using TheBha.Domain.Bookings;
 using TheBha.Domain.Common;
@@ -6,9 +7,15 @@ using TheBha.Domain.Scheduling;
 
 namespace TheBha.Infrastructure.Persistence;
 
+/// <summary>
+/// BHA-ADMIN-BADGE-001-PR12 (ADR 0011 §D, decision D1): a real cancellation removes its Committed units from the Calendar board, so it appends ONE <c>calendar</c> event per such unit
+/// (<c>Public</c> actor, no Staff id: a guest or customer caused it) as the last statement before COMMIT, and hints only after it. A replay, a refusal and a rollback record nothing.
+/// </summary>
 internal sealed class ReservationCancellationStore(
     TheBhaDbContext dbContext,
-    TimeProvider timeProvider) : IReservationCancellationStore
+    TimeProvider timeProvider,
+    IAdminActivityRecorder recorder,
+    IAdminActivityHint hint) : IReservationCancellationStore
 {
     public async Task<ReservationCancellationResult> CancelAsync(
         Guid reservationId,
@@ -124,6 +131,9 @@ internal sealed class ReservationCancellationStore(
         var propertyLocalDate = DateOnly.FromDateTime(
             TimeZoneInfo.ConvertTime(utcNow, timeZone).DateTime);
 
+        // The units the board shows today: only a Committed unit is removed by this cancellation (a unit already Cancelled is not on the board).
+        var removedUnits = reservation.Units.Where(unit => unit.CommitmentStatus == CommitmentStatus.Committed).OrderBy(unit => unit.Id).ToList();
+
         try
         {
             reservation.Cancel(reason, utcNow, propertyLocalDate);
@@ -156,7 +166,22 @@ internal sealed class ReservationCancellationStore(
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        foreach (var unit in removedUnits)
+        {
+            // Dates only: never the guest, the confirmation number or the cancellation reason.
+            var nights = unit.Nights.Select(night => night.StayDate).ToList();
+            await CalendarActivity.RecordPublicAsync(
+                recorder, reservation.PropertyId, "Cancelled", CalendarEntityKinds.ReservationUnit, unit.Id,
+                nights.Count == 0 ? "Reservation" : CalendarActivity.Title("Reservation", nights.Min(), nights.Max().AddDays(1)),
+                cancellationToken);
+        }
+
         await transaction.CommitAsync(cancellationToken);
+        if (removedUnits.Count > 0)
+        {
+            await CalendarActivity.HintAsync(hint, reservation.PropertyId);
+        }
+
         return ReservationCancellationResult.Cancelled(
             BookingHoldConfirmationStore.Map(reservation));
     }

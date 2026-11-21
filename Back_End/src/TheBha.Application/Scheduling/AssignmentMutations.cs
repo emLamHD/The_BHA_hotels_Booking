@@ -17,7 +17,8 @@ public sealed record CreateAssignmentCommand(
     AssignmentDestination Destination,
     string ActorReference,
     string? AuthorizationEvidence,
-    string? Reason);
+    string? Reason,
+    Guid? ActorStaffId = null);
 
 /// <summary>
 /// One existing Effective segment to supersede. <see cref="Replacements"/> empty
@@ -44,7 +45,8 @@ public sealed record SupersedeAssignmentsCommand(
     IReadOnlyList<AssignmentSupersession> Supersessions,
     string ActorReference,
     string? AuthorizationEvidence,
-    string? Reason);
+    string? Reason,
+    Guid? ActorStaffId = null);
 
 /// <summary>
 /// PMS-CAL-002-CP01: moves the later nights of one Effective ReservationAssignment
@@ -68,7 +70,8 @@ public sealed record SplitMoveAssignmentCommand(
     Guid DestinationPhysicalRoomId,
     string ActorReference,
     string? AuthorizationEvidence,
-    string? Reason);
+    string? Reason,
+    Guid? ActorStaffId = null);
 
 public interface IAssignmentMutationStore
 {

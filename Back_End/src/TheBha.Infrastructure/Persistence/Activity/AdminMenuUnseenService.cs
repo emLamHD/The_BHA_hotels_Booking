@@ -47,7 +47,7 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
 
     private sealed record SummaryRow(string MenuKey, Guid? PropertyId, long Current, long LastSeen, long Count);
     private sealed record ScopeRow(Guid? PropertyId, long Current, long LastSeen, DateTimeOffset CreatedAtUtc);
-    private sealed record GroupRow(string EntityKind, string EntityKey, string TitleSnapshot, string Action, long Events, long Items, long Latest, DateTimeOffset OccurredAtUtc, string Actors, long Total);
+    private sealed record GroupRow(string EntityKind, string EntityKey, string TitleSnapshot, string Action, long Events, long Items, long Latest, DateTimeOffset OccurredAtUtc, string Actors, long Total, bool? OnBoard);
     private sealed record ActorJson(string Kind, Guid? StaffId);
     private sealed record ItemRow(long Sequence, DateTimeOffset OccurredAtUtc, string ActorKind, Guid? ActorStaffId, string Action, string EntityKind, string EntityKey, string TitleSnapshot, int ItemCount);
     private sealed record HistoryCursor(string M, Guid? P, Guid? A, DateTimeOffset? F, DateTimeOffset? T, long S);
@@ -133,6 +133,7 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
     {
         // ONE statement, so one snapshot. The count is by logical event over the rows left after the Staff's scope, own events, the D2 baseline and the cursor (never current − lastSeen).
         // Newsletter keeps its legacy expression exactly (no baseline, no actor filter, no cursor = 0). Calendar counts distinct unread objects against each object's own cursor.
+#pragma warning disable EF1002 // the interpolated parts are constants of this class and CalendarUnreadSql; every value is a parameter
         var rows = await database.Database.SqlQueryRaw<SummaryRow>(
             $"""
             WITH {Scopes}
@@ -141,9 +142,8 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
                 WHEN sc."MenuKey" = 'newsletter' THEN (SELECT count(*) FROM "NewsletterVerificationActivities" n WHERE n."Sequence" > ls."LastSeen")
                 WHEN sc."MenuKey" = 'calendar' THEN (SELECT count(*) FROM (
                     SELECT 1 FROM "AdminActivities" a
-                    LEFT JOIN "StaffEntitySeen" e ON e."StaffAccountId" = sc."StaffId" AND e."PropertyId" = a."PropertyId" AND e."EntityKind" = a."EntityKind" AND e."EntityKey" = a."EntityKey"
-                    WHERE a."MenuKey" = 'calendar' AND a."PropertyId" = sc."PropertyId" AND a."Sequence" > COALESCE(e."LastSeenSequence", 0)
-                      AND a."OccurredAtUtc" >= sc."CreatedAtUtc" AND a."ActorStaffId" IS DISTINCT FROM sc."StaffId"
+                    {CalendarUnreadSql.JoinSeen("sc.\"StaffId\"")}
+                    WHERE a."MenuKey" = 'calendar' AND a."PropertyId" = sc."PropertyId" AND {CalendarUnreadSql.Unread("sc.\"CreatedAtUtc\"", "sc.\"StaffId\"")}
                     GROUP BY a."EntityKind", a."EntityKey") q)
                 ELSE (SELECT count(DISTINCT COALESCE(a."CorrelationId", a."Id")) FROM "AdminActivities" a
                       WHERE a."MenuKey" = sc."MenuKey" AND (sc."PropertyId" IS NULL OR a."PropertyId" = sc."PropertyId") AND a."Sequence" > ls."LastSeen"
@@ -152,6 +152,7 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
             FROM scopes sc CROSS JOIN LATERAL (SELECT {LastSeen} AS "LastSeen") ls
             WHERE @only::text IS NULL OR sc."MenuKey" = @only
             """, Access([staffId], Text("only", onlyMenu))).ToListAsync(cancellationToken);
+#pragma warning restore EF1002
 
         var menus = new Dictionary<string, MenuUnseenEntry>(StringComparer.Ordinal);
         foreach (var menu in rows.GroupBy(row => row.MenuKey, StringComparer.Ordinal))
@@ -187,12 +188,11 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
               FROM "NewsletterVerificationActivities" n WHERE n."Sequence" > @cursor
               """
             : calendar
-                ? """
+                ? $"""
                   SELECT a."Sequence", a."ActorKind", a."ActorStaffId", a."EntityKind", a."EntityKey", a."Action", a."TitleSnapshot", a."ItemCount", a."OccurredAtUtc", COALESCE(a."CorrelationId", a."Id")::text AS "EventKey"
                   FROM "AdminActivities" a
-                  LEFT JOIN "StaffEntitySeen" e ON e."StaffAccountId" = @staff AND e."PropertyId" = a."PropertyId" AND e."EntityKind" = a."EntityKind" AND e."EntityKey" = a."EntityKey"
-                  WHERE a."MenuKey" = @menu AND a."PropertyId" = @prop AND a."Sequence" > COALESCE(e."LastSeenSequence", 0)
-                    AND a."OccurredAtUtc" >= @created AND a."ActorStaffId" IS DISTINCT FROM @staff
+                  {CalendarUnreadSql.JoinSeen("@staff")}
+                  WHERE a."MenuKey" = @menu AND a."PropertyId" = @prop AND {CalendarUnreadSql.Unread("@created", "@staff")}
                   """
                 : """
                   SELECT a."Sequence", a."ActorKind", a."ActorStaffId", a."EntityKind", a."EntityKey", a."Action", a."TitleSnapshot", a."ItemCount", a."OccurredAtUtc", COALESCE(a."CorrelationId", a."Id")::text AS "EventKey"
@@ -203,6 +203,19 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
         // Calendar groups by object (several actors); everything else by actor and object. A group is never cut: the window is 50 groups, newest first, and one more is read to know about hasMore.
         var keys = calendar ? """f."EntityKind", f."EntityKey" """ : """f."ActorKind", f."ActorStaffId", f."EntityKind", f."EntityKey" """;
         var total = calendar ? "(SELECT count(*) FROM g)" : """(SELECT count(DISTINCT "EventKey") FROM f)""";
+        // Calendar presence is BUSINESS state in this same snapshot (never the date window): a unit is on the board while Committed, a block while one of its segments is Effective. The key is compared
+        // as a GUID only after a shape check, so a key that is not one reads as not on the board instead of raising 22P02. No braces in this text: EF formats raw SQL like string.Format.
+        var onBoard = calendar
+            ? """
+              (CASE
+                 WHEN NOT (length(t."EntityKey") = 36 AND substr(t."EntityKey", 9, 1) = '-' AND substr(t."EntityKey", 14, 1) = '-' AND substr(t."EntityKey", 19, 1) = '-'
+                           AND substr(t."EntityKey", 24, 1) = '-' AND replace(t."EntityKey", '-', '') !~ '[^0-9a-f]') THEN false
+                 WHEN t."EntityKind" = 'reservation-unit' THEN EXISTS (SELECT 1 FROM "ReservationUnits" u WHERE u."Id" = t."EntityKey"::uuid AND u."PropertyId" = @prop AND u."CommitmentStatus" = 'Committed')
+                 WHEN t."EntityKind" = 'room-block' THEN EXISTS (SELECT 1 FROM "RoomOccupancySegments" b WHERE b."RoomBlockId" = t."EntityKey"::uuid AND b."PropertyId" = @prop AND b."Type" = 'OperationalBlock' AND b."Status" = 'Effective')
+                 ELSE false
+               END)
+              """
+            : "NULL::boolean";;
 #pragma warning disable EF1002 // the interpolated parts are constants of this method; every value is a parameter
         var rows = await database.Database.SqlQueryRaw<GroupRow>(
             $"""
@@ -211,7 +224,7 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
                          jsonb_agg(DISTINCT jsonb_build_object('kind', f."ActorKind", 'staffId', f."ActorStaffId")) AS "Actors"
                   FROM f GROUP BY {keys}),
             top AS (SELECT * FROM g ORDER BY g."Latest" DESC LIMIT {GroupWindow + 1})
-            SELECT t."EntityKind", t."EntityKey", l."TitleSnapshot", l."Action", t."Events", t."Items", t."Latest", l."OccurredAtUtc", t."Actors"::text AS "Actors", {total} AS "Total"
+            SELECT t."EntityKind", t."EntityKey", l."TitleSnapshot", l."Action", t."Events", t."Items", t."Latest", l."OccurredAtUtc", t."Actors"::text AS "Actors", {total} AS "Total", {onBoard} AS "OnBoard"
             FROM top t JOIN f l ON l."Sequence" = t."Latest"
             ORDER BY t."Latest" DESC
             """,
@@ -221,7 +234,8 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
 
         var groups = rows.Take(GroupWindow).Select(row => new UnseenGroup(
             row.EntityKind, row.EntityKey, row.TitleSnapshot, row.Action, Clamp(row.Events), Clamp(row.Items), Watermark(row.Latest), row.OccurredAtUtc,
-            [.. JsonSerializer.Deserialize<List<ActorJson>>(row.Actors, Web)!.Select(actor => new ActivityActor(actor.Kind, actor.StaffId))])).ToList();
+            [.. JsonSerializer.Deserialize<List<ActorJson>>(row.Actors, Web)!.Select(actor => new ActivityActor(actor.Kind, actor.StaffId))],
+            calendar ? row.EntityKey : null, row.OnBoard is { } present ? (present ? CalendarPresence.OnBoard : CalendarPresence.Removed) : null, calendar ? Watermark(row.Latest) : null)).ToList();
         return new AdminMenuResult<MenuChanges>(AdminMenuStatus.Succeeded, new MenuChanges(
             menu, scope.PropertyId, rows.Count == 0 ? 0 : Clamp(rows[0].Total), rows.Count > GroupWindow, Watermark(scope.LastSeen), Watermark(scope.Current), groups));
     }
@@ -286,6 +300,80 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
         return summary.Menus.TryGetValue(menu, out var entry)
             ? new AdminMenuResult<MenuUnseenEntry>(AdminMenuStatus.Succeeded, entry)
             : new AdminMenuResult<MenuUnseenEntry>(AdminMenuStatus.UnknownMenu);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------- acknowledge one Calendar object
+
+    private sealed record EntitySeenRow(long Current, long LastSeen, bool Unread, long Count);
+
+    public async Task<AdminMenuResult<CalendarEntitySeen>> MarkEntitySeenAsync(
+        Guid staffId, string? propertyId, string? entityKind, string? entityId, string observedWatermark, CancellationToken cancellationToken)
+    {
+        // Anti-disclosure order, as every other route: a Calendar the Staff member may not read, or a Property outside their memberships, is the one 404; then the shape of propertyId (400).
+        var (refusal, scope) = await ResolveOneAsync<CalendarEntitySeen>(staffId, AdminMenuKeys.Calendar, propertyId, cancellationToken);
+        if (refusal is not null) return refusal;
+        var property = scope!.PropertyId!.Value;
+
+        // "0" or digits without a leading zero; an overflow is refused, never clamped.
+        if (!IsPlainInteger(observedWatermark) || !long.TryParse(observedWatermark, NumberStyles.None, CultureInfo.InvariantCulture, out var watermark))
+            return new AdminMenuResult<CalendarEntitySeen>(AdminMenuStatus.InvalidWatermark);
+
+        // An object that cannot have activity (an unknown kind, an id that is not a GUID) is the same 404 as one that has none. The canonical lower-case key stops "ABC…" opening a second cursor row.
+        if (!CalendarEntityKinds.IsKnown(entityKind) || !Guid.TryParse(entityId, out var entity) || entity == Guid.Empty)
+            return new AdminMenuResult<CalendarEntitySeen>(AdminMenuStatus.UnknownMenu);
+        var key = entity.ToString("D");
+
+        var now = timeProvider.GetUtcNow();
+        // ONE atomic statement. Permission and Property scope are re-read in it, the object must have activity in THIS Property now, and nothing is written for a watermark above the counter. GREATEST
+        // keeps a repeated or out-of-order acknowledgement from moving the cursor back; only this one (Staff, Property, object) row is touched, and only to the watermark the client sent.
+        var written = await database.Database.ExecuteSqlRawAsync(
+            $"""
+            WITH {Scopes}
+            INSERT INTO "StaffEntitySeen" ("StaffAccountId", "PropertyId", "EntityKind", "EntityKey", "LastSeenSequence", "UpdatedAtUtc")
+            SELECT sc."StaffId", sc."PropertyId", @kind, @key, @wm, @now FROM scopes sc
+            WHERE sc."MenuKey" = 'calendar' AND sc."PropertyId" = @prop AND sc."Current" >= @wm
+              AND EXISTS (SELECT 1 FROM "AdminActivities" a WHERE a."MenuKey" = 'calendar' AND a."PropertyId" = @prop AND a."EntityKind" = @kind AND a."EntityKey" = @key)
+            ON CONFLICT ("StaffAccountId", "PropertyId", "EntityKind", "EntityKey") DO UPDATE SET
+              "LastSeenSequence" = GREATEST("StaffEntitySeen"."LastSeenSequence", EXCLUDED."LastSeenSequence"),
+              "UpdatedAtUtc" = CASE WHEN EXCLUDED."LastSeenSequence" > "StaffEntitySeen"."LastSeenSequence" THEN EXCLUDED."UpdatedAtUtc" ELSE "StaffEntitySeen"."UpdatedAtUtc" END
+            """, Access([staffId], Text("kind", entityKind), Text("key", key), Uuid("prop", property), Big("wm", watermark), Time("now", now)));
+        if (written == 0)
+        {
+            // Nothing was written: the permission was lost since the check above (404), the object has no activity in this Property (404), or the watermark is above the counter (400).
+            var again = await ResolveAsync(staffId, AdminMenuKeys.Calendar, propertyId, cancellationToken);
+            if (again.Status != AdminMenuStatus.Succeeded) return new AdminMenuResult<CalendarEntitySeen>(again.Status);
+            var known = await database.Database.SqlQueryRaw<bool>(
+                """SELECT EXISTS (SELECT 1 FROM "AdminActivities" a WHERE a."MenuKey" = 'calendar' AND a."PropertyId" = @prop AND a."EntityKind" = @kind AND a."EntityKey" = @key) AS "Value" """,
+                Uuid("prop", property), Text("kind", entityKind), Text("key", key)).SingleAsync(cancellationToken);
+            return new AdminMenuResult<CalendarEntitySeen>(known ? AdminMenuStatus.InvalidWatermark : AdminMenuStatus.UnknownMenu);
+        }
+
+        // The whole answer from ONE statement, so the object's cursor, whether it is still unread, the Property's unread count and the counter are one snapshot, and the permission that lets the answer
+        // out is read in it too. A commit of another Staff member after the upsert can therefore never pair a stale object state with a newer count. No row = the permission was lost: the same 404.
+#pragma warning disable EF1002 // the interpolated parts are constants of this class and CalendarUnreadSql; every value is a parameter
+        var seen = await database.Database.SqlQueryRaw<EntitySeenRow>(
+            $"""
+            WITH {Scopes}
+            SELECT sc."Current" AS "Current",
+                   COALESCE((SELECT e."LastSeenSequence" FROM "StaffEntitySeen" e
+                             WHERE e."StaffAccountId" = sc."StaffId" AND e."PropertyId" = @prop AND e."EntityKind" = @kind AND e."EntityKey" = @key), 0) AS "LastSeen",
+                   EXISTS (SELECT 1 FROM "AdminActivities" a
+                           {CalendarUnreadSql.JoinSeen("sc.\"StaffId\"")}
+                           WHERE a."MenuKey" = 'calendar' AND a."PropertyId" = @prop AND a."EntityKind" = @kind AND a."EntityKey" = @key
+                             AND {CalendarUnreadSql.Unread("sc.\"CreatedAtUtc\"", "sc.\"StaffId\"")}) AS "Unread",
+                   (SELECT count(*) FROM (
+                       SELECT 1 FROM "AdminActivities" a
+                       {CalendarUnreadSql.JoinSeen("sc.\"StaffId\"")}
+                       WHERE a."MenuKey" = 'calendar' AND a."PropertyId" = @prop AND {CalendarUnreadSql.Unread("sc.\"CreatedAtUtc\"", "sc.\"StaffId\"")}
+                       GROUP BY a."EntityKind", a."EntityKey") q) AS "Count"
+            FROM scopes sc
+            WHERE sc."MenuKey" = 'calendar' AND sc."PropertyId" = @prop
+            """, Access([staffId], Uuid("prop", property), Text("kind", entityKind), Text("key", key))).ToListAsync(cancellationToken);
+#pragma warning restore EF1002
+
+        return seen.Count == 0
+            ? new AdminMenuResult<CalendarEntitySeen>(AdminMenuStatus.UnknownMenu)
+            : new AdminMenuResult<CalendarEntitySeen>(AdminMenuStatus.Succeeded, new CalendarEntitySeen(property, entityKind!, key, Watermark(seen[0].LastSeen), seen[0].Unread, Clamp(seen[0].Count), Watermark(seen[0].Current)));
     }
 
     private static bool IsPlainInteger(string value) => value.Length > 0 && value.All(char.IsAsciiDigit) && (value == "0" || value[0] != '0');

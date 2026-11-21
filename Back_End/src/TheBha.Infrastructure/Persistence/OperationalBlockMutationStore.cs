@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TheBha.Application.Activity;
 using TheBha.Application.Scheduling;
 using TheBha.Domain.Common;
 using TheBha.Domain.Properties;
@@ -20,10 +21,17 @@ namespace TheBha.Infrastructure.Persistence;
 /// <c>SupersedeSegmentsAsync</c>, which still owns the transaction, version check, locks,
 /// capacity, overlap and audit. No engine body was edited.
 /// </para>
+///
+/// <para>
+/// BHA-ADMIN-BADGE-001-PR12 (ADR 0011 §D): with a verified Staff id on the command, every committed create, move and cancel appends ONE <c>calendar</c> event per
+/// RoomBlock it changed (however many segments), as the last statement before COMMIT, and hints only after it. No Staff id records and hints nothing.
+/// </para>
 /// </summary>
 internal sealed class OperationalBlockMutationStore(
     TheBhaDbContext dbContext,
-    TimeProvider timeProvider) : IOperationalBlockMutationStore
+    TimeProvider timeProvider,
+    IAdminActivityRecorder recorder,
+    IAdminActivityHint hint) : IOperationalBlockMutationStore
 {
     private static readonly IReadOnlyDictionary<(Guid RoomTypeId, DateOnly StayDate), int> EmptyDeltas =
         new Dictionary<(Guid, DateOnly), int>();
@@ -147,11 +155,27 @@ internal sealed class OperationalBlockMutationStore(
         var conflictResult = await RoomOccupancySegmentMutationSupport.TryCommitAsync(async () =>
         {
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (command.ActorStaffId is { } staffId)
+            {
+                await CalendarActivity.RecordStaffAsync(
+                    recorder, command.PropertyId, staffId, "Created", CalendarEntityKinds.RoomBlock, block.Id,
+                    CalendarActivity.Title(
+                        CalendarActivity.Rooms(command.Segments.Select(segment => roomsById[segment.PhysicalRoomId].RoomNumber)),
+                        command.Segments.Min(segment => segment.StartDate),
+                        command.Segments.Max(segment => segment.EndDate)),
+                    cancellationToken);
+            }
+
             await transaction.CommitAsync(cancellationToken);
         });
         if (conflictResult is not null)
         {
             return CreateRoomBlockResult.Conflict(conflictResult.Error!);
+        }
+
+        if (command.ActorStaffId is not null)
+        {
+            await CalendarActivity.HintAsync(hint, command.PropertyId);
         }
 
         return CreateRoomBlockResult.Succeeded(
@@ -357,14 +381,45 @@ internal sealed class OperationalBlockMutationStore(
             return SegmentMutationResult.Invalid(exception.Message);
         }
 
+        // One event per RoomBlock, never per segment. Titles use room numbers and dates only (never the block's free-text reason).
+        var activity = command.ActorStaffId is null
+            ? []
+            : command.Supersessions
+                .GroupBy(supersession => segmentsById[supersession.SegmentId].RoomBlockId!.Value)
+                .OrderBy(group => group.Key)
+                .Select(group =>
+                {
+                    var action = CalendarActivity.ActionOf(group.Select(item => item.Replacements.Count), "Cancelled", "Moved", "Split");
+                    var cancelled = action == "Cancelled";
+                    var ranges = cancelled
+                        ? group.Select(item => (Start: segmentsById[item.SegmentId].StartDate, End: segmentsById[item.SegmentId].EndDate)).ToList()
+                        : group.SelectMany(item => item.Replacements).Select(item => (Start: item.StartDate, End: item.EndDate)).ToList();
+                    var rooms = cancelled
+                        ? group.Select(item => roomsById[segmentsById[item.SegmentId].PhysicalRoomId].RoomNumber)
+                        : group.SelectMany(item => item.Replacements).Select(item => roomsById[item.PhysicalRoomId].RoomNumber);
+                    return (Block: group.Key, Action: action, Title: CalendarActivity.Title(CalendarActivity.Rooms(rooms), ranges.Min(range => range.Start), ranges.Max(range => range.End)));
+                })
+                .ToList();
+
         var conflict = await RoomOccupancySegmentMutationSupport.TryCommitAsync(async () =>
         {
             await dbContext.SaveChangesAsync(cancellationToken);
+            foreach (var item in activity)
+            {
+                await CalendarActivity.RecordStaffAsync(
+                    recorder, command.PropertyId, command.ActorStaffId!.Value, item.Action, CalendarEntityKinds.RoomBlock, item.Block, item.Title, cancellationToken);
+            }
+
             await transaction.CommitAsync(cancellationToken);
         });
         if (conflict is not null)
         {
             return conflict;
+        }
+
+        if (activity.Count > 0)
+        {
+            await CalendarActivity.HintAsync(hint, command.PropertyId);
         }
 
         return SegmentMutationResult.Succeeded(
@@ -440,7 +495,8 @@ internal sealed class OperationalBlockMutationStore(
                         [new BlockSegmentSpec(command.DestinationPhysicalRoomId, source.StartDate, source.EndDate)])
                 ],
                 command.ActorReference,
-                command.Reason),
+                command.Reason,
+                command.ActorStaffId),
             cancellationToken);
     }
 
