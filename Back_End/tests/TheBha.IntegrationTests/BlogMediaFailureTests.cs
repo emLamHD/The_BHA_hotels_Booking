@@ -59,17 +59,42 @@ public sealed class BlogMediaFailureTests(PostgreSqlWebApplicationFactory factor
             throw new InvalidOperationException("Injected codec failure.");
     }
 
-    /// <summary>Lets the real commit happen, then loses the answer: the caller sees a failure for a picture that is in the database.</summary>
-    private sealed class LostAcknowledgement : SaveChangesInterceptor
+    /// <summary>
+    /// Lets the real COMMIT of the transaction that inserted a picture happen, then loses the answer: the caller sees a failure for a picture that is in the database.
+    /// (BHA-ADMIN-BADGE-001-PR06: a picture is inserted inside an explicit transaction together with its activity event, so "after the commit" is now the transaction's COMMIT,
+    /// not the end of <c>SaveChanges</c>, which runs before it.)
+    /// </summary>
+    private sealed class LostAcknowledgement
     {
-        public override ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
-        {
-            if (eventData.Context!.ChangeTracker.Entries<BlogMedia>().Any())
-            {
-                throw new IOException("Injected lost acknowledgement after the real PostgreSQL commit.");
-            }
+        private volatile bool _mediaSaved;
 
-            return ValueTask.FromResult(result);
+        public IInterceptor[] Interceptors => [new MediaSaved(this), new CommitAnswerLost(this)];
+
+        private sealed class MediaSaved(LostAcknowledgement owner) : SaveChangesInterceptor
+        {
+            public override ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
+            {
+                if (eventData.Context!.ChangeTracker.Entries<BlogMedia>().Any())
+                {
+                    owner._mediaSaved = true;
+                }
+
+                return ValueTask.FromResult(result);
+            }
+        }
+
+        private sealed class CommitAnswerLost(LostAcknowledgement owner) : DbTransactionInterceptor
+        {
+            public override Task TransactionCommittedAsync(System.Data.Common.DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
+            {
+                if (owner._mediaSaved)
+                {
+                    owner._mediaSaved = false;
+                    throw new IOException("Injected lost acknowledgement after the real PostgreSQL commit.");
+                }
+
+                return Task.CompletedTask;
+            }
         }
     }
 
@@ -156,13 +181,14 @@ public sealed class BlogMediaFailureTests(PostgreSqlWebApplicationFactory factor
     public async Task A_lost_acknowledgement_after_the_commit_must_not_delete_any_file_of_the_picture()
     {
         using var host = await StartMediaAsync(services => services.AddScoped(_ => new TheBhaDbContext(
-            new DbContextOptionsBuilder<TheBhaDbContext>().UseNpgsql(Factory.ConnectionString).AddInterceptors(new LostAcknowledgement()).Options)));
+            new DbContextOptionsBuilder<TheBhaDbContext>().UseNpgsql(Factory.ConnectionString).AddInterceptors(new LostAcknowledgement().Interceptors).Options)));
 
         await UploadPictureAsync(host, Good, expected: HttpStatusCode.InternalServerError);
 
         Assert.Equal(1, await CountAsync("BlogMedia"));
         Assert.Equal(6, await CountAsync("BlogMediaVariants"));
         Assert.Equal(7, BlogFiles().Length);
+        Assert.Equal(1, await CountAsync("AdminActivities")); // the activity event committed with the picture: one transaction, one outcome
         var id = await ScalarAsync<Guid>("""SELECT "Id" FROM "BlogMedia" """);
         var detail = await MediaDetailAsync(host, id);
         Assert.Equal("current", detail.GetProperty("pipeline").GetString());
