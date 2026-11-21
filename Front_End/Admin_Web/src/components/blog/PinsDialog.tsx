@@ -20,7 +20,7 @@ import { getPins, listPosts, savePins, type BlogCategory, type BlogPins, type Bl
 import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
 import { ActionButton, Banner, DialogActions, DialogShell, ErrorPanel, LoadingPanel } from "@/components/website/WebsiteUi";
 import BlogWriteFeedback from "./BlogWriteFeedback";
-import { useMarkedList, type ReadMark } from "./useMarkedList";
+import { useMarkedList, type ReadMark } from "@/components/website/useMarkedList";
 
 const CANDIDATE_PAGE = 20;
 const MAX_PINS = 50;

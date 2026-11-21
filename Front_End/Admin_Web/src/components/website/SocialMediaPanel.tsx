@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import Checkbox from "@/components/form/input/Checkbox";
 import { getSocialSettings, saveSocialSettings, type SocialSettingsDraft, type WebsiteSocialSettings } from "@/lib/api/website";
 import { useLeaveGuard } from "./useLeaveGuard";
-import { useWebsiteList, useWriteAction } from "./useWebsiteData";
+import { useWriteAction } from "./useWebsiteData";
+import { useAckOnRead, useMarkedList } from "./useMarkedList";
 import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, TextField, WriteFeedback, formatWhen } from "./WebsiteUi";
 
 const draftOf = (value: WebsiteSocialSettings): SocialSettingsDraft => ({ phoneEnabled: value.phoneEnabled, phoneNumber: value.phoneNumber,
@@ -13,7 +14,8 @@ const draftOf = (value: WebsiteSocialSettings): SocialSettingsDraft => ({ phoneE
 const same = (a: SocialSettingsDraft, b: SocialSettingsDraft) => JSON.stringify(a) === JSON.stringify(b);
 
 export default function SocialMediaPanel() {
-  const list = useWebsiteList(getSocialSettings, []);
+  const list = useMarkedList(getSocialSettings, [], (data) => data.viewWatermark);
+  useAckOnRead("website-social", list.mark);
   if (list.state.status === "loading") return <LoadingPanel what="cấu hình Social media" />;
   if (list.state.status === "error") return <ErrorPanel message={list.state.message} onRetry={() => void list.reload()} />;
   return <Editor initial={list.state.data} reload={list.reload} />;

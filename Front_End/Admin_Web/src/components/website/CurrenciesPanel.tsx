@@ -15,7 +15,7 @@ import {
   checkRateText,
   createCurrency,
   deleteCurrency,
-  listCurrencies,
+  readCurrencies,
   setCurrencyActive,
   setCurrencyRate,
   setDefaultCurrency,
@@ -23,7 +23,8 @@ import {
   type WebsiteCurrency,
 } from "@/lib/api/website";
 import { useWebsiteHost } from "./WebsiteAccessGate";
-import { useWebsiteList, useWriteAction } from "./useWebsiteData";
+import { useWriteAction } from "./useWebsiteData";
+import { useAckOnRead, useMarkedList } from "./useMarkedList";
 import {
   ActionButton,
   Banner,
@@ -52,10 +53,12 @@ const RATE_SOURCE_LABEL = "Nhập thủ công";
 
 export default function CurrenciesPanel() {
   const host = useWebsiteHost();
-  const { state, reload } = useWebsiteList(listCurrencies, []);
+  const { state, reload: reloadList, mark } = useMarkedList(readCurrencies, [], (data) => data.viewWatermark);
+  useAckOnRead("website-currencies", mark);
+  const reload = useCallback(async () => (await reloadList())?.items ?? null, [reloadList]);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const currencies = state.status === "ready" ? state.data : null;
+  const currencies = state.status === "ready" ? state.data.items : null;
   const open = (next: Dialog) => {
     setNotice(null);
     setDialog(next);

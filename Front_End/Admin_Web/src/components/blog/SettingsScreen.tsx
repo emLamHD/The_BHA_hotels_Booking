@@ -19,7 +19,7 @@ import BlogWriteFeedback from "./BlogWriteFeedback";
 import { useBlogRights } from "./BlogAccessGate";
 import { useWebsiteHost } from "@/components/website/WebsiteAccessGate";
 import { useActiveLanguages } from "./useBlogReference";
-import { useAckOnRead, useMarkedList } from "./useMarkedList";
+import { useAckOnRead, useMarkedList } from "@/components/website/useMarkedList";
 
 const nameOf = (category: BlogCategory, locales: string[]) => {
   for (const locale of locales) if (category.translations[locale]?.name) return category.translations[locale].name;

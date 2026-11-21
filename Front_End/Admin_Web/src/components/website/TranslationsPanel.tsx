@@ -24,6 +24,7 @@ import {
 import { percent, refusalText } from "@/lib/website/wording";
 import { useWebsiteHost } from "./WebsiteAccessGate";
 import { describeFailure, useWebsiteList, useWriteAction } from "./useWebsiteData";
+import { useAckOnRead, useMarkedList } from "./useMarkedList";
 import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, formatWhen } from "./WebsiteUi";
 
 const SCOPE_LABELS: Record<string, string> = {
@@ -127,10 +128,13 @@ function Editor({ locale, languages, onLocale }: { locale: string; languages: We
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirtyCount]);
 
-  const { state, reload } = useWebsiteList(
+  const { state, reload, mark } = useMarkedList(
     (signal) => listTranslations(locale, { scope, group, status, search: applied, reference, page, pageSize: PAGE_SIZE }, signal),
-    [locale, scope, group, status, applied, reference, page]
+    [locale, scope, group, status, applied, reference, page],
+    (result) => result.viewWatermark
   );
+  // BHA-ADMIN-BADGE-001-PR09: only THIS read says "seen" for `website-translations`; the language list above is `website-languages` and never lowers or raises it.
+  useAckOnRead("website-translations", mark);
   const data = state.status === "ready" ? state.data : null;
   const language = languages.find((item) => item.code === locale);
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;

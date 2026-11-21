@@ -60,6 +60,17 @@ export function translations(overrides: Partial<WebsiteTranslationList> = {}): W
 
 export const ok = <T,>(data: T) => ({ kind: "ok" as const, data });
 
+/**
+ * The screens read through `read*` (items + the header's watermark); a test that scripts the bare-array `list*` mock lets it drive the matching `read*` mock (`mockImplementation(readOf(list))`),
+ * optionally with the stream's watermark. An unscripted `list*` answers an empty list.
+ */
+export const readOf =
+  <T,>(source: (signal?: AbortSignal) => Promise<{ kind: string; data?: T[] } | undefined>, viewWatermark?: string) =>
+  async (signal?: AbortSignal) => {
+    const result = (await source(signal)) ?? ok<T[]>([]);
+    return result.kind === "ok" ? ok({ items: (result as { data: T[] }).data, ...(viewWatermark ? { viewWatermark } : {}) }) : result;
+  };
+
 export function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((res) => {

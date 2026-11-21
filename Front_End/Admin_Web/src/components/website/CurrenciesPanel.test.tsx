@@ -16,6 +16,7 @@ vi.mock("@/lib/api/staff", async (importOriginal) => ({
 vi.mock("@/lib/api/website", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/website")>()),
   listCurrencies: vi.fn(),
+  readCurrencies: vi.fn(),
   createCurrency: vi.fn(),
   updateCurrency: vi.fn(),
   setCurrencyRate: vi.fn(),
@@ -25,12 +26,13 @@ vi.mock("@/lib/api/website", async (importOriginal) => ({
 }));
 
 import CurrenciesPanel from "./CurrenciesPanel";
-import { ALLOWED, VND, btn, currency, deferred, ok, queryBtn, renderInGate } from "./websiteTestUtils";
+import { ALLOWED, VND, btn, currency, deferred, ok, queryBtn, readOf, renderInGate } from "./websiteTestUtils";
 import { fetchStaffSession } from "@/lib/api/staff";
 import {
   createCurrency,
   deleteCurrency,
   listCurrencies,
+  readCurrencies,
   setCurrencyActive,
   setCurrencyRate,
   setDefaultCurrency,
@@ -58,6 +60,7 @@ beforeEach(() => {
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: ALLOWED });
   for (const fn of [list, create, update, setRate, setActive, makeDefault, remove]) fn.mockReset();
   list.mockResolvedValue(ok([VND, USD, EUR]));
+  vi.mocked(readCurrencies).mockImplementation(readOf(list) as never);
 });
 afterEach(cleanup);
 

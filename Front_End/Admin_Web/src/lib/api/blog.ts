@@ -10,7 +10,7 @@
  * languages is the public configuration (the Blog-only account has no right to the settings route that lists them).
  */
 
-import { call, isWatermark, type WebsiteResult } from "./website";
+import { call, markOf, type WebsiteResult } from "./website";
 import { getApiBaseUrl } from "./env";
 import { getAccessMode } from "./accessMode";
 
@@ -367,9 +367,6 @@ function row(x: unknown): BlogTranslationRow | null {
   }
   return { locale: x.locale, status: x.status as BlogStatus, version: x.version, title: x.title, slug: x.slug, hasDraft: x.hasDraft, updatedAtUtc: x.updatedAtUtc, updatedBy, coverMediaId: isStr(x.coverMediaId) ? x.coverMediaId : null };
 }
-
-/** The watermark field only when it is a canonical decimal string: a missing or malformed one never makes an otherwise good answer unreadable (it only means "do not acknowledge"). */
-const markOf = (value: unknown): { viewWatermark?: string } => (isWatermark(value) ? { viewWatermark: value } : {});
 
 const parseList = (x: unknown): BlogPostList | null => {
   if (!isRec(x) || !isInt(x.page) || !isInt(x.pageSize) || !isInt(x.total)) return null;

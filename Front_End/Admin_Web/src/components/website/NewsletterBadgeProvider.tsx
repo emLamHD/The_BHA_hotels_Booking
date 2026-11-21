@@ -21,7 +21,7 @@
  * shares through `useNewsletterLiveFeed` for its toast, refresh and catch-up (it never opens a third).
  *
  * "Seen" is said by a menu's own screen after a list answered successfully, with the watermark THAT answer carried, to `POST menu-unseen/{menu}/seen`: the Newsletter screen through `ack`,
- * the four Blog screens (BHA-ADMIN-BADGE-001-PR07) through `useMenuSeen`. It is never optimistic: the number changes when the server answers, and a failed call is retried (a few times)
+ * the Blog (BHA-ADMIN-BADGE-001-PR07) and Website (PR09) screens through `useMenuSeen`. It is never optimistic: the number changes when the server answers, and a failed call is retried (a few times)
  * with the SAME watermark and identity. Everything about it is per menu (what is on the wire, what waits, what the server last said), so one menu's call never holds up another's.
  * The sidebar never says "seen", and a watermark never comes from the summary GET.
  */
@@ -48,8 +48,12 @@ import { useNewsletterLive, useNewsletterLiveConnection, type LiveCallbacks } fr
 export const BADGE_POLL_MS = 30_000;
 /** Requests wanted close together are one. */
 export const BADGE_COALESCE_MS = 250;
-/** The menus whose screen says "seen": the Newsletter and the four global Blog menus. */
-export type SeenMenu = Extract<AdminMenuKey, "newsletter" | "blog-posts" | "blog-categories" | "blog-media" | "blog-settings">;
+/** The menus whose screen says "seen": the Newsletter, the four global Blog menus and (BHA-ADMIN-BADGE-001-PR09) the seven Website ones. */
+export type SeenMenu = Extract<
+  AdminMenuKey,
+  | "newsletter" | "blog-posts" | "blog-categories" | "blog-media" | "blog-settings"
+  | "website-hero" | "website-menus" | "website-languages" | "website-translations" | "website-currencies" | "website-social" | "newsletter-sender"
+>;
 
 /** A failed acknowledgement is tried again after these delays (same watermark, same identity), then left to the next successful list. */
 export const ACK_RETRY_MS: readonly number[] = [1500, 4000];

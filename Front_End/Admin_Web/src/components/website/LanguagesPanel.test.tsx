@@ -4,7 +4,7 @@
  * refusal / a stale version / a lost answer is handled, and that the export hands the server's file to the browser untouched.
  */
 import React from "react";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -17,6 +17,8 @@ vi.mock("@/lib/api/staff", async (importOriginal) => ({
 vi.mock("@/lib/api/website", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/website")>()),
   listLanguages: vi.fn(),
+  readLanguages: vi.fn(),
+  readLibraryPacks: vi.fn(),
   listCurrencies: vi.fn(),
   createLanguage: vi.fn(),
   updateLanguage: vi.fn(),
@@ -28,9 +30,9 @@ vi.mock("@/lib/api/website", async (importOriginal) => ({
 vi.mock("@/lib/website/download", () => ({ downloadText: vi.fn() }));
 
 import LanguagesPanel from "./LanguagesPanel";
-import { ALLOWED, btn, currency, deferred, lang, ok, renderInGate, VND } from "./websiteTestUtils";
+import { ALLOWED, btn, currency, deferred, lang, ok, readOf, renderInGate, VND } from "./websiteTestUtils";
 import { fetchStaffSession } from "@/lib/api/staff";
-import { createLanguage, deleteLanguage, exportPack, listCurrencies, listLanguages, listLibraryPacks, setDefaultLanguage, updateLanguage } from "@/lib/api/website";
+import { createLanguage, deleteLanguage, exportPack, listCurrencies, listLanguages, listLibraryPacks, readLanguages, readLibraryPacks, setDefaultLanguage, updateLanguage } from "@/lib/api/website";
 import { downloadText } from "@/lib/website/download";
 
 const list = vi.mocked(listLanguages);
@@ -60,8 +62,11 @@ beforeEach(() => {
   list.mockResolvedValue(ok([VI, FR_INCOMPLETE, EN]));
   currencies.mockResolvedValue(ok([VND, USD]));
   library.mockResolvedValue(ok([]));
+  vi.mocked(readLanguages).mockImplementation(readOf(list) as never);
+  vi.mocked(readLibraryPacks).mockImplementation(readOf(library) as never);
 });
 afterEach(cleanup);
+const flush = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
 
 describe("the cards", () => {
   it("show the real coverage, the state of each language and what a language still needs", async () => {
@@ -191,6 +196,27 @@ describe("making a language the default, and deleting it", () => {
     list.mockResolvedValueOnce(ok([VI, EN])); // the server shows fr is gone
     await userEvent.click(screen.getByTestId("check-server"));
     expect(await screen.findByTestId("server-note")).toHaveTextContent("fr không còn trên máy chủ");
+  });
+
+  it("the server check after a lost answer finishes from the languages read alone, even while the library read is still out (BHA-ADMIN-BADGE-001-PR09-C1)", async () => {
+    const pending = deferred<{ kind: "unverified"; message: string }>();
+    remove.mockReturnValueOnce(pending.promise);
+    await open();
+    await userEvent.click(btn("delete-fr"));
+    await userEvent.click(btn("dialog-confirm"));
+    pending.resolve({ kind: "unverified", message: "Máy chủ Admin không trả lời." });
+    expect(await screen.findByTestId("write-unverified")).toBeInTheDocument();
+
+    const libraryRead = deferred<ReturnType<typeof ok<never[]>>>();
+    library.mockReturnValueOnce(libraryRead.promise);          // the screen's own library read (for the badge) is held
+    list.mockResolvedValueOnce(ok([VI, EN]));                  // the server shows fr is gone
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("server-note")).toHaveTextContent("fr không còn trên máy chủ");
+    expect(btn("dialog-cancel")).toBeEnabled();                // "checking" is over although the library has not answered
+    expect(library).toHaveBeenCalledTimes(2);                  // both reads were still started
+
+    libraryRead.resolve(ok([]));
+    await flush();
   });
 });
 

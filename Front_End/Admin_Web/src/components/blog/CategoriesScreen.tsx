@@ -19,7 +19,7 @@ import BlogWriteFeedback from "./BlogWriteFeedback";
 import { useBlogRights } from "./BlogAccessGate";
 import { useActiveLanguages } from "./useBlogReference";
 import PinsDialog from "./PinsDialog";
-import { lowestMark, useAckOnRead, useMarkedList, type ReadMark } from "./useMarkedList";
+import { lowestMark, useAckOnRead, useMarkedList, type ReadMark } from "@/components/website/useMarkedList";
 
 interface Draft {
   id: string | null;

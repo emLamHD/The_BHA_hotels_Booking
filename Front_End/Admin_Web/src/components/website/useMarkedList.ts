@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * BHA-ADMIN-BADGE-001-PR07 (ADR 0011 §B, §D): the one way a Blog screen turns a successful list read into "seen".
+ * BHA-ADMIN-BADGE-001-PR07 (ADR 0011 §B, §D): the one way a Blog or Website screen turns a successful list read into "seen".
  *
  * `useMarkedList` is `useWebsiteList` plus the proof an acknowledgement needs: the watermark of the answer, and WHO started the read. The identity is captured when the read starts and
  * kept with the answer (a late answer of Staff A is still A's, whoever is signed in when it lands), and a different identity is a different read: it is in the dependencies, so the older
@@ -13,8 +13,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { useWebsiteList } from "@/components/website/useWebsiteData";
-import { useMenuSeen, useUnseenScope, type SeenMenu } from "@/components/website/NewsletterBadgeProvider";
+import { useWebsiteList } from "./useWebsiteData";
+import { useMenuSeen, useUnseenScope, type SeenMenu } from "./NewsletterBadgeProvider";
 import { isWatermark, type WebsiteResult } from "@/lib/api/website";
 
 export interface ReadMark {

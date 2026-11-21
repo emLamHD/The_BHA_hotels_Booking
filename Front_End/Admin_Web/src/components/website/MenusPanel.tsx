@@ -19,7 +19,8 @@ import {
 import { refusalText } from "@/lib/website/wording";
 import { useLeaveGuard } from "./useLeaveGuard";
 import { useWebsiteHost } from "./WebsiteAccessGate";
-import { useWebsiteList, useWriteAction } from "./useWebsiteData";
+import { useWriteAction } from "./useWebsiteData";
+import { useAckOnRead, useMarkedList } from "./useMarkedList";
 import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, TextField, WriteFeedback, formatWhen } from "./WebsiteUi";
 
 const PLACEMENTS: { id: MenuPlacement; title: string; hint: string }[] = [
@@ -32,7 +33,8 @@ const SMALL_BUTTON =
   "inline-flex items-center rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus-visible:ring-3 focus-visible:ring-brand-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5";
 
 export default function MenusPanel() {
-  const { state, reload } = useWebsiteList(getMenu, []);
+  const { state, reload, mark } = useMarkedList(getMenu, [], (data) => data.viewWatermark);
+  useAckOnRead("website-menus", mark);
   // Once the screen has a menu it keeps its draft even if a later read fails: the draft is the operator's work.
   const [held, setHeld] = useState<WebsiteMenu | null>(null);
   if (held === null && state.status === "ready") setHeld(state.data);
