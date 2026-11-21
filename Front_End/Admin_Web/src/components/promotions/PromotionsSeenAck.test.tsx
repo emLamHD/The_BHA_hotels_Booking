@@ -236,6 +236,29 @@ describe("Property switches, queues and late answers", () => {
     await waitFor(() => expect(counts().by).toEqual({ pA: 0, pB: 3 }));
   });
 
+  it("a read of an older filter that answers after the filter changed (its AbortSignal ignored) is never acknowledged; the new read says its own watermark", async () => {
+    const old = deferred<unknown>();
+    read.mockReturnValueOnce(old.promise as never).mockResolvedValue(items(A, "9") as never);
+    mount();
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    await userEvent.type(await screen.findByTestId("promotion-filter-q"), "sớm");
+    await waitFor(() => expect(sent()).toEqual(["promotions:9:pA"]), { timeout: 3000 });
+    await act(async () => { old.resolve(items(A, "5")); await Promise.resolve(); });
+    await flush();
+    expect(sent()).toEqual(["promotions:9:pA"]);
+  });
+
+  it("a read that answers after the screen unmounted is never acknowledged", async () => {
+    const late = deferred<unknown>();
+    read.mockReturnValueOnce(late.promise as never);
+    const view = mount();
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    view.unmount();
+    await act(async () => { late.resolve(items(A, "5")); await Promise.resolve(); });
+    await flush();
+    expect(sent()).toEqual([]);
+  });
+
   it("a read started by Staff A that answers after Staff B took over is not used to acknowledge for B", async () => {
     const late = deferred<unknown>();
     read.mockReturnValueOnce(late.promise as never);
