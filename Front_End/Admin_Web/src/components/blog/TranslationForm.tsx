@@ -139,6 +139,16 @@ export default function TranslationForm({
   useEffect(() => {
     identityRef.current = identity;
   });
+  // BHA-ADMIN-BADGE-001-PR07-C1: whether THIS form instance is still on screen. The Blog gate keys what it shows by the Staff identity, so a change of Staff (or the end of the session) UNMOUNTS this
+  // instance and mounts a new one: this instance never sees the new identity, so `identityRef` alone cannot stop it. What the instance started belongs to the session it was mounted under and
+  // ends with it: an answer that arrives after the unmount is not adopted, does not navigate and never leads to the next step of a chain.
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
   const exists = postId !== null || tr !== undefined;
   const id = postId ?? clientId;
   const version = tr?.version ?? 0;
@@ -249,6 +259,7 @@ export default function TranslationForm({
         : (correlationId ? saveDraft(existing, locale, version, draft, correlationId) : saveDraft(existing, locale, version, draft))),
     );
     if (!next) return null;
+    if (!aliveRef.current) return null;                  // the form of the session that sent this save is gone: the draft stays saved on the server, and nothing here acts on the answer
     const saved = translationOf(next, locale);
     // The server trims and normalises; its answer is the copy. If that differs from what was typed, show the server's copy rather than a phantom "unsaved".
     const typed = snapshot;
@@ -274,6 +285,7 @@ export default function TranslationForm({
         action, expected, () => (correlationId ? transitionPost(target, locale, action, expected, correlationId) : transitionPost(target, locale, action, expected)), { basis, base },
       );
       if (!next) return false;
+      if (!aliveRef.current) return false;               // as for the save: an answer for a form that is gone is not adopted and does not navigate
       adopt(next, { replaceForm: false });
       onPost(next);
       leave();
@@ -303,7 +315,7 @@ export default function TranslationForm({
         if (!saved) return;
         expected = saved.version;
         basis = snapshotOfRevision(workingRevision(saved));
-        if (identityRef.current !== startedBy) return;     // another Staff identity now: the saved draft stays, the publish is not sent on their behalf
+        if (!aliveRef.current || identityRef.current !== startedBy) return;     // the form is gone (the gate replaced it) or the identity changed in this instance: the saved draft stays, the publish is not sent
       }
       await doTransition("publish", expected, basis, correlationId);
     } finally {
