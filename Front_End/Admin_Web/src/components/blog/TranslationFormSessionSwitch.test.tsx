@@ -35,7 +35,7 @@ import BlogAccessGate from "./BlogAccessGate";
 import { BOTH, POST_ID, deferred, ok, post, revision, translation } from "./blogTestUtils";
 import { MenuUnseenProvider } from "@/components/website/NewsletterBadgeProvider";
 import { StaffSessionProvider, useStaffSession } from "@/components/auth/StaffSession";
-import { createPost, saveDraft, transitionPost } from "@/lib/api/blog";
+import { createPost, getPost, saveDraft, transitionPost } from "@/lib/api/blog";
 import { fetchStaffSession } from "@/lib/api/staff";
 
 const save = vi.mocked(saveDraft);
@@ -98,7 +98,7 @@ async function switchToB(oldInput: HTMLElement) {
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff");
-  for (const mock of [save, create, transition, onPost, onCreated, onStatus]) mock.mockReset();
+  for (const mock of [save, create, transition, vi.mocked(getPost), onPost, onCreated, onStatus]) mock.mockReset();
   session = null;
 });
 afterEach(() => {
@@ -138,6 +138,44 @@ describe("a Save-then-Publish chain of Staff A when the gate replaces A's form w
 
     expect(transition).not.toHaveBeenCalled();
     expect(onPost).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("a chain whose PUBLISH is still out when the gate replaces the form: the late publish answer is not adopted and does not move the screen", async () => {
+    mount({ postId: null, initial: undefined });
+    create.mockResolvedValue(ok(post(translation({ version: 1, draft: revision({ title: "Bài mới", slug: "bai-moi" }) }), CLIENT_ID)) as never);
+    const publishAnswer = deferred<ReturnType<typeof ok>>();
+    transition.mockImplementation((async () => publishAnswer.promise) as never);
+    const aInput = (await screen.findByTestId("post-title")) as HTMLInputElement;
+    await userEvent.type(aInput, "Bài mới");
+    await userEvent.click(button("post-publish"));
+    await waitFor(() => expect(transition).toHaveBeenCalledTimes(1));      // A's create went through (same session) and its publish is on the wire
+    expect(onPost).toHaveBeenCalledTimes(1);                              // the create was adopted while A's form was still there
+
+    await switchToB(aInput);
+    await act(async () => { publishAnswer.resolve(publishedPost(2)); await Promise.resolve(); });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(onPost).toHaveBeenCalledTimes(1);                              // the publish answer arrived for a form that is gone: not handed to the screen
+    expect(onCreated).not.toHaveBeenCalled();                              // and the screen is not moved to A's post
+  });
+
+  it("a read-back that A asked for after a lost create answers late: it does not move B's screen to A's post", async () => {
+    mount({ postId: null, initial: undefined });
+    create.mockResolvedValueOnce({ kind: "unverified", message: "Mất kết nối." } as never);
+    const aInput = (await screen.findByTestId("post-title")) as HTMLInputElement;
+    await userEvent.type(aInput, "Bài mới");
+    await userEvent.click(button("post-save"));
+    await screen.findByTestId("write-unverified");
+    const readBack = deferred<ReturnType<typeof ok>>();
+    vi.mocked(getPost).mockImplementation((async () => readBack.promise) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    await waitFor(() => expect(getPost).toHaveBeenCalledTimes(1));
+
+    await switchToB(aInput);
+    await act(async () => { readBack.resolve(ok(post(translation({ version: 1, draft: revision({ title: "Bài mới", slug: "bai-moi", summary: "", authorName: "", coverAlt: "", metaTitle: "", metaDescription: "" }) }), CLIENT_ID))); await Promise.resolve(); });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     expect(onCreated).not.toHaveBeenCalled();
   });
 

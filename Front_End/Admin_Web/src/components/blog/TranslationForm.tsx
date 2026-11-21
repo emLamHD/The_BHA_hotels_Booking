@@ -239,6 +239,7 @@ export default function TranslationForm({
    */
   const leave = useCallback(() => {
     const made = createdRef.current;
+    if (!aliveRef.current) return;                       // a form that is gone (the gate replaced it) never moves the screen of whoever is there now: the router is global
     if (!made || leftRef.current) return;
     if (liveRef.current !== confirmedRef.current) return;
     leftRef.current = true;
