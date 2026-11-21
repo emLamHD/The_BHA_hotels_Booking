@@ -23,8 +23,10 @@ public sealed class AdminPromotionsController(IAdminPromotions promotions) : Con
     public const string CreateCorsPolicy = "admin-staff-promotion-create";
     private const int UploadLimit = HeroLimits.MaxUploadBytes + 1024 * 1024;
 
+    /// <summary>A bare JSON array; the <c>promotions</c> number of the same snapshot travels in <c>X-Admin-View-Watermark</c> (BHA-ADMIN-BADGE-001-PR10).</summary>
     [HttpGet]
     [StaffCalendarPermission(StaffPermission.PromotionManage, typeof(WebsiteClosedInLocalGateFilter))]
+    [AdminBlogViewWatermarkHeader]
     public async Task<ActionResult<IReadOnlyList<PromotionSummaryDto>>> List(
         Guid propertyId, [FromQuery] string? status, [FromQuery] string? q, [FromQuery] bool? homepage, [FromQuery] bool? publicNow, CancellationToken cancellationToken)
     {
@@ -36,7 +38,9 @@ public sealed class AdminPromotionsController(IAdminPromotions promotions) : Con
         }
 
         var list = await promotions.ListAsync(propertyId, new PromotionListQuery(parsed, q, homepage, publicNow), cancellationToken);
-        return list is null ? Fail(404, "Property not found", null, null, "The property does not exist.") : Ok(list);
+        if (list is null) return Fail(404, "Property not found", null, null, "The property does not exist.");
+        Response.Headers[AdminBlogHeaders.ViewWatermark] = list.ViewWatermark;
+        return Ok(list.Items);
     }
 
     [HttpGet("room-types")]

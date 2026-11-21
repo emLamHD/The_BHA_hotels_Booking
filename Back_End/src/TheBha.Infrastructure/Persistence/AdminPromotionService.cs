@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using TheBha.Application.Activity;
 using TheBha.Application.Promotions;
 using TheBha.Application.Website;
 using TheBha.Domain.Promotions;
@@ -15,32 +16,37 @@ namespace TheBha.Infrastructure.Persistence;
 /// BHA-BOOKING-PROMOTIONS-001: the Admin side of a promotion. Every write is one transaction that also appends the audit row;
 /// a save carries the version it was made from (a stale one is refused, nothing is overwritten); a create carries an operation id so
 /// a lost answer can be retried without a duplicate. The authorization (a Manager of this Property) is decided before this runs.
+/// BHA-ADMIN-BADGE-001-PR10 (ADR 0011): every committed create, save, status change and cover upload also appends ONE event of the <c>promotions</c> stream for the route's Property, as the
+/// last statement before COMMIT; the hint goes out only after COMMIT. A refusal, a stale write, a rollback, a replay and the loser of a create race record nothing. The list answers its
+/// watermark from the same snapshot as its rows.
 /// </summary>
-internal sealed class AdminPromotionService(TheBhaDbContext db, IHeroMediaStorage storage, TimeProvider clock) : IAdminPromotions
+internal sealed class AdminPromotionService(TheBhaDbContext db, IHeroMediaStorage storage, TimeProvider clock, IAdminActivityRecorder recorder, IAdminActivityHint hint) : IAdminPromotions
 {
+    private const string Menu = AdminMenuKeys.Promotions;
     private const string KeyPrefix = "promotion";
     private static readonly string[] SingleFields = ["title", "summary", "altText"];
     private static readonly JsonSerializerOptions AuditJson = new() { Converters = { new JsonStringEnumConverter() } };
 
-    public async Task<IReadOnlyList<PromotionSummaryDto>?> ListAsync(Guid propertyId, PromotionListQuery query, CancellationToken cancellationToken)
-    {
-        var today = await LocalTodayAsync(propertyId, cancellationToken);
-        if (today is null) return null;
-
-        var q = db.Promotions.AsNoTracking().Include(x => x.RoomTypes).Where(x => x.PropertyId == propertyId);
-        if (query.Status is { } status) q = q.Where(x => x.Status == status);
-        if (query.ShowOnHomepage is { } show) q = q.Where(x => x.ShowOnHomepage == show);
-        if (!string.IsNullOrWhiteSpace(query.Search))
+    public Task<WatermarkedList<PromotionSummaryDto>?> ListAsync(Guid propertyId, PromotionListQuery query, CancellationToken cancellationToken) =>
+        WebsiteActivity.InSnapshotAsync<WatermarkedList<PromotionSummaryDto>?>(db, Menu, async watermark =>
         {
-            var term = query.Search.Trim().ToLowerInvariant();
-            q = q.Where(x => x.Title.ToLower().Contains(term) || x.Slug.Contains(term));
-        }
+            var today = await LocalTodayAsync(propertyId, cancellationToken);
+            if (today is null) return null;
 
-        var rows = await q.OrderBy(x => x.SortOrder).ThenByDescending(x => x.CreatedAtUtc).ThenBy(x => x.Id).Take(500).ToListAsync(cancellationToken);
-        var summaries = rows.Select(x => ToSummary(x, x.IsPublicOn(today.Value)));
-        if (query.PublicNow is { } publicNow) summaries = summaries.Where(x => x.PublicNow == publicNow);
-        return summaries.ToList();
-    }
+            var q = db.Promotions.AsNoTracking().Include(x => x.RoomTypes).Where(x => x.PropertyId == propertyId);
+            if (query.Status is { } status) q = q.Where(x => x.Status == status);
+            if (query.ShowOnHomepage is { } show) q = q.Where(x => x.ShowOnHomepage == show);
+            if (!string.IsNullOrWhiteSpace(query.Search))
+            {
+                var term = query.Search.Trim().ToLowerInvariant();
+                q = q.Where(x => x.Title.ToLower().Contains(term) || x.Slug.Contains(term));
+            }
+
+            var rows = await q.OrderBy(x => x.SortOrder).ThenByDescending(x => x.CreatedAtUtc).ThenBy(x => x.Id).Take(500).ToListAsync(cancellationToken);
+            var summaries = rows.Select(x => ToSummary(x, x.IsPublicOn(today.Value)));
+            if (query.PublicNow is { } publicNow) summaries = summaries.Where(x => x.PublicNow == publicNow);
+            return new WatermarkedList<PromotionSummaryDto>(summaries.ToList(), watermark);
+        }, cancellationToken);
 
     public async Task<WebsiteMutationResult<PromotionEditorDto>> GetAsync(Guid propertyId, Guid promotionId, CancellationToken cancellationToken)
     {
@@ -78,7 +84,9 @@ internal sealed class AdminPromotionService(TheBhaDbContext db, IHeroMediaStorag
             var translated = await ApplyTranslationsAsync(promotion.Id, input.Translations, actorStaffId, now, cancellationToken);
             if (translated is not null) return translated;
             await db.SaveChangesAsync(cancellationToken);
+            await RecordAsync(promotion, "Created", cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            await HintAsync(propertyId);
             return WebsiteMutationResult<PromotionEditorDto>.Success(await ToEditorAsync(promotion, cancellationToken));
         }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } unique)
@@ -118,7 +126,9 @@ internal sealed class AdminPromotionService(TheBhaDbContext db, IHeroMediaStorag
             var translated = await ApplyTranslationsAsync(promotion.Id, input.Translations, actorStaffId, now, cancellationToken);
             if (translated is not null) return translated;
             await db.SaveChangesAsync(cancellationToken);
+            await RecordAsync(promotion, "DraftSaved", cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            await HintAsync(propertyId);
             return WebsiteMutationResult<PromotionEditorDto>.Success(await ToEditorAsync(promotion, cancellationToken));
         }
         catch (DbUpdateConcurrencyException)
@@ -159,7 +169,9 @@ internal sealed class AdminPromotionService(TheBhaDbContext db, IHeroMediaStorag
 
             db.PromotionAudits.Add(new PromotionAudit(promotion.Id, propertyId, actorStaffId, now, "status", before, Snapshot(promotion)));
             await db.SaveChangesAsync(cancellationToken);
+            await RecordAsync(promotion, "StatusChanged", cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            await HintAsync(propertyId);
             return WebsiteMutationResult<PromotionEditorDto>.Success(await ToEditorAsync(promotion, cancellationToken));
         }
         catch (DbUpdateConcurrencyException)
@@ -207,19 +219,30 @@ internal sealed class AdminPromotionService(TheBhaDbContext db, IHeroMediaStorag
 
         var id = Guid.NewGuid();
         var key = $"promo/{id:N}.{info.Extension}";
+        // The file is complete before any database work, so no counter row is held while it is written: the short transaction below takes the counter last.
         await storage.WriteAsync(key, bytes, cancellationToken);
+        var committing = false;
+        PromotionMedia row;
         try
         {
-            var row = new PromotionMedia(id, propertyId, key, info.ContentType, bytes.Length, info.Width, info.Height, clock.GetUtcNow(), actorStaffId);
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            row = new PromotionMedia(id, propertyId, key, info.ContentType, bytes.Length, info.Width, info.Height, clock.GetUtcNow(), actorStaffId);
             db.PromotionMedia.Add(row);
             await db.SaveChangesAsync(cancellationToken);
-            return WebsiteMutationResult<PromotionMediaDto>.Success(new PromotionMediaDto(row.Id, row.ContentType, row.Width, row.Height));
+            await recorder.RecordAsync(new AdminActivityEntry(Menu, propertyId, AdminActorKind.Staff, actorStaffId, "CoverUploaded", "promotion-cover", id.ToString("D"), "Promotion cover"), cancellationToken);
+            committing = true;
+            await transaction.CommitAsync(cancellationToken);
         }
-        catch
+        catch when (!committing)
         {
+            // Nothing committed (the transaction is rolled back), so nothing refers to this file: remove only this just-written file.
+            // A failure FROM the commit is not caught here: whether it landed is unknown, and a recorded cover whose file is gone is worse than an unreferenced file.
             await storage.DeleteAsync(key, CancellationToken.None);
             throw;
         }
+
+        await HintAsync(propertyId);
+        return WebsiteMutationResult<PromotionMediaDto>.Success(new PromotionMediaDto(row.Id, row.ContentType, row.Width, row.Height));
     }
 
     public async Task<PromotionMediaFile?> OpenMediaAsync(Guid propertyId, Guid mediaId, CancellationToken cancellationToken)
@@ -391,6 +414,13 @@ internal sealed class AdminPromotionService(TheBhaDbContext db, IHeroMediaStorag
         p.MinNights, publicNow, p.CoverMediaId, p.Version, p.UpdatedAtUtc);
 
     // ---- helpers ----
+
+    /// <summary>The last statement before COMMIT: the promotion id and its (short, Admin-authored) title; never a slug, a text or a picture name.</summary>
+    private Task RecordAsync(Promotion promotion, string action, CancellationToken cancellationToken) =>
+        recorder.RecordAsync(new AdminActivityEntry(Menu, promotion.PropertyId, AdminActorKind.Staff, promotion.UpdatedByStaffId, action, "promotion", promotion.Id.ToString("D"), promotion.Title), cancellationToken);
+
+    /// <summary>After COMMIT only, on no open transaction; not given the caller's token (the change is durable and delivery is bounded, best effort).</summary>
+    private Task HintAsync(Guid propertyId) => hint.PublishAsync(Menu, propertyId, CancellationToken.None);
 
     private Task<Promotion?> LoadAsync(Guid propertyId, Guid promotionId, bool tracked, CancellationToken cancellationToken)
     {
