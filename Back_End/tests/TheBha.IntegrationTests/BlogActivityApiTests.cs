@@ -566,13 +566,18 @@ public sealed class BlogActivityApiTests(PostgreSqlWebApplicationFactory factory
         Assert.False(bytes.Headers.Contains(Watermark));
     }
 
-    /// <summary>A list whose snapshot has been taken (its counter read is done) waits while another Staff member commits a write; it must still answer the rows and the watermark of ONE state.</summary>
-    private async Task<(HttpResponseMessage Response, long Before, long After)> ListAcrossAWriteAsync(string listPath, Func<BlogHost, Task> write)
+    private const string CounterRead = "FROM \"MenuActivityStreams\"";
+
+    /// <summary>
+    /// A list is paused right after the first statement that contains <paramref name="pauseAfter"/> while another Staff member commits a write, then released; it must still answer the rows and the
+    /// watermark of ONE state. Pausing after the COUNTER read catches "rows newer than the watermark"; pausing after a DATA read catches "rows older than the watermark" (a counter read after the rows).
+    /// </summary>
+    private async Task<(HttpResponseMessage Response, long Before, long After)> ListAcrossAWriteAsync(string listPath, string pauseAfter, Func<BlogHost, Task> write)
     {
-        var barrier = new ReservationBoardSnapshotBarrierInterceptor("FROM \"MenuActivityStreams\"");
+        var barrier = new ReservationBoardSnapshotBarrierInterceptor(pauseAfter);
         using var host = await StartAsync(services => services.AddScoped(_ => new TheBhaDbContext(
             new DbContextOptionsBuilder<TheBhaDbContext>().UseNpgsql(Factory.ConnectionString).AddInterceptors(barrier).Options)));
-        // The first read of a counter after this point is the list's own: nothing before it reads one through EF.
+        // The first statement with this text after this point is the list's own: nothing before it reads one through EF.
         var list = SendAsync(host, AdminGet(listPath, host.Cookie(Both)));
         await barrier.Reached.WaitAsync(TimeSpan.FromSeconds(30));
         var before = await CounterAsync(listPath.Contains("posts") ? "blog-posts" : "blog-categories");
@@ -584,10 +589,12 @@ public sealed class BlogActivityApiTests(PostgreSqlWebApplicationFactory factory
         return (response, before, after);
     }
 
-    [Fact]
-    public async Task A_post_list_never_pairs_rows_with_a_watermark_from_another_moment_when_a_write_commits_in_the_middle()
+    [Theory]
+    [InlineData(CounterRead)]                          // paused after the counter: the rows must not be newer than the watermark
+    [InlineData("FROM \"BlogPostTranslations\"")]      // paused after the rows' first query: the watermark must not be newer than the rows
+    public async Task A_post_list_never_pairs_rows_with_a_watermark_from_another_moment_when_a_write_commits_in_the_middle(string pauseAfter)
     {
-        var (response, before, after) = await ListAcrossAWriteAsync("/posts", async host =>
+        var (response, before, after) = await ListAcrossAWriteAsync("/posts", pauseAfter, async host =>
         {
             var media = await UploadAsync(host, host.Cookie(Editor));
             await CreatePostAsync(host, Draft(media, "xen-giua"), cookie: host.Cookie(Editor));
@@ -599,15 +606,21 @@ public sealed class BlogActivityApiTests(PostgreSqlWebApplicationFactory factory
         Assert.True(long.Parse(body.GetProperty("viewWatermark").GetString()!) < after);
     }
 
-    [Fact]
-    public async Task A_category_list_never_pairs_rows_with_a_watermark_from_another_moment_when_a_write_commits_in_the_middle()
+    [Theory]
+    [InlineData(CounterRead)]
+    [InlineData("FROM \"BlogCategories\"")]
+    public async Task A_category_list_never_pairs_rows_with_a_watermark_from_another_moment_when_a_write_commits_in_the_middle(string pauseAfter)
     {
-        var (response, before, after) = await ListAcrossAWriteAsync("/categories", async host =>
-            await CreateCategoryAsync(host, "xen-giua-dm", cookie: host.Cookie(Publisher)));
+        var seeded = 0;
+        var (response, before, after) = await ListAcrossAWriteAsync("/categories", pauseAfter, async host =>
+        {
+            seeded = await CountAsync("BlogCategories");
+            await CreateCategoryAsync(host, "xen-giua-dm", cookie: host.Cookie(Publisher));
+        });
         var ok = await AssertStatusAsync(HttpStatusCode.OK, Task.FromResult(response));
         var rows = await JsonAsync(ok);
 
-        Assert.Equal(1, rows.GetArrayLength());                                // only the seeded category: the one created during the read is not in the rows
+        Assert.Equal(seeded, rows.GetArrayLength());                           // the category created during the read is not in the rows
         Assert.Equal(before.ToString(), Assert.Single(ok.Headers.GetValues(Watermark)));
         Assert.True(long.Parse(Assert.Single(ok.Headers.GetValues(Watermark))) < after);
     }
