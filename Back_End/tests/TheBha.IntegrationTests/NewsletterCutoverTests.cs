@@ -422,9 +422,16 @@ public sealed class NewsletterCutoverTests(PostgreSqlWebApplicationFactory facto
         Assert.NotEqual(RiversideDemoSeedCommand.Success, exit);
         Assert.Contains("OUTCOME UNKNOWN", output, StringComparison.Ordinal);
         Assert.Contains("does NOT retry", output, StringComparison.Ordinal);
-        Assert.Contains("MenuActivityCutovers", output, StringComparison.Ordinal);                                 // tells the operator what to check, on a new connection
-        Assert.DoesNotContain("COMMITTED", output, StringComparison.Ordinal);
-        Assert.DoesNotContain("rolled back", output, StringComparison.OrdinalIgnoreCase);
+        // The guidance: run the SAME idempotent command again on THIS database (it takes its locks, then reads the marker); a row seen on a new connection means committed, and NO row proves nothing.
+        Assert.Contains("Run the SAME command again against THIS database", output, StringComparison.Ordinal);
+        Assert.Contains("ALREADY DONE means the earlier run committed", output, StringComparison.Ordinal);
+        Assert.Contains("still unknown", output, StringComparison.Ordinal);                                        // a rerun that times out before the marker leaves it unknown
+        Assert.Contains("A row means the cutover committed", output, StringComparison.Ordinal);
+        Assert.Contains("NO row proves nothing", output, StringComparison.Ordinal);
+        Assert.Contains("do not conclude that it rolled back", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("no row means it did not", output, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("COMMITTED —", output, StringComparison.Ordinal);                                    // the success line is never printed for an unknown outcome
+        Assert.DoesNotContain("legacy", output, StringComparison.OrdinalIgnoreCase);
         // The simulation is faithful: the server really committed (read here on a separate connection).
         Assert.Equal(1, await ScalarAsync<long>("""SELECT count(*) FROM "MenuActivityCutovers" """));
         Assert.Equal(2, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" WHERE "MenuKey" = 'newsletter' """));
@@ -483,6 +490,90 @@ public sealed class NewsletterCutoverTests(PostgreSqlWebApplicationFactory facto
             Assert.DoesNotContain("OUTCOME UNKNOWN", writer.ToString(), StringComparison.Ordinal);
             Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "MenuActivityCutovers" """));
             Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" """));
+        }
+        finally
+        {
+            await ExecAsync("""DROP TRIGGER "test_refuse_marker" ON "MenuActivityCutovers"; DROP FUNCTION "test_refuse_marker"();""");
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------- C2: LOCK TIMEOUT says nothing about an earlier run
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_rerun_that_times_out_on_the_table_lock_before_reading_the_marker_reports_only_itself_and_the_next_run_says_ALREADY_DONE(bool firstRunLostItsCommitAnswer)
+    {
+        // The marker exists (committed normally, or committed with the answer lost). Another connection then holds a lock that conflicts with the cutover's SHARE ROW EXCLUSIVE on the legacy table
+        // (a plain ROW EXCLUSIVE lock: the fence only refuses INSERTs, not locks), and the SAME command is run again with a short lock_timeout.
+        var host = await StartAsync(0, (1, Sub(1), T0.AddDays(-1)), (2, Sub(2), T0.AddDays(-1)));
+        string[] args = [NewsletterActivityCutoverCommand.Verb, "--expected-database", Factory.DatabaseName, NewsletterActivityCutoverCommand.ConfirmRetired, NewsletterActivityCutoverCommand.ConfirmNoStaff];
+        async Task<(int Exit, string Output)> Run(params string[] more)
+        {
+            var writer = new StringWriter();
+            return (await NewsletterActivityCutoverCommand.RunAsync([.. args, .. more], host.Services, "Production", writer, CancellationToken.None), writer.ToString());
+        }
+
+        if (firstRunLostItsCommitAnswer) _lost.Throw = new NpgsqlException("connection lost after COMMIT (test)", new IOException("broken pipe"));
+        var first = await Run();
+        _lost.Throw = null;
+        Assert.Equal(firstRunLostItsCommitAnswer ? NewsletterActivityCutoverCommand.OutcomeUnknown : RiversideDemoSeedCommand.Success, first.Exit);
+        Assert.Equal(1, await ScalarAsync<long>("""SELECT count(*) FROM "MenuActivityCutovers" """));
+        var marker = (await ScalarAsync<long>("""SELECT "LegacyMaxSequence" FROM "MenuActivityCutovers" """), await InstantAsync("""SELECT "CutoverAtUtc" FROM "MenuActivityCutovers" """));
+
+        await using (var holder = new NpgsqlConnection(Factory.ConnectionString))
+        {
+            await holder.OpenAsync();
+            await using var transaction = await holder.BeginTransactionAsync();
+            await using (var lockTable = new NpgsqlCommand("""LOCK TABLE "NewsletterVerificationActivities" IN ROW EXCLUSIVE MODE""", holder, transaction)) await lockTable.ExecuteNonQueryAsync();
+
+            Factory.Clock.UtcNow = T0.AddHours(5);
+            var timedOut = await Run("--lock-timeout-seconds", "1");
+
+            Assert.Equal(RiversideDemoSeedCommand.Failure, timedOut.Exit);                                          // the LOCK TIMEOUT exit code
+            Assert.Contains("LOCK TIMEOUT after 1s", timedOut.Output, StringComparison.Ordinal);
+            Assert.Contains("55P03", timedOut.Output, StringComparison.Ordinal);
+            Assert.Contains("THIS run", timedOut.Output, StringComparison.Ordinal);
+            Assert.Contains("committed nothing", timedOut.Output, StringComparison.Ordinal);
+            Assert.Contains("does not say whether an earlier run committed", timedOut.Output, StringComparison.Ordinal);
+            Assert.Contains("stays unknown", timedOut.Output, StringComparison.Ordinal);
+            // The timeout came BEFORE the marker was read: no ALREADY DONE, and no claim about a source or about the earlier run.
+            Assert.DoesNotContain("ALREADY DONE", timedOut.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("COMMITTED —", timedOut.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("legacy", timedOut.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("source", timedOut.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("rolled back", timedOut.Output, StringComparison.OrdinalIgnoreCase);
+            // The data did not change.
+            Assert.Equal(2, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" WHERE "MenuKey" = 'newsletter' """));
+            Assert.Equal(marker, (await ScalarAsync<long>("""SELECT "LegacyMaxSequence" FROM "MenuActivityCutovers" """), await InstantAsync("""SELECT "CutoverAtUtc" FROM "MenuActivityCutovers" """)));
+            await transaction.RollbackAsync();                                                                      // the lock is released
+        }
+
+        var again = await Run();
+        Assert.Equal(RiversideDemoSeedCommand.Success, again.Exit);
+        Assert.Contains("ALREADY DONE", again.Output, StringComparison.Ordinal);
+        Assert.Equal(2, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" WHERE "MenuKey" = 'newsletter' """));                 // nothing copied twice
+        Assert.Equal(marker, (await ScalarAsync<long>("""SELECT "LegacyMaxSequence" FROM "MenuActivityCutovers" """), await InstantAsync("""SELECT "CutoverAtUtc" FROM "MenuActivityCutovers" """)));
+    }
+
+    [Fact]
+    public async Task The_other_failure_lines_describe_this_run_only()
+    {
+        var host = await StartAsync(0, (1, Sub(1), T0.AddDays(-1)));
+        await ExecAsync(
+            """
+            CREATE FUNCTION "test_refuse_marker"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'marker refused (test)'; END $$;
+            CREATE TRIGGER "test_refuse_marker" BEFORE INSERT ON "MenuActivityCutovers" FOR EACH ROW EXECUTE FUNCTION "test_refuse_marker"();
+            """);
+        try
+        {
+            var writer = new StringWriter();
+            await NewsletterActivityCutoverCommand.RunAsync(
+                [NewsletterActivityCutoverCommand.Verb, "--expected-database", Factory.DatabaseName, NewsletterActivityCutoverCommand.ConfirmRetired, NewsletterActivityCutoverCommand.ConfirmNoStaff],
+                host.Services, "Development", writer, CancellationToken.None);
+            Assert.Contains("THIS run", writer.ToString(), StringComparison.Ordinal);
+            Assert.Contains("does not say whether an earlier run committed", writer.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("no marker and no copied row", writer.ToString(), StringComparison.Ordinal);
         }
         finally
         {

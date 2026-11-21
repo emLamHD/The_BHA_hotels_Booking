@@ -37,31 +37,40 @@ What it does, in **one transaction** (READ COMMITTED), in this order:
 3. If the marker exists: nothing is copied, it reports the marker. If `AdminActivities` already holds `newsletter` rows with no marker: **abort** (never merged).
 4. Copy exactly the legacy rows that exist now, then insert the marker once: `LegacyMaxSequence` = the counter's `LastSequence` **under the lock** (a deleted tail does not lower it), `CutoverAtUtc` as above. COMMIT.
 
-**Run it at low traffic.** While the command waits for an in-flight writer it holds a pending lock request, so a verification or a Staff write that starts meanwhile queues behind it until it gets the lock or `--lock-timeout-seconds` runs out (30 s by default, 600 at most). A shorter timeout limits that wait; a timeout is harmless (see below) and the command can simply be run again.
+**Run it at low traffic.** While the command waits for an in-flight writer it holds a pending lock request, so a verification or a Staff write that starts meanwhile queues behind it until it gets the lock or `--lock-timeout-seconds` runs out (30 s by default, 600 at most). A shorter timeout limits that wait; a timeout commits nothing in that run (see below) and the command can simply be run again.
 
 | Exit | Output | Meaning | What to do |
 |---|---|---|---|
 | 0 | `COMMITTED` | PostgreSQL **confirmed** the commit: copied N rows, marker written | step 5 |
 | 0 | `ALREADY DONE` | the marker already existed; **nothing was copied or changed** | step 5 |
-| 1 | `LOCK TIMEOUT after Ns` | the **server** answered 55P03 before any COMMIT: no marker, no copied row; legacy is still the only source | run it again (a short wait for the lock is normal while a verification is in flight) |
-| 1 | `failed — the server answered with an error (SQLSTATE …)` | **confirmed not committed**: the server rejected a statement or the COMMIT itself and the transaction was aborted | run it again; if it repeats, read the SQLSTATE and stop |
-| 1 | `failed (…) before COMMIT was requested` | an error on the connection before COMMIT was sent, so this run committed nothing | check the marker (below) or run it again |
-| **5** | **`OUTCOME UNKNOWN`** | COMMIT **was requested and its answer never arrived** (lost connection, timeout, cancellation). **It may or may not have committed; nothing is claimed in either direction.** The command does **not** retry | **Do not assume rollback and do not assume success.** Check on a **new connection to the same database** (below), or run the same command again |
+| 1 | `LOCK TIMEOUT after Ns` | the **server** answered 55P03 before **this run** requested any COMMIT and before it read the marker: **this run** committed nothing. It says **nothing** about an earlier run (it may have ended in `OUTCOME UNKNOWN`) and nothing about which source is in use | run the same command again later (a short wait for the lock is normal while a verification is in flight). If an earlier run was `OUTCOME UNKNOWN`, it **stays unknown** until a run gets past the lock and reads the marker |
+| 1 | `failed — the server answered with an error (SQLSTATE …)` | **this run's** transaction was not committed (the server rejected a statement or the COMMIT itself). Nothing about an earlier run | run the same command again; if it repeats, read the SQLSTATE and stop |
+| 1 | `failed (…) before COMMIT was requested` | an error on the connection before COMMIT was sent, so **this run** committed nothing. Nothing about an earlier run | run the same command again (it is idempotent) |
+| **5** | **`OUTCOME UNKNOWN`** | COMMIT **was requested and its answer never arrived** (lost connection, timeout, cancellation). **It may or may not have committed; nothing is claimed in either direction.** The command does **not** retry | **Do not assume rollback and do not assume success.** Run the **same command again on the same database** (below) |
 | 2 | usage | a confirmation or the database name is missing | fix the arguments |
 | 3 | `REFUSED` | `--expected-database` is not this database | fix the target |
 | 4 | `ABORTED` | `AdminActivities` has `newsletter` rows but no marker | stop and investigate; do not delete rows to "make it work" |
 
-**After `OUTCOME UNKNOWN`** — on a new connection to the database the command named:
+**After `OUTCOME UNKNOWN`** — run the **same command again, on the same database** (same `--expected-database`). It takes its locks first (the legacy table, then the counter row), and only then checks the marker and decides whether to copy; it is idempotent:
+
+| The rerun says | It means |
+|---|---|
+| `ALREADY DONE` (exit 0) | the earlier run **did commit**; nothing was copied twice and the marker did not move. Carry on with step 5 |
+| `COMMITTED` (exit 0) | the earlier run did **not** commit (the rerun held the locks, so the earlier transaction had ended, and found no marker); this run did the cutover |
+| `LOCK TIMEOUT` (exit 1) | the rerun did not get the lock, so it **never read the marker**: the earlier outcome is **still unknown**. Run it again later |
+| anything else | the earlier outcome is still unknown; fix the cause and run it again |
+
+Optionally, on a **new connection to the same database**:
 
 ```sql
 SELECT "LegacyMaxSequence", "CutoverAtUtc" FROM "MenuActivityCutovers" WHERE "MenuKey" = 'newsletter';
 ```
 
-One row: it **did** commit (the copy is in `AdminActivities`; carry on with step 5). No row: it did **not** commit (legacy is still the source) and the command can be run again. Running the **same command again** answers the same question without a query: `ALREADY DONE` if it committed (nothing is copied twice and the marker does not move), otherwise it performs the cutover.
+**One row means the cutover committed** (the copy is in `AdminActivities`; carry on with step 5). **No row proves nothing**: the earlier transaction may still be completing, so a `SELECT` that does not see the marker must **never** be read as "it rolled back". Only a completed rerun (above) settles it.
 
 **Timeouts.** The command sets the PostgreSQL `lock_timeout` to `--lock-timeout-seconds` and gives its database commands a client timeout 30 s longer, so the server always gives up first and answers 55P03 (the output then says `LOCK TIMEOUT`, not a transport error). Only the cutover's own commands get that longer timeout; the application's default is unchanged.
 
-**After a timeout or a rollback**: run the same command again; it is safe and starts from the beginning. **After a commit**: running it again only reports the marker; the marker and the copy are never redone. A committed cutover is **not reverted by a migration** (Down of migration 27 refuses while the marker exists); there is no "undo" command.
+**After a `LOCK TIMEOUT` or a `failed …` line**: run the same command again; it is safe and starts from the beginning. Those lines describe **that run only**; if an earlier run ended in `OUTCOME UNKNOWN`, that outcome is settled only by a rerun that reaches the marker. **After a commit**: running it again only reports the marker; the marker and the copy are never redone. A committed cutover is **not reverted by a migration** (Down of migration 27 refuses while the marker exists); there is no "undo" command.
 
 ## Check (step 5)
 

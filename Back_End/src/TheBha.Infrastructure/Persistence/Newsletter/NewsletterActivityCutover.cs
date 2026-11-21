@@ -91,7 +91,7 @@ internal sealed class NewsletterActivityCutover(TheBhaDbContext database, TimePr
         }
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.LockNotAvailable)
         {
-            // lock_timeout: the server answered 55P03 before any COMMIT was requested, so nothing was written; legacy stays the source.
+            // lock_timeout: the server answered 55P03 before any COMMIT was requested, so THIS run wrote nothing. It says nothing about an earlier run, and nothing about which source is in use: the marker was never read.
             return new NewsletterCutoverResult(NewsletterCutoverStatus.LockTimeout, null, null, 0);
         }
         catch (Exception exception) when (commitRequested && exception is not PostgresException)
