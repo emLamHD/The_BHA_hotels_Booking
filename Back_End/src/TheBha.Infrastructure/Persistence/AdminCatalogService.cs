@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using TheBha.Application.Activity;
 using TheBha.Application.Properties;
 using TheBha.Application.Website;
 using TheBha.Domain.Properties;
@@ -12,8 +13,21 @@ using TheBha.Infrastructure.Persistence.Demo;
 
 namespace TheBha.Infrastructure.Persistence;
 
-internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStorage storage, ICatalogImageDecoder decoder, TimeProvider clock) : IAdminCatalog
+/// <summary>
+/// BHA-ADMIN-BADGE-001-PR11 (ADR 0011): every committed Admin write appends ONE event of the global <c>catalog</c> stream (no Property id: Catalog is global even though its routes carry one)
+/// as the last statement before COMMIT, after the business writes and the audit row; the hint (menu key only) goes out only after COMMIT. A replay, a refusal, a stale write and a rollback
+/// record nothing. The two lists answer their watermark from the same snapshot as their rows.
+/// </summary>
+internal sealed class AdminCatalogService(
+    TheBhaDbContext db, ICatalogMediaStorage storage, ICatalogImageDecoder decoder, TimeProvider clock, IAdminActivityRecorder recorder, IAdminActivityHint hint) : IAdminCatalog
 {
+    private const string Menu = AdminMenuKeys.Catalog;
+
+    private Task RecordAsync(Guid actor, string action, string kind, Guid key, string title, CancellationToken ct) =>
+        WebsiteActivity.RecordAsync(new WebsiteActivityScope(recorder, hint, Menu, actor), action, kind, key.ToString("D"), title, ct);
+
+    private Task HintAsync() => WebsiteActivity.HintAsync(hint, Menu);
+
     public async Task<IReadOnlyList<CatalogPhysicalRoom>?> ListPhysicalRoomsAsync(Guid propertyId, Guid roomTypeId, CancellationToken ct)
     {
         if (!await db.RoomTypes.AsNoTracking().AnyAsync(x => x.Id == roomTypeId && x.PropertyId == propertyId, ct)) return null;
@@ -48,8 +62,10 @@ internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStora
         db.Properties.Add(property);
         db.AdminCatalogCreateOperations.Add(new(operationId, actor, "property", id, id, fingerprint, now));
         db.CatalogContentAudits.Add(new(id, null, actor, now, "create-property", "{}", JsonSerializer.Serialize(clean)));
-        try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); return WebsiteMutationResult<CatalogPropertyChoice>.Success(new(id, property.Name, property.Slug)); }
+        try { await db.SaveChangesAsync(ct); await RecordAsync(actor, "Created", "property", id, property.Name, ct); await tx.CommitAsync(ct); }
         catch (DbUpdateException e) when (UniqueViolation(e)) { return WebsiteMutationResult<CatalogPropertyChoice>.Conflict("already-exists", "Tên định danh hoặc slug đã được sử dụng.", "slug"); }
+        await HintAsync();
+        return WebsiteMutationResult<CatalogPropertyChoice>.Success(new(id, property.Name, property.Slug));
     }
 
     public async Task<WebsiteMutationResult<CatalogProductSummary>> CreateRoomTypeAsync(Guid propertyId, CreateCatalogRoomType input, Guid operationId, Guid actor, CancellationToken ct)
@@ -68,7 +84,7 @@ internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStora
         if (prior is not null)
         {
             if (prior.EntityType != "room-type" || prior.RequestFingerprint != fingerprint) return WebsiteMutationResult<CatalogProductSummary>.Conflict("idempotency-key-reused", "Khóa yêu cầu này đã được dùng cho nội dung khác.");
-            var result = (await ListProductsAsync(propertyId, ct)).SingleOrDefault(x => x.RoomTypeId == prior.EntityId);
+            var result = (await ProductsAsync(propertyId, ct)).SingleOrDefault(x => x.RoomTypeId == prior.EntityId);
             if (result is null) return WebsiteMutationResult<CatalogProductSummary>.Conflict("create-outcome-unknown", "Yêu cầu tạo đã ghi nhận nhưng không đọc được loại phòng.");
             await tx.CommitAsync(ct); return WebsiteMutationResult<CatalogProductSummary>.Success(result);
         }
@@ -76,8 +92,10 @@ internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStora
         var now = clock.GetUtcNow(); var room = new RoomType(Guid.NewGuid(), propertyId, code, name, slug, clean.Description, clean.BaseOccupancy, clean.MaxOccupancy, clean.IsActive, now, clean.AreaSquareMeters, clean.Bedrooms, clean.BedDescription);
         db.RoomTypes.Add(room); db.CatalogContentAudits.Add(new(propertyId, room.Id, actor, now, "create-room-type", "{}", JsonSerializer.Serialize(clean)));
         db.AdminCatalogCreateOperations.Add(new(operationId, actor, "room-type", room.Id, propertyId, fingerprint, now));
-        try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); return WebsiteMutationResult<CatalogProductSummary>.Success(new(propertyId, room.Id, room.Code, room.Name, room.Description, room.BaseOccupancy, room.MaxOccupancy, 0, 0, null, null, room.IsActive)); }
+        try { await db.SaveChangesAsync(ct); await RecordAsync(actor, "Created", "room-type", room.Id, room.Name, ct); await tx.CommitAsync(ct); }
         catch (DbUpdateException e) when (UniqueViolation(e)) { return WebsiteMutationResult<CatalogProductSummary>.Conflict("already-exists", "Mã hoặc slug loại phòng đã tồn tại trong cơ sở này.", "code"); }
+        await HintAsync();
+        return WebsiteMutationResult<CatalogProductSummary>.Success(new(propertyId, room.Id, room.Code, room.Name, room.Description, room.BaseOccupancy, room.MaxOccupancy, 0, 0, null, null, room.IsActive));
     }
 
     public async Task<WebsiteMutationResult<CatalogPhysicalRoom>> CreatePhysicalRoomAsync(Guid propertyId, Guid roomTypeId, CreateCatalogPhysicalRoom input, Guid operationId, Guid actor, CancellationToken ct)
@@ -102,8 +120,11 @@ internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStora
         var now = clock.GetUtcNow(); var room = new PhysicalRoom(Guid.NewGuid(), propertyId, roomType, number, input.Floor, status, now);
         db.PhysicalRooms.Add(room); db.CatalogContentAudits.Add(new(propertyId, roomTypeId, actor, now, "create-physical-room", "{}", JsonSerializer.Serialize(new { id = room.Id, room.RoomNumber, room.Floor, operationalStatus = status.ToString() })));
         db.AdminCatalogCreateOperations.Add(new(operationId, actor, "physical-room", room.Id, propertyId, fingerprint, now));
-        try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); return WebsiteMutationResult<CatalogPhysicalRoom>.Success(new(room.Id, propertyId, roomTypeId, room.RoomNumber, room.Floor, status.ToString())); }
+        // The room number is guest-adjacent operational data: the history says only "Physical room".
+        try { await db.SaveChangesAsync(ct); await RecordAsync(actor, "Created", "physical-room", room.Id, "Physical room", ct); await tx.CommitAsync(ct); }
         catch (DbUpdateException e) when (UniqueViolation(e)) { return WebsiteMutationResult<CatalogPhysicalRoom>.Conflict("already-exists", "Số phòng này đã được dùng trong cơ sở.", "roomNumber"); }
+        await HintAsync();
+        return WebsiteMutationResult<CatalogPhysicalRoom>.Success(new(room.Id, propertyId, roomTypeId, room.RoomNumber, room.Floor, status.ToString()));
     }
 
     private async Task LockCreateAsync(Guid actor, Guid operationId, CancellationToken ct) =>
@@ -115,10 +136,16 @@ internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStora
     private static bool ValidSlug(string value) => value.Length is > 0 and <= 200 && Regex.IsMatch(value, "^[a-z0-9]+(?:-[a-z0-9]+)*$");
     private static bool TimeZoneExists(string value) { try { _ = TimeZoneInfo.FindSystemTimeZoneById(value); return true; } catch (TimeZoneNotFoundException) { return false; } catch (InvalidTimeZoneException) { return false; } }
     private static bool UniqueViolation(DbUpdateException e) => e.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
-    public async Task<IReadOnlyList<CatalogPropertyChoice>> ListAsync(CancellationToken ct) =>
-        await db.Properties.AsNoTracking().OrderBy(x => x.Name).Select(x => new CatalogPropertyChoice(x.Id, x.Name, x.Slug)).ToListAsync(ct);
+    public Task<WatermarkedList<CatalogPropertyChoice>> ListAsync(CancellationToken ct) =>
+        WebsiteActivity.InSnapshotAsync(db, Menu, async watermark =>
+            new WatermarkedList<CatalogPropertyChoice>(await db.Properties.AsNoTracking().OrderBy(x => x.Name).Select(x => new CatalogPropertyChoice(x.Id, x.Name, x.Slug)).ToListAsync(ct), watermark), ct);
 
-    public async Task<IReadOnlyList<CatalogProductSummary>> ListProductsAsync(Guid propertyId, CancellationToken ct)
+    /// <summary>The counts, the cover and the rows are all read inside the one snapshot that also read the counter.</summary>
+    public Task<WatermarkedList<CatalogProductSummary>> ListProductsAsync(Guid propertyId, CancellationToken ct) =>
+        WebsiteActivity.InSnapshotAsync(db, Menu, async watermark => new WatermarkedList<CatalogProductSummary>(await ProductsAsync(propertyId, ct), watermark), ct);
+
+    /// <summary>The rows of <see cref="ListProductsAsync"/> without a snapshot of their own: for a caller that is already inside a transaction (a create replay).</summary>
+    private async Task<IReadOnlyList<CatalogProductSummary>> ProductsAsync(Guid propertyId, CancellationToken ct)
     {
         var products = await db.RoomTypes.AsNoTracking().Where(x => x.PropertyId == propertyId).OrderBy(x => x.Code)
             .Select(x => new
@@ -211,16 +238,21 @@ internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStora
             db.RoomTypeMedia.AddRange(input.Gallery!.Select((x, i) => new RoomTypeMedia(roomTypeId.Value, x.MediaId, i, x.IsCover, x.AltText ?? "")));
             db.RoomTypeAmenities.AddRange(amenities.Select(id => new RoomTypeAmenity(roomTypeId.Value, id)));
         }
+        CatalogEditorDto saved;
         try
         {
             await db.SaveChangesAsync(ct);
             var after = (await GetAsync(propertyId, roomTypeId, ct))!;
             db.CatalogContentAudits.Add(new CatalogContentAudit(propertyId, roomTypeId, actor, now, "save", JsonSerializer.Serialize(before), JsonSerializer.Serialize(after)));
             await db.SaveChangesAsync(ct);
+            // One event per committed Save: the Property or the room type, by its name (never the description, address or picture links).
+            await RecordAsync(actor, "Saved", roomTypeId is null ? "property" : "room-type", roomTypeId ?? propertyId, after.Name, ct);
             await tx.CommitAsync(ct);
-            return WebsiteMutationResult<CatalogEditorDto>.Success(after);
+            saved = after;
         }
         catch (DbUpdateConcurrencyException) { return Stale(); }
+        await HintAsync();
+        return WebsiteMutationResult<CatalogEditorDto>.Success(saved);
     }
 
     private static WebsiteMutationResult<CatalogEditorDto> Stale() => WebsiteMutationResult<CatalogEditorDto>.Conflict("stale-version", "This editor changed in another tab. Read the server before saving again.");
@@ -242,23 +274,25 @@ internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStora
         if (info is null) return WebsiteMutationResult<CatalogGalleryItem>.Invalid("file", "Choose a valid still JPEG, PNG or WebP (1–8000 px per side, at most 32 megapixels).");
         var id = Guid.NewGuid();
         var key = $"catalog/{id:N}.{info.Extension}";
+        // The file is complete before any database work, so no counter row is held while it is written: the short transaction below takes the counter last.
         await storage.WriteAsync(key, bytes, ct);
+        var url = $"{publicOrigin}/api/v1/catalog-media/{id}";
         try
         {
-            var url = $"{publicOrigin}/api/v1/catalog-media/{id}";
-            db.Media.Add(new Media(id, url, null, MediaType.Image, clock.GetUtcNow()));
-            db.CatalogUploads.Add(new CatalogUpload(id, propertyId, roomTypeId, key, info.ContentType));
-            db.CatalogContentAudits.Add(new CatalogContentAudit(propertyId, roomTypeId, actor, clock.GetUtcNow(), "upload", "{}", JsonSerializer.Serialize(new { mediaId = id, key })));
-            await db.SaveChangesAsync(ct);
-            return WebsiteMutationResult<CatalogGalleryItem>.Success(new(id, url, "", false));
+            await using (var tx = await db.Database.BeginTransactionAsync(ct))
+            {
+                db.Media.Add(new Media(id, url, null, MediaType.Image, clock.GetUtcNow()));
+                db.CatalogUploads.Add(new CatalogUpload(id, propertyId, roomTypeId, key, info.ContentType));
+                db.CatalogContentAudits.Add(new CatalogContentAudit(propertyId, roomTypeId, actor, clock.GetUtcNow(), "upload", "{}", JsonSerializer.Serialize(new { mediaId = id, key })));
+                await db.SaveChangesAsync(ct);
+                await RecordAsync(actor, "PictureUploaded", roomTypeId is null ? "property-picture" : "room-type-picture", id, roomTypeId is null ? "Property picture" : "Room type picture", ct);
+                await tx.CommitAsync(ct);
+            }
         }
         catch
         {
-            // A failure after PostgreSQL committed (for example, a lost acknowledgement)
-            // is indistinguishable from a failed write at this call site. Only remove the
-            // bytes when a fresh database read confirms that no metadata row committed.
-            // If the database cannot answer, retain the file rather than breaking a
-            // possibly committed Media reference.
+            // Whatever failed, the transaction has ended here. Only remove the bytes when a fresh database read confirms that no metadata row committed (a lost acknowledgement of a COMMIT that
+            // landed is indistinguishable from a failed one). If the database cannot answer, retain the file rather than break a possibly committed Media reference.
             try
             {
                 var recorded = await db.CatalogUploads.AsNoTracking().AnyAsync(x => x.MediaId == id, CancellationToken.None);
@@ -270,6 +304,9 @@ internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStora
             }
             throw;
         }
+
+        await HintAsync();
+        return WebsiteMutationResult<CatalogGalleryItem>.Success(new(id, url, "", false));
     }
 
     public async Task<WebsiteMutationResult<AmenityDto>> AddAmenityAsync(Guid propertyId, CreateCatalogAmenity input, Guid actor, CancellationToken ct)
@@ -279,11 +316,17 @@ internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStora
             string.IsNullOrWhiteSpace(input.Name) || input.Name.Length > 200 || string.IsNullOrWhiteSpace(input.Category) || input.Category.Length > 100)
             return WebsiteMutationResult<AmenityDto>.Invalid("amenity", "Code (letters/digits/-/_), name and category are required (50/200/100 characters).");
         var item = new Amenity(Guid.NewGuid(), input.Code, input.Name, input.Category, true);
-        db.Amenities.Add(item);
-        db.CatalogContentAudits.Add(new CatalogContentAudit(propertyId, null, actor, clock.GetUtcNow(), "create-amenity", "{}", JsonSerializer.Serialize(item)));
-        try { await db.SaveChangesAsync(ct); }
-        catch (DbUpdateException e) when (e.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-        { return WebsiteMutationResult<AmenityDto>.Conflict("already-exists", "Amenity code already exists."); }
+        // The single SaveChanges now runs in a transaction of its own so the event is atomic with the amenity and its audit row.
+        await using (var tx = await db.Database.BeginTransactionAsync(ct))
+        {
+            db.Amenities.Add(item);
+            db.CatalogContentAudits.Add(new CatalogContentAudit(propertyId, null, actor, clock.GetUtcNow(), "create-amenity", "{}", JsonSerializer.Serialize(item)));
+            try { await db.SaveChangesAsync(ct); await RecordAsync(actor, "Created", "amenity", item.Id, "Amenity", ct); await tx.CommitAsync(ct); }
+            catch (DbUpdateException e) when (e.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+            { return WebsiteMutationResult<AmenityDto>.Conflict("already-exists", "Amenity code already exists."); }
+        }
+
+        await HintAsync();
         return WebsiteMutationResult<AmenityDto>.Success(new(item.Id, item.Code, item.Name, item.Category));
     }
 

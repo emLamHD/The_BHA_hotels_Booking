@@ -11,13 +11,27 @@ public sealed class AdminCatalogController(IAdminCatalog catalog) : AdminWebsite
 {
     public const string CreateCorsPolicy = "admin-staff-catalog-create";
 
+    /// <summary>A bare JSON array; the <c>catalog</c> number of the same snapshot travels in <c>X-Admin-View-Watermark</c> (BHA-ADMIN-BADGE-001-PR11).</summary>
     [HttpGet("properties")]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
-    public async Task<IActionResult> Properties(CancellationToken ct) => Ok(await catalog.ListAsync(ct));
+    [AdminBlogViewWatermarkHeader]
+    public async Task<IActionResult> Properties(CancellationToken ct)
+    {
+        var list = await catalog.ListAsync(ct);
+        Response.Headers[AdminBlogHeaders.ViewWatermark] = list.ViewWatermark;
+        return Ok(list.Items);
+    }
 
+    /// <summary>The same for the products of one Property (the Catalog is global: its one number is the same on both reads).</summary>
     [HttpGet("properties/{propertyId:guid}/products")]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
-    public async Task<IActionResult> Products(Guid propertyId, CancellationToken ct) => Ok(await catalog.ListProductsAsync(propertyId, ct));
+    [AdminBlogViewWatermarkHeader]
+    public async Task<IActionResult> Products(Guid propertyId, CancellationToken ct)
+    {
+        var list = await catalog.ListProductsAsync(propertyId, ct);
+        Response.Headers[AdminBlogHeaders.ViewWatermark] = list.ViewWatermark;
+        return Ok(list.Items);
+    }
 
     [HttpGet("properties/{propertyId:guid}/room-types/{roomTypeId:guid}/physical-rooms")]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
