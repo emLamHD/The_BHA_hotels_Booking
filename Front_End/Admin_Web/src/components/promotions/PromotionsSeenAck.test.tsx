@@ -72,6 +72,11 @@ function Counts() {
   const entry = useMenuUnseen().promotions;
   return <span data-testid="counts">{entry ? JSON.stringify({ total: entry.count, by: Object.fromEntries((entry.byProperty ?? []).map((item) => [item.propertyId, item.count])) }) : "none"}</span>;
 }
+function Cursors() {
+  const entry = useMenuUnseen().promotions;
+  return <span data-testid="cursors">{JSON.stringify(Object.fromEntries((entry?.byProperty ?? []).map((item) => [item.propertyId, item.lastSeenWatermark])))}</span>;
+}
+const cursors = () => JSON.parse(screen.getByTestId("cursors").textContent!) as Record<string, string>;
 const counts = () => JSON.parse(screen.getByTestId("counts").textContent!) as { total: number; by: Record<string, number> };
 
 const mount = () =>
@@ -80,6 +85,7 @@ const mount = () =>
       <MenuUnseenProvider>
         <Probe />
         <Counts />
+        <Cursors />
         <PromotionsScreen />
       </MenuUnseenProvider>
     </StaffSessionProvider>,
@@ -257,6 +263,69 @@ describe("Property switches, queues and late answers", () => {
     await act(async () => { late.resolve(items(A, "5")); await Promise.resolve(); });
     await flush();
     expect(sent()).toEqual([]);
+  });
+
+  // BHA-ADMIN-BADGE-001-PR10-C1 (1): the latest summary's membership is authoritative even when one row of it is a stale cursor.
+  it("a summary with a stale cursor for A that omits the revoked B keeps A's newer cursor, drops B, totals only A, and a late acknowledgement of B cannot bring B back", async () => {
+    const gateB = deferred<void>();
+    read.mockImplementation(((propertyId: string) => Promise.resolve(items(propertyId, propertyId === A ? "7" : "9"))) as never);
+    seenCall.mockImplementation((async (_menu: string, watermark: string, _signal: unknown, propertyId: string) => {
+      if (propertyId === B) await gateB.promise;
+      return ackAnswer(propertyId, watermark);
+    }) as never);
+    mount();
+    await waitFor(() => expect(sent()).toEqual(["promotions:7:pA"]));
+    await waitFor(() => expect(cursors().pA).toBe("7"));
+    await userEvent.selectOptions(await screen.findByTestId("promotion-property"), B);
+    await waitFor(() => expect(sent()).toEqual(["promotions:7:pA", "promotions:9:pB"]));   // B's acknowledgement is on the wire
+
+    summary.mockResolvedValue({ kind: "ok", data: { promotions: promotions(row(A, 2, "0", "10")) } } as never);   // issued before A's acknowledgement: A's cursor is stale; B was revoked
+    await hint();
+    await waitFor(() => expect(counts()).toEqual({ total: 0, by: { pA: 0 } }));            // B is gone and the total is A's own (A keeps its newer number)
+    expect(cursors()).toEqual({ pA: "7" });                                                  // A keeps its newer cursor
+
+    await act(async () => { gateB.resolve(); await Promise.resolve(); });
+    await flush();
+    expect(counts()).toEqual({ total: 0, by: { pA: 0 } });                                   // the late acknowledgement of B restored nothing
+    expect(cursors()).toEqual({ pA: "7" });
+  });
+
+  // (2): a list that answered before the first summary keeps its watermark; nothing is sent until the summary confirms the Property.
+  it("a list read that completes before the first summary keeps its watermark, sends nothing until the summary lists the Property, then sends exactly that watermark without a reload", async () => {
+    const first = deferred<unknown>();
+    summary.mockReset();
+    summary.mockReturnValueOnce(first.promise as never).mockImplementation((async () => ({ kind: "ok", data: { promotions: promotions(...server) } })) as never);
+    read.mockResolvedValue(items(A, "7") as never);
+    mount();
+    await screen.findByTestId("promotion-list");
+    await flush(200);
+    expect(sent()).toEqual([]);                                               // the summary has not confirmed the Property yet
+
+    await act(async () => { first.resolve({ kind: "ok", data: { promotions: promotions(row(A, 2, "0", "10"), row(B, 3)) } }); await Promise.resolve(); });
+    await waitFor(() => expect(sent()).toEqual(["promotions:7:pA"]));
+    await waitFor(() => expect(counts()).toEqual({ total: 3, by: { pA: 0, pB: 3 } }));   // the number follows the acknowledgement
+    expect(read).toHaveBeenCalledTimes(1);                                    // the screen was not reloaded
+    await flush();
+    expect(sent()).toEqual(["promotions:7:pA"]);
+  });
+
+  it("a Property the first summary does not list is never acknowledged, and a watermark waiting for Staff A is not sent for Staff B", async () => {
+    const first = deferred<unknown>();
+    summary.mockReset();
+    summary.mockReturnValueOnce(first.promise as never).mockImplementation((async () => ({ kind: "ok", data: { promotions: promotions(...server) } })) as never);
+    read.mockResolvedValueOnce(items(A, "7") as never);
+    mount();
+    await screen.findByTestId("promotion-list");
+    await flush(200);
+    expect(sent()).toEqual([]);
+
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: STAFF_B });
+    read.mockResolvedValue(items(A, "9") as never);
+    await act(async () => { await session!.refresh(); });
+    await waitFor(() => expect(sent()).toEqual(["promotions:9:pA"]));        // Staff B says its own watermark …
+    await act(async () => { first.resolve({ kind: "ok", data: { promotions: promotions(row(A, 2), row(B, 3)) } }); await Promise.resolve(); });
+    await flush(200);
+    expect(sent()).toEqual(["promotions:9:pA"]);                              // … and Staff A's old-life 7 is gone for good
   });
 
   it("a read started by Staff A that answers after Staff B took over is not used to acknowledge for B", async () => {

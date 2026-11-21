@@ -138,7 +138,30 @@ function isOlder(incoming: Known, before: Known): boolean {
   return same && incoming.seq < before.seq;
 }
 
+/**
+ * A Property-scoped entry (BHA-ADMIN-BADGE-001-PR10-C1): the latest successful summary's `byProperty` is the membership (a Property it omits is dropped, one it lists is kept), and each
+ * listed row is compared with the cached row of THE SAME Property only: the cached row stays when it is newer (an acknowledgement already moved its cursor), the incoming one wins otherwise.
+ * The published aggregate is the API's own `count` when every row came from the answer, and the sum of the rows that are shown when a cached row was kept: never a Property that is gone.
+ */
+function reconcileProperties(before: Known | undefined, entry: MenuUnseenEntry, seq: number): Known {
+  const rows = (entry.byProperty ?? []).map((row) => {
+    const cached = before?.entry.byProperty?.find((property) => property.propertyId === row.propertyId);
+    if (!before || !cached) return row;
+    const last = BigInt(row.lastSeenWatermark), current = BigInt(row.currentWatermark);
+    const cachedLast = BigInt(cached.lastSeenWatermark), cachedCurrent = BigInt(cached.currentWatermark);
+    const older = last < cachedLast || current < cachedCurrent || (last === cachedLast && current === cachedCurrent && seq < before.seq);
+    return older ? cached : row;
+  });
+  const fromAnswer = rows.every((row, index) => row === entry.byProperty?.[index]);
+  const merged: MenuUnseenEntry = { count: fromAnswer ? entry.count : rows.reduce((sum, row) => sum + row.count, 0), byProperty: rows };
+  return { entry: merged, marks: marksOf(merged), seq: before ? Math.max(before.seq, seq) : seq };
+}
+
 function offer(known: Map<string, Known>, key: string, entry: MenuUnseenEntry, seq: number) {
+  if (entry.byProperty) {
+    known.set(key, reconcileProperties(known.get(key), entry, seq));
+    return;
+  }
   const incoming: Known = { entry, marks: marksOf(entry), seq };
   const before = known.get(key);
   if (!before || !isOlder(incoming, before)) known.set(key, incoming);
@@ -289,9 +312,13 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
     if (!state) acks.current.set(key, (state = { inFlight: false, queued: null, menu, propertyId }));
     return state;
   };
-  /** Whether the latest answer lets this menu (and Property) be acknowledged. Before the first answer everything but a known-closed menu is tried, as before; the Newsletter never consulted it. */
+  /**
+   * Whether the latest answer lets this menu (and Property) be acknowledged. Before the first answer a global menu is tried, as before (the Newsletter never consulted it); a Property-scoped
+   * menu waits (BHA-ADMIN-BADGE-001-PR10-C1): only a summary of this life can say the Staff may still read that Property, and the waiting watermark is then sent through `seen`.
+   */
   const readable = (menu: SeenMenu, propertyId?: string): boolean => {
-    if (menu === "newsletter" || !allowed.current) return true;
+    if (menu === "newsletter") return true;
+    if (!allowed.current) return !isPropertyMenu(menu);
     if (!allowed.current.has(menu)) return false;
     return propertyId === undefined || (allowedProperties.current.get(menu)?.has(propertyId) ?? false);
   };
