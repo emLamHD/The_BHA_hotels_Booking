@@ -1,5 +1,7 @@
+using System.Data.Common;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
@@ -20,16 +22,55 @@ public sealed class NewsletterCutoverTests(PostgreSqlWebApplicationFactory facto
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(30);
 
     private readonly NewsletterSqlGate _gate = new();
+    private readonly CommandTimeoutProbe _probe = new();
+    private readonly CommitAnswerLost _lost = new();
 
-    private WebApplicationFactory<Program> Host() => Factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+    /// <summary>Records the ADO.NET timeout each real command carries when it is executed (the setting that is actually in force, not the one the code meant to set).</summary>
+    private sealed class CommandTimeoutProbe : DbCommandInterceptor
+    {
+        public readonly List<(string Sql, int Timeout)> Seen = [];
+
+        private void Note(DbCommand command) { lock (Seen) Seen.Add((command.CommandText, command.CommandTimeout)); }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            Note(command);
+            return ValueTask.FromResult(result);
+        }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            Note(command);
+            return ValueTask.FromResult(result);
+        }
+
+        public (string Sql, int Timeout)[] Of(string startsWith) { lock (Seen) return [.. Seen.Where(entry => entry.Sql.TrimStart().StartsWith(startsWith, StringComparison.Ordinal))]; }
+    }
+
+    /// <summary>
+    /// Simulates "PostgreSQL committed, the caller never got the answer": <c>TransactionCommitted</c> runs AFTER the server confirmed COMMIT, and throwing there makes <c>CommitAsync</c> fail in the caller
+    /// exactly as a connection lost on the way back would, while the row is really committed (a test reads it on its own connection).
+    /// </summary>
+    private sealed class CommitAnswerLost : DbTransactionInterceptor
+    {
+        public volatile Exception? Throw;
+
+        public override Task TransactionCommittedAsync(DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default) =>
+            Throw is { } exception ? Task.FromException(exception) : Task.CompletedTask;
+    }
+
+    private WebApplicationFactory<Program> Host(string? connectionString = null) => Factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
     {
         services.RemoveAll<DbContextOptions<TheBhaDbContext>>();
         services.AddDbContext<TheBhaDbContext>(options => options
-            .UseNpgsql(Factory.ConnectionString, npgsql => npgsql.MigrationsAssembly("TheBha.Infrastructure"))
-            .AddInterceptors(_gate));
+            .UseNpgsql(connectionString ?? Factory.ConnectionString, npgsql => npgsql.MigrationsAssembly("TheBha.Infrastructure"))
+            .AddInterceptors(_gate, _probe, _lost));
     }));
 
-    private async Task<WebApplicationFactory<Program>> StartAsync(int counter = 0, params (long Sequence, Guid Subscription, DateTimeOffset At)[] legacy)
+    private async Task<WebApplicationFactory<Program>> StartAsync(int counter = 0, params (long Sequence, Guid Subscription, DateTimeOffset At)[] legacy) =>
+        await StartWithAsync(null, counter, legacy);
+
+    private async Task<WebApplicationFactory<Program>> StartWithAsync(string? connectionString, int counter, params (long Sequence, Guid Subscription, DateTimeOffset At)[] legacy)
     {
         await Factory.ResetDatabaseAsync();
         Factory.Clock.UtcNow = T0;
@@ -38,7 +79,7 @@ public sealed class NewsletterCutoverTests(PostgreSqlWebApplicationFactory facto
         foreach (var (sequence, subscription, at) in legacy)
             await ExecAsync($"""INSERT INTO "NewsletterVerificationActivities" ("Sequence","SubscriptionId","OccurredAtUtc") VALUES ({sequence},'{subscription}','{at:O}')""");
         await ExecAsync($"""UPDATE "MenuActivityStreams" SET "LastSequence" = {Math.Max(counter, legacy.Length == 0 ? 0 : (int)legacy.Max(row => row.Sequence))} WHERE "MenuKey" = 'newsletter'""");
-        return Host();
+        return Host(connectionString);
     }
 
     private static Task<NewsletterCutoverResult> RunAsync(WebApplicationFactory<Program> host, TimeSpan? timeout = null) => Task.Run(async () =>
@@ -305,5 +346,147 @@ public sealed class NewsletterCutoverTests(PostgreSqlWebApplicationFactory facto
         await client.GetAsync("/health");
         Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "MenuActivityCutovers" """));
         Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" """));
+    }
+
+    // ---------------------------------------------------------------------------------------------------------- C1: command timeout
+
+    [Theory]
+    [InlineData(45)]
+    [InlineData(600)]
+    public async Task The_ADO_command_timeout_is_longer_than_the_lock_timeout_for_the_lock_and_the_counter_and_is_restored_afterwards(int lockSeconds)
+    {
+        var host = await StartAsync(0, (1, Sub(1), T0.AddDays(-1)));
+        await using var scope = host.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<TheBhaDbContext>();
+        context.Database.SetCommandTimeout(7);                                                                     // a value in use before the cutover: it must come back
+
+        var result = await scope.ServiceProvider.GetRequiredService<INewsletterActivityCutover>().RunAsync(TimeSpan.FromSeconds(lockSeconds), CancellationToken.None);
+
+        Assert.Equal(NewsletterCutoverStatus.Committed, result.Status);
+        var expected = lockSeconds + 30;                                                                           // the documented 30 s buffer
+        Assert.All(_probe.Of("LOCK TABLE"), entry => Assert.Equal(expected, entry.Timeout));
+        Assert.All(_probe.Of("SELECT \"LastSequence\""), entry => Assert.Equal(expected, entry.Timeout));        // SELECT … FOR UPDATE on the counter
+        Assert.Single(_probe.Of("LOCK TABLE"));
+        Assert.Single(_probe.Of("SELECT \"LastSequence\""));
+        Assert.All(_probe.Of("SET LOCAL lock_timeout"), entry => Assert.Equal(expected, entry.Timeout));
+        Assert.True(expected > lockSeconds);
+        Assert.Equal(7, context.Database.GetCommandTimeout());                                                     // restored for a context that is used again
+        await context.Database.ExecuteSqlRawAsync("SELECT 1");
+        Assert.Equal(7, _probe.Of("SELECT 1").Last().Timeout);
+    }
+
+    [Fact]
+    public async Task The_server_gives_up_first_with_55P03_even_when_the_application_default_command_timeout_is_shorter_than_the_lock_wait()
+    {
+        // The whole application runs with a 1 s command timeout here; the cutover asks for a 3 s lock wait. Without its own longer command timeout the CLIENT would cut the wait at 1 s (a transport
+        // error); with it the SERVER answers 55P03 at 3 s and the command reports LOCK TIMEOUT.
+        var connectionString = new NpgsqlConnectionStringBuilder(Factory.ConnectionString) { CommandTimeout = 1 }.ConnectionString;
+        var host = await StartWithAsync(connectionString, 1, (1, Sub(1), T0.AddDays(-1)));
+        await ExecAsync($"""INSERT INTO "NewsletterSubscriptions" ("Id","Email","Source","Status","ReceivedAtUtc","VerifiedAtUtc") VALUES ('{Sub(9)}','late@example.com','homepage','Verified',now(),now())""");
+        var (connection, transaction) = await InFlightWriterAsync(2, Sub(9), bumpCounter: false);
+        await using var _ = connection;
+        await using var __ = transaction;
+
+        var writer = new StringWriter();
+        var started = DateTime.UtcNow;
+        var exit = await NewsletterActivityCutoverCommand.RunAsync(
+            [NewsletterActivityCutoverCommand.Verb, "--expected-database", Factory.DatabaseName, NewsletterActivityCutoverCommand.ConfirmRetired, NewsletterActivityCutoverCommand.ConfirmNoStaff, "--lock-timeout-seconds", "3"],
+            host.Services, "Development", writer, CancellationToken.None);
+
+        Assert.Equal(RiversideDemoSeedCommand.Failure, exit);
+        Assert.Contains("LOCK TIMEOUT after 3s", writer.ToString(), StringComparison.Ordinal);
+        Assert.Contains("55P03", writer.ToString(), StringComparison.Ordinal);
+        Assert.True(DateTime.UtcNow - started >= TimeSpan.FromSeconds(2.5), "the lock wait was cut short by something other than the server's lock_timeout");
+        Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "MenuActivityCutovers" """));
+        Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" """));
+    }
+
+    // ---------------------------------------------------------------------------------------------------------- C1: an unknown COMMIT outcome
+
+    [Fact]
+    public async Task A_commit_that_PostgreSQL_made_but_whose_answer_was_lost_is_reported_UNKNOWN_and_a_run_again_finds_the_marker_and_changes_nothing()
+    {
+        var host = await StartAsync(0, (1, Sub(1), T0.AddDays(-1)), (2, Sub(2), T0.AddDays(-1)));
+        string[] args = [NewsletterActivityCutoverCommand.Verb, "--expected-database", Factory.DatabaseName, NewsletterActivityCutoverCommand.ConfirmRetired, NewsletterActivityCutoverCommand.ConfirmNoStaff];
+        async Task<(int, string)> Run()
+        {
+            var writer = new StringWriter();
+            return (await NewsletterActivityCutoverCommand.RunAsync(args, host.Services, "Production", writer, CancellationToken.None), writer.ToString());
+        }
+
+        _lost.Throw = new NpgsqlException("connection lost after COMMIT (test)", new IOException("broken pipe"));
+        var (exit, output) = await Run();
+        _lost.Throw = null;
+
+        Assert.Equal(NewsletterActivityCutoverCommand.OutcomeUnknown, exit);
+        Assert.NotEqual(RiversideDemoSeedCommand.Success, exit);
+        Assert.Contains("OUTCOME UNKNOWN", output, StringComparison.Ordinal);
+        Assert.Contains("does NOT retry", output, StringComparison.Ordinal);
+        Assert.Contains("MenuActivityCutovers", output, StringComparison.Ordinal);                                 // tells the operator what to check, on a new connection
+        Assert.DoesNotContain("COMMITTED", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("rolled back", output, StringComparison.OrdinalIgnoreCase);
+        // The simulation is faithful: the server really committed (read here on a separate connection).
+        Assert.Equal(1, await ScalarAsync<long>("""SELECT count(*) FROM "MenuActivityCutovers" """));
+        Assert.Equal(2, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" WHERE "MenuKey" = 'newsletter' """));
+        var marker = (await ScalarAsync<long>("""SELECT "LegacyMaxSequence" FROM "MenuActivityCutovers" """), await InstantAsync("""SELECT "CutoverAtUtc" FROM "MenuActivityCutovers" """));
+
+        Factory.Clock.UtcNow = T0.AddHours(5);
+        var (againExit, againOutput) = await Run();
+
+        Assert.Equal(RiversideDemoSeedCommand.Success, againExit);
+        Assert.Contains("ALREADY DONE", againOutput, StringComparison.Ordinal);
+        Assert.Equal(2, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" WHERE "MenuKey" = 'newsletter' """));      // nothing copied twice
+        Assert.Equal(marker, (await ScalarAsync<long>("""SELECT "LegacyMaxSequence" FROM "MenuActivityCutovers" """), await InstantAsync("""SELECT "CutoverAtUtc" FROM "MenuActivityCutovers" """)));
+    }
+
+    [Fact]
+    public async Task Every_way_the_COMMIT_answer_can_fail_to_arrive_is_unknown_never_committed_and_never_rolled_back()
+    {
+        foreach (Exception failure in new Exception[] { new NpgsqlException("lost", new IOException("reset")), new TimeoutException("commit timed out"), new OperationCanceledException("cancelled") })
+        {
+            var host = await StartAsync(0, (1, Sub(1), T0.AddDays(-1)));
+            _lost.Throw = failure;
+            NewsletterCutoverResult result;
+            try
+            {
+                result = await RunAsync(host);
+            }
+            finally
+            {
+                _lost.Throw = null;
+            }
+
+            Assert.Equal(new NewsletterCutoverResult(NewsletterCutoverStatus.OutcomeUnknown, null, null, 0), result);
+            Assert.Equal(1, await ScalarAsync<long>("""SELECT count(*) FROM "MenuActivityCutovers" """));            // it did commit; the status makes no claim either way
+        }
+    }
+
+    [Fact]
+    public async Task A_rollback_the_server_confirmed_is_reported_as_not_committed_with_its_SQLSTATE_and_never_as_unknown()
+    {
+        var host = await StartAsync(0, (1, Sub(1), T0.AddDays(-1)));
+        await ExecAsync(
+            """
+            CREATE FUNCTION "test_refuse_marker"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'marker refused (test)'; END $$;
+            CREATE TRIGGER "test_refuse_marker" BEFORE INSERT ON "MenuActivityCutovers" FOR EACH ROW EXECUTE FUNCTION "test_refuse_marker"();
+            """);
+        try
+        {
+            var writer = new StringWriter();
+            var exit = await NewsletterActivityCutoverCommand.RunAsync(
+                [NewsletterActivityCutoverCommand.Verb, "--expected-database", Factory.DatabaseName, NewsletterActivityCutoverCommand.ConfirmRetired, NewsletterActivityCutoverCommand.ConfirmNoStaff],
+                host.Services, "Development", writer, CancellationToken.None);
+
+            Assert.Equal(RiversideDemoSeedCommand.Failure, exit);
+            Assert.Contains("SQLSTATE P0001", writer.ToString(), StringComparison.Ordinal);
+            Assert.Contains("was not committed", writer.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("OUTCOME UNKNOWN", writer.ToString(), StringComparison.Ordinal);
+            Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "MenuActivityCutovers" """));
+            Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" """));
+        }
+        finally
+        {
+            await ExecAsync("""DROP TRIGGER "test_refuse_marker" ON "MenuActivityCutovers"; DROP FUNCTION "test_refuse_marker"();""");
+        }
     }
 }

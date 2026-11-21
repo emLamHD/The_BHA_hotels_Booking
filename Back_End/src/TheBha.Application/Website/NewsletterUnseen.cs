@@ -46,7 +46,12 @@ public enum NewsletterCutoverStatus
     /// <summary><c>AdminActivities</c> already holds Newsletter rows but there is no marker: an inconsistent state, never merged. Nothing was written.</summary>
     SharedRowsWithoutMarker,
     /// <summary>The table lock (or the counter) was not granted within the timeout. Nothing was written; run it again later.</summary>
-    LockTimeout
+    LockTimeout,
+    /// <summary>
+    /// COMMIT was requested but its answer never arrived (connection lost, timeout, cancellation): the cutover may or may not have committed. Neither a commit nor a rollback is claimed; check the marker
+    /// on a new connection or run the same, idempotent command again.
+    /// </summary>
+    OutcomeUnknown
 }
 
 /// <summary>The outcome of one cutover run. The marker values are the ones now in the database (new, or the existing ones); both are null when no marker exists.</summary>

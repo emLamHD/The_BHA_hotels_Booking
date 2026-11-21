@@ -48,9 +48,11 @@ public sealed class NewsletterCutoverMigrationTests : IAsyncLifetime
         Assert.Equal(3, await ScalarAsync<long>("""SELECT "LastSequence" FROM "MenuActivityStreams" WHERE "MenuKey" = 'newsletter' """));
         Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "MenuActivityCutovers" """));
         Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" """));
+        // The explicit primary key, foreign key and CHECK only: PostgreSQL 18 also lists each NOT NULL column in pg_constraint (contype 'n', e.g. MenuActivityCutovers_CutoverAtUtc_not_null), PostgreSQL 17 does not.
+        // Filtering by type, not by a name suffix, keeps this failing if one of the three is missing or renamed; the columns' nullability is asserted separately below.
         Assert.Equal(
             ["CK_MenuActivityCutovers_LegacyMaxSequence", "FK_MenuActivityCutovers_MenuActivityStreams_MenuKey", "PK_MenuActivityCutovers"],
-            (await QueryAsync("""SELECT conname FROM pg_constraint WHERE conrelid = '"MenuActivityCutovers"'::regclass """)).Order(StringComparer.Ordinal).ToArray());
+            (await QueryAsync("""SELECT conname FROM pg_constraint WHERE conrelid = '"MenuActivityCutovers"'::regclass AND contype IN ('p', 'f', 'c') """)).Order(StringComparer.Ordinal).ToArray());
         Assert.Equal(
             ["CutoverAtUtc:timestamp with time zone:NO", "LegacyMaxSequence:bigint:NO", "MenuKey:character varying:NO"],
             (await QueryAsync("""SELECT column_name || ':' || data_type || ':' || is_nullable FROM information_schema.columns WHERE table_name = 'MenuActivityCutovers' """)).Order(StringComparer.Ordinal).ToArray());

@@ -22,6 +22,9 @@ public static class NewsletterActivityCutoverCommand
     public const string ConfirmRetired = "--confirm-older-api-retired";
     public const string ConfirmNoStaff = "--confirm-no-staff-creation";
 
+    /// <summary>COMMIT was requested and its answer never arrived: the cutover may or may not have committed. Distinct from every other code so a script never treats it as success or as a safe failure.</summary>
+    public const int OutcomeUnknown = 5;
+
     private const int DefaultLockTimeoutSeconds = 30, MaxLockTimeoutSeconds = 600;
 
     public static bool IsCommand(string[] args) => args.Contains(Verb, StringComparer.Ordinal);
@@ -65,14 +68,24 @@ public static class NewsletterActivityCutoverCommand
                 case NewsletterCutoverStatus.SharedRowsWithoutMarker:
                     output.WriteLine("newsletter-cutover: ABORTED — AdminActivities already holds 'newsletter' rows but there is no marker. That state is never merged; nothing was written.");
                     return RiversideDemoSeedCommand.Conflict;
+                case NewsletterCutoverStatus.OutcomeUnknown:
+                    output.WriteLine("newsletter-cutover: OUTCOME UNKNOWN — COMMIT was requested but its answer was not received, so the cutover may or may not have committed. This command does NOT retry on its own.");
+                    output.WriteLine("newsletter-cutover: Check on a NEW connection to this same database: SELECT * FROM \"MenuActivityCutovers\" WHERE \"MenuKey\" = 'newsletter'; one row means it committed (the copy is in AdminActivities), no row means it did not. Or run the same command again: it is idempotent (ALREADY DONE if it committed).");
+                    return OutcomeUnknown;
                 default:
-                    output.WriteLine($"newsletter-cutover: LOCK TIMEOUT after {timeoutSeconds}s — nothing was copied and no marker was written; legacy stays the source. Run it again later.");
+                    output.WriteLine($"newsletter-cutover: LOCK TIMEOUT after {timeoutSeconds}s — the server answered 55P03 before any COMMIT, so nothing was copied and no marker was written; legacy stays the source. Run it again later.");
                     return RiversideDemoSeedCommand.Failure;
             }
         }
+        catch (PostgresException exception)
+        {
+            output.WriteLine($"newsletter-cutover: failed — the server answered with an error (SQLSTATE {exception.SqlState}), so this transaction was not committed: no marker and no copied row come from this run. It is safe to run again.");
+            return RiversideDemoSeedCommand.Failure;
+        }
         catch (Exception exception) when (exception is DbUpdateException or NpgsqlException or InvalidOperationException)
         {
-            output.WriteLine($"newsletter-cutover: failed ({exception.GetType().Name}); the transaction rolled back, so no marker and no copied row exist. It is safe to run again.");
+            // Only exceptions that happened BEFORE a COMMIT was requested reach here (the operation reports a lost COMMIT answer as OUTCOME UNKNOWN). Nothing is said about a rollback this process cannot see.
+            output.WriteLine($"newsletter-cutover: failed ({exception.GetType().Name}) before COMMIT was requested, so this run committed nothing. Check the marker on a new connection or run the same command again (it is idempotent).");
             return RiversideDemoSeedCommand.Failure;
         }
     }

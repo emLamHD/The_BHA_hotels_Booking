@@ -15,11 +15,33 @@ internal sealed class NewsletterActivityCutover(TheBhaDbContext database, TimePr
 {
     private const string Key = MenuActivityStream.Newsletter;
 
+    /// <summary>
+    /// How much longer the ADO.NET command timeout is than the PostgreSQL <c>lock_timeout</c> asked for, so the SERVER always gives up first and answers 55P03; a client timeout shorter than the lock
+    /// wait would cut the connection while the server still waits and the operator would see a transport failure instead of a lock timeout.
+    /// </summary>
+    internal const int CommandTimeoutBufferSeconds = 30;
+
     public async Task<NewsletterCutoverResult> RunAsync(TimeSpan lockTimeout, CancellationToken cancellationToken)
     {
         if (lockTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(lockTimeout), "The lock timeout must be positive (0 would wait forever).");
+        // Scoped to this operation: the application-wide default (30 s) stays what it is, and a context that is used again afterwards gets its own value back.
+        var previous = database.Database.GetCommandTimeout();
+        database.Database.SetCommandTimeout((int)Math.Ceiling(lockTimeout.TotalSeconds) + CommandTimeoutBufferSeconds);
+        try
+        {
+            return await RunCoreAsync(lockTimeout, cancellationToken);
+        }
+        finally
+        {
+            database.Database.SetCommandTimeout(previous);
+        }
+    }
+
+    private async Task<NewsletterCutoverResult> RunCoreAsync(TimeSpan lockTimeout, CancellationToken cancellationToken)
+    {
         // READ COMMITTED: each statement below sees what committed before it started, which is exactly what the table lock guarantees to be final for the legacy table.
-        await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+        var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+        var commitRequested = false;
         try
         {
             var milliseconds = (long)Math.Ceiling(lockTimeout.TotalMilliseconds);
@@ -62,13 +84,32 @@ internal sealed class NewsletterActivityCutover(TheBhaDbContext database, TimePr
             await database.Database.ExecuteSqlInterpolatedAsync(
                 $"""INSERT INTO "MenuActivityCutovers" ("MenuKey", "LegacyMaxSequence", "CutoverAtUtc") VALUES ({Key}, {legacyMax[0]}, {now}) ON CONFLICT ("MenuKey") DO NOTHING""",
                 cancellationToken);
+            commitRequested = true;
             await transaction.CommitAsync(cancellationToken);
+            // Only here has PostgreSQL confirmed the commit.
             return new NewsletterCutoverResult(NewsletterCutoverStatus.Committed, legacyMax[0], now, copied);
         }
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.LockNotAvailable)
         {
-            // lock_timeout: the dispose of the transaction below rolls everything back; legacy stays the source.
+            // lock_timeout: the server answered 55P03 before any COMMIT was requested, so nothing was written; legacy stays the source.
             return new NewsletterCutoverResult(NewsletterCutoverStatus.LockTimeout, null, null, 0);
+        }
+        catch (Exception exception) when (commitRequested && exception is not PostgresException)
+        {
+            // COMMIT was requested and the caller got no answer (a lost connection, a timeout, a cancellation): the server may have committed. A PostgresException is excluded on purpose: an error
+            // answer to COMMIT means the server did NOT commit. Nothing is claimed either way; the command is idempotent, so the operator checks the marker or runs it again.
+            return new NewsletterCutoverResult(NewsletterCutoverStatus.OutcomeUnknown, null, null, 0);
+        }
+        finally
+        {
+            try
+            {
+                await transaction.DisposeAsync();
+            }
+            catch (Exception) when (commitRequested)
+            {
+                // The connection is already gone; the outcome was decided above.
+            }
         }
     }
 
