@@ -537,6 +537,32 @@ public sealed class WebsiteActivityApiTests(PostgreSqlWebApplicationFactory fact
         Assert.Equal([AdminMenuKeys.WebsiteMenus], probe.Hints.ToArray());
     }
 
+    /// <summary>The disconnect has its own transaction (an epoch-guarded UPDATE, then the event): a recorder that fails after the counter moved undoes the UPDATE too. Google's revoke is made before it and is outside the rollback.</summary>
+    [Fact]
+    public async Task A_failing_recorder_rolls_back_a_disconnect_while_Googles_revoke_already_happened()
+    {
+        var probe = new Probe();
+        using var e = await BeginAsync(probe);
+        var (state, _) = await BeginConnectAsync(e);
+        await OkAsync(e.Site.PostAsync($"{Root}/newsletter-sender/connect/complete", new { state, code = "auth-code-1", error = (string?)null }));
+        var sender = () => ScalarAsync<string>("""SELECT "ProtectedRefreshToken" || '|' || "Status" || '|' || "Version" || '|' || "ConnectionEpoch" FROM "NewsletterSenderSettings" """);
+        var before = (Sender: await sender(), Counter: await CounterAsync(AdminMenuKeys.NewsletterSender), Actions: (await RowsAsync(AdminMenuKeys.NewsletterSender)).Select(r => r.Action).ToArray(), Hints: probe.Hints.ToArray());
+        Assert.Contains("|Connected|", before.Sender, StringComparison.Ordinal); // a non-null token (the concatenation is NULL otherwise) and a connected status
+        Assert.Equal(["Connected"], before.Actions);
+        Assert.Empty(e.Google.Of("/revoke"));
+
+        probe.FailRecorder = true;
+        var answer = await e.Site.PostAsync($"{Root}/newsletter-sender/disconnect", new { });
+        probe.FailRecorder = false;
+
+        Assert.Equal(HttpStatusCode.InternalServerError, answer.StatusCode);
+        Assert.Single(e.Google.Of("/revoke")); // Google was told before the local transaction, and nothing takes that back
+        Assert.Equal(before.Sender, await sender()); // token, status, version and epoch: exactly as before the request
+        Assert.Equal(before.Counter, await CounterAsync(AdminMenuKeys.NewsletterSender));
+        Assert.Equal(before.Actions, (await RowsAsync(AdminMenuKeys.NewsletterSender)).Select(r => r.Action).ToArray());
+        Assert.Equal(before.Hints, probe.Hints.ToArray());
+    }
+
     [Fact]
     public async Task A_picture_whose_commit_answer_is_lost_keeps_its_file_its_row_and_its_event()
     {
