@@ -298,7 +298,8 @@ public sealed class AdminOperationalBlocksController(
                 propertyId,
                 request.Reason.Trim(),
                 actorReference,
-                [new BlockSegmentSpec(request.PhysicalRoomId, request.StartDate, request.EndDate)]),
+                [new BlockSegmentSpec(request.PhysicalRoomId, request.StartDate, request.EndDate)],
+                ActorStaffId(propertyId)),
             cancellationToken);
 
         return result.Status switch
@@ -367,7 +368,8 @@ public sealed class AdminOperationalBlocksController(
                 propertyId,
                 [new BlockSegmentSupersession(segmentId, request.ExpectedVersion, [])],
                 actorReference,
-                reason),
+                reason,
+                ActorStaffId(propertyId)),
             cancellationToken);
 
         return result.Status switch
@@ -435,7 +437,8 @@ public sealed class AdminOperationalBlocksController(
                 request.ExpectedVersion,
                 request.DestinationPhysicalRoomId,
                 actorReference,
-                reason),
+                reason,
+                ActorStaffId(propertyId)),
             cancellationToken);
 
         return result.Status switch
@@ -461,6 +464,10 @@ public sealed class AdminOperationalBlocksController(
     /// PMS-ADMIN-AUTH-001-CP05: the local constant in LocalGate; in Staff mode the verified Staff
     /// actor for this Property, or <c>null</c> (a refusal, never a fallback to the local actor).
     /// </summary>
+    /// <summary>BHA-ADMIN-BADGE-001-PR12: the verified Staff id, in Staff mode only (LocalGate passes <c>null</c>: no activity, no invented actor).</summary>
+    private Guid? ActorStaffId(Guid propertyId) =>
+        access.Mode == AdminCalendarAccessMode.Staff ? StaffCalendarWriteContext.For(HttpContext, propertyId)?.StaffId : null;
+
     private string? ResolveActor(Guid propertyId) =>
         access.Mode != AdminCalendarAccessMode.Staff
             ? LocalActorReference

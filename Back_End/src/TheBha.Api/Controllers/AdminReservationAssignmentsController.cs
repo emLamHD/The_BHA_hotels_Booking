@@ -328,7 +328,8 @@ public sealed class AdminReservationAssignmentsController(
                 new AssignmentDestination(request.PhysicalRoomId, request.StartDate, request.EndDate),
                 actorReference,
                 evidence,
-                reason),
+                reason,
+                ActorStaffId(propertyId)),
             cancellationToken);
 
         return result.Status switch
@@ -410,7 +411,8 @@ public sealed class AdminReservationAssignmentsController(
                 ],
                 actorReference,
                 evidence,
-                reason),
+                reason,
+                ActorStaffId(propertyId)),
             cancellationToken);
 
         return MapSupersedeResult(result);
@@ -450,7 +452,8 @@ public sealed class AdminReservationAssignmentsController(
                 [new AssignmentSupersession(segmentId, request.ExpectedVersion, [])],
                 actorReference,
                 null,
-                reason),
+                reason,
+                ActorStaffId(propertyId)),
             cancellationToken);
 
         return MapSupersedeResult(result);
@@ -496,7 +499,8 @@ public sealed class AdminReservationAssignmentsController(
                 request.DestinationPhysicalRoomId,
                 actorReference,
                 evidence,
-                reason),
+                reason,
+                ActorStaffId(propertyId)),
             cancellationToken);
 
         return MapSupersedeResult(result);
@@ -535,6 +539,13 @@ public sealed class AdminReservationAssignmentsController(
         evidence = confirmCrossRoomType ? staff.CrossRoomTypeEvidence : null;
         return true;
     }
+
+    /// <summary>
+    /// BHA-ADMIN-BADGE-001-PR12: the verified Staff id for this Property, in Staff mode only. LocalGate (and any caller outside a Staff session) passes <c>null</c>, which records no activity:
+    /// no Staff actor is ever invented, and no request field can name one.
+    /// </summary>
+    private Guid? ActorStaffId(Guid propertyId) =>
+        access.Mode == AdminCalendarAccessMode.Staff ? StaffCalendarWriteContext.For(HttpContext, propertyId)?.StaffId : null;
 
     /// <summary>
     /// The status mapping <see cref="Move"/>, <see cref="Unassign"/> and <see cref="SplitMove"/> share —

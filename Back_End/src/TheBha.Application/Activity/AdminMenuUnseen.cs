@@ -58,7 +58,10 @@ public sealed record ActivityActor(string Kind, Guid? StaffId);
 
 /// <summary>One group of the unseen list: one actor and one object (Calendar: one object, several actors). <see cref="Events"/> counts logical events, the number the badge uses.</summary>
 public sealed record UnseenGroup(
-    string EntityKind, string EntityKey, string TitleSnapshot, string Action, int Events, int ItemCount, string LatestWatermark, DateTimeOffset OccurredAtUtc, IReadOnlyList<ActivityActor> Actors);
+    string EntityKind, string EntityKey, string TitleSnapshot, string Action, int Events, int ItemCount, string LatestWatermark, DateTimeOffset OccurredAtUtc, IReadOnlyList<ActivityActor> Actors,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? EntityId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Presence = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ObservedWatermark = null);
 
 /// <summary><see cref="UnseenEvents"/> is the exact total after the badge's own filters (unread objects for Calendar), whatever the 50-group window shows. Read from one snapshot; nothing is written.</summary>
 public sealed record MenuChanges(string Menu, Guid? PropertyId, int UnseenEvents, bool HasMore, string LastSeenWatermark, string SnapshotWatermark, IReadOnlyList<UnseenGroup> Groups);
@@ -70,6 +73,34 @@ public sealed record ActivityPage(string Menu, Guid? PropertyId, IReadOnlyList<A
 
 /// <summary>Everything is the raw text of the request: the service validates it AFTER it knows the Staff member may read the menu, so a refusal never tells a forbidden menu from an unknown one.</summary>
 public sealed record ActivityQuery(string? Menu, string? PropertyId, string? ActorStaffId, string? From, string? To, string? Limit, string? Cursor);
+
+/// <summary>
+/// ADR 0011 §D: the identity of a Calendar bar is the OBJECT, never a segment (moves and splits create new segment ids). Only these two kinds exist; a kind that is not here has no activity.
+/// </summary>
+public static class CalendarEntityKinds
+{
+    public const string ReservationUnit = "reservation-unit";
+    public const string RoomBlock = "room-block";
+
+    public static bool IsKnown(string? kind) => kind is ReservationUnit or RoomBlock;
+}
+
+/// <summary>
+/// Calendar list <c>presence</c> (decision D1), from the business state and never from the date window: a unit is <see cref="OnBoard"/> while it is Committed, a block while one of its segments is
+/// Effective. A move, a split or an unassign keeps the object on the board even though its old segment is gone.
+/// </summary>
+public static class CalendarPresence
+{
+    public const string OnBoard = "OnBoard";
+    public const string Removed = "Removed";
+}
+
+/// <summary>
+/// The answer of <c>POST menu-unseen/calendar/entities/seen</c> (200): the object's cursor after the move (<see cref="LastSeenWatermark"/>, never lower than before), whether a newer event of
+/// another person keeps it <see cref="Unread"/>, and the Property's Calendar badge after the move (<see cref="Count"/> unread objects, <see cref="CurrentWatermark"/> the counter), so a screen
+/// can update the badge without a second request. Watermarks are decimal strings.
+/// </summary>
+public sealed record CalendarEntitySeen(Guid PropertyId, string EntityKind, string EntityId, string LastSeenWatermark, bool Unread, int Count, string CurrentWatermark);
 
 public enum AdminMenuStatus { Succeeded, UnknownMenu, InvalidWatermark, InvalidProperty, UseEntitySeen, InvalidQuery }
 
@@ -89,6 +120,13 @@ public interface IAdminMenuUnseen
     Task<AdminMenuResult<MenuUnseenEntry>> MarkSeenAsync(Guid staffId, string menu, string? propertyId, string viewWatermark, CancellationToken cancellationToken);
 
     Task<AdminMenuResult<ActivityPage>> GetActivityAsync(Guid staffId, ActivityQuery query, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves the cursor of exactly one Calendar object of one Property up to <paramref name="observedWatermark"/> (never down, never above the counter). The Property must be one the Staff member
+    /// may read (<c>BoardRead</c>) and the object must have activity in that Property at the moment of the write; otherwise <see cref="AdminMenuStatus.UnknownMenu"/> (the one 404).
+    /// </summary>
+    Task<AdminMenuResult<CalendarEntitySeen>> MarkEntitySeenAsync(
+        Guid staffId, string? propertyId, string? entityKind, string? entityId, string observedWatermark, CancellationToken cancellationToken);
 }
 
 /// <summary>A connected Staff account, as the database sees it now. <see cref="CanRead"/> says whether it may read the menu (and Property) asked about.</summary>
