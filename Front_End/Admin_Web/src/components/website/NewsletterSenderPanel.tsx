@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { getNewsletterSender, saveNewsletterSenderProfile, startNewsletterConnect, disconnectNewsletterSender, type NewsletterSender } from "@/lib/api/website";
-import { useWebsiteList, useWriteAction } from "./useWebsiteData";
+import { useWriteAction } from "./useWebsiteData";
+import { useAckOnRead, useMarkedList } from "./useMarkedList";
 import { SENDER_CODE_TEXT, SENDER_STATUS_TEXT } from "./newsletterSenderWording";
 import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, TextField, WriteFeedback, formatWhen } from "./WebsiteUi";
 
@@ -13,7 +14,8 @@ import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, TextField, 
  * "keep the stored one". Connecting sends the browser to Google; Google returns it to `/website/newsletter/sender/callback`.
  */
 export default function NewsletterSenderPanel() {
-  const list = useWebsiteList(getNewsletterSender, []);
+  const list = useMarkedList(getNewsletterSender, [], (data) => data.viewWatermark);
+  useAckOnRead("newsletter-sender", list.mark);
   if (list.state.status === "loading") return <LoadingPanel what="cấu hình email gửi" />;
   if (list.state.status === "error") return <ErrorPanel message={list.state.message} onRetry={() => void list.reload()} />;
   return <Editor initial={list.state.data} reload={list.reload} />;

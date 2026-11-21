@@ -24,7 +24,8 @@ import { newId } from "@/lib/website/menuModel";
 import { refusalText } from "@/lib/website/wording";
 import { useLeaveGuard } from "./useLeaveGuard";
 import { useWebsiteHost } from "./WebsiteAccessGate";
-import { useWebsiteList, useWriteAction } from "./useWebsiteData";
+import { useWriteAction } from "./useWebsiteData";
+import { useAckOnRead, useMarkedList } from "./useMarkedList";
 import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, TextField, WriteFeedback, formatWhen } from "./WebsiteUi";
 
 const PANEL = "rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]";
@@ -63,7 +64,8 @@ const SHARED_LABELS: Record<SharedField, string> = {
 };
 
 export default function HeroPanel() {
-  const { state, reload } = useWebsiteList(getHero, []);
+  const { state, reload, mark } = useMarkedList(getHero, [], (data) => data.viewWatermark);
+  useAckOnRead("website-hero", mark);
   // Once the screen has a hero it keeps its draft even if a later read fails: the draft is the operator's work.
   const [held, setHeld] = useState<WebsiteHero | null>(null);
   if (held === null && state.status === "ready") setHeld(state.data);

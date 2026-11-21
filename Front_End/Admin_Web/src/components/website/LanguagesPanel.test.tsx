@@ -17,6 +17,8 @@ vi.mock("@/lib/api/staff", async (importOriginal) => ({
 vi.mock("@/lib/api/website", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/website")>()),
   listLanguages: vi.fn(),
+  readLanguages: vi.fn(),
+  readLibraryPacks: vi.fn(),
   listCurrencies: vi.fn(),
   createLanguage: vi.fn(),
   updateLanguage: vi.fn(),
@@ -28,9 +30,9 @@ vi.mock("@/lib/api/website", async (importOriginal) => ({
 vi.mock("@/lib/website/download", () => ({ downloadText: vi.fn() }));
 
 import LanguagesPanel from "./LanguagesPanel";
-import { ALLOWED, btn, currency, deferred, lang, ok, renderInGate, VND } from "./websiteTestUtils";
+import { ALLOWED, btn, currency, deferred, lang, ok, readOf, renderInGate, VND } from "./websiteTestUtils";
 import { fetchStaffSession } from "@/lib/api/staff";
-import { createLanguage, deleteLanguage, exportPack, listCurrencies, listLanguages, listLibraryPacks, setDefaultLanguage, updateLanguage } from "@/lib/api/website";
+import { createLanguage, deleteLanguage, exportPack, listCurrencies, listLanguages, listLibraryPacks, readLanguages, readLibraryPacks, setDefaultLanguage, updateLanguage } from "@/lib/api/website";
 import { downloadText } from "@/lib/website/download";
 
 const list = vi.mocked(listLanguages);
@@ -60,6 +62,8 @@ beforeEach(() => {
   list.mockResolvedValue(ok([VI, FR_INCOMPLETE, EN]));
   currencies.mockResolvedValue(ok([VND, USD]));
   library.mockResolvedValue(ok([]));
+  vi.mocked(readLanguages).mockImplementation(readOf(list) as never);
+  vi.mocked(readLibraryPacks).mockImplementation(readOf(library) as never);
 });
 afterEach(cleanup);
 

@@ -16,7 +16,7 @@ import { STATUS_LABEL, STATUS_TONE } from "@/lib/blog/blogModel";
 import { StaffImage } from "./useStaffImage";
 import { useBlogRights } from "./BlogAccessGate";
 import { useActiveLanguages } from "./useBlogReference";
-import { useAckOnRead, useMarkedList } from "./useMarkedList";
+import { useAckOnRead, useMarkedList } from "@/components/website/useMarkedList";
 
 const PAGE_SIZE = 20;
 const TONE: Record<string, string> = {

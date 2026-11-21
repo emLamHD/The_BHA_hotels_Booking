@@ -18,7 +18,8 @@ import {
   deleteLanguage,
   exportPack,
   listCurrencies,
-  listLanguages,
+  readLanguages,
+  readLibraryPacks,
   setDefaultLanguage,
   updateLanguage,
   type LanguageInput,
@@ -29,6 +30,7 @@ import { downloadText } from "@/lib/website/download";
 import { percent, refusalText } from "@/lib/website/wording";
 import { useWebsiteHost } from "./WebsiteAccessGate";
 import { describeFailure, useWebsiteList, useWriteAction } from "./useWebsiteData";
+import { lowestMark, useAckOnRead, useMarkedList } from "./useMarkedList";
 import LanguagePackDialog from "./LanguagePackDialog";
 import { ActionButton, Banner, DialogActions, DialogShell, ErrorPanel, LoadingPanel, PageHeader, TextField, WriteFeedback, formatWhen } from "./WebsiteUi";
 
@@ -47,7 +49,15 @@ const SECONDARY_LINK =
 
 export default function LanguagesPanel() {
   const host = useWebsiteHost();
-  const { state, reload } = useWebsiteList(listLanguages, []);
+  const list = useMarkedList(readLanguages, [], (data) => data.viewWatermark);
+  // BHA-ADMIN-BADGE-001-PR09: `website-languages` is one stream behind two reads (the cards and the pack library the "add a language" dialog offers), so the screen waits for both and says the
+  // LOWER watermark. The dialog's own library read is a picker and never says "seen"; the currency lookup below is `website-currencies` and never counts.
+  const library = useMarkedList(readLibraryPacks, [], (data) => data.viewWatermark);
+  useAckOnRead("website-languages", list.mark && library.mark ? lowestMark(list.mark, library.mark) : null);
+  const { state, reload: reloadList } = list;
+  const reloadLibrary = library.reload;
+  // A reload reads BOTH again (a pack applied or a card changed moves both snapshots), so the screen's mark advances with it; it answers with the cards, as its callers expect.
+  const reload = useCallback(async () => (await Promise.all([reloadList(), reloadLibrary()]))[0]?.items ?? null, [reloadList, reloadLibrary]);
   const currencies = useWebsiteList(listCurrencies, []);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -55,7 +65,7 @@ export default function LanguagesPanel() {
   const [exporting, setExporting] = useState<string | null>(null);
   const toggle = useWriteAction();
 
-  const languages = state.status === "ready" ? state.data : null;
+  const languages = state.status === "ready" ? state.data.items : null;
   const activeCurrencies = currencies.state.status === "ready" ? currencies.state.data.filter((currency) => currency.isActive) : [];
   const open = useCallback((next: Dialog) => {
     setNotice(null);

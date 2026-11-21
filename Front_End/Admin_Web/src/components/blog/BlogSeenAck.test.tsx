@@ -29,7 +29,7 @@ import MediaLibraryScreen from "./MediaLibraryScreen";
 import MediaPickerDialog from "./MediaPickerDialog";
 import SettingsScreen from "./SettingsScreen";
 import BlogAccessGate from "./BlogAccessGate";
-import { lowestMark, type ReadMark } from "./useMarkedList";
+import { lowestMark, type ReadMark } from "@/components/website/useMarkedList";
 import { ACK_RETRY_MS, BADGE_COALESCE_MS, MenuUnseenProvider, useMenuSeen, useMenuUnseen } from "@/components/website/NewsletterBadgeProvider";
 import { StaffSessionProvider, useStaffSession } from "@/components/auth/StaffSession";
 import { BOTH, deferred, ok } from "./blogTestUtils";

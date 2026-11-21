@@ -78,6 +78,8 @@ export interface WebsiteTranslationList {
   pageSize: number;
   facets: { required: number; translated: number; missing: number; outdated: number; manual: number; scopes: FacetCount[]; groups: FacetCount[] };
   rows: WebsiteTranslationRow[];
+  /** BHA-ADMIN-BADGE-001-PR09: the answer's own `viewWatermark` (canonical decimal string) when the server sent a valid one; never a number. Absent = nothing to acknowledge. */
+  viewWatermark?: string;
 }
 
 export interface WebsiteCurrency {
@@ -192,6 +194,8 @@ export interface WebsiteMenu {
   locales: MenuLocale[];
   /** In tree order: the main row first, each entry followed by its sub-entries. */
   items: MenuItem[];
+  /** BHA-ADMIN-BADGE-001-PR09: the answer's own `viewWatermark` (canonical decimal string) when the server sent a valid one; never a number. Absent = nothing to acknowledge. */
+  viewWatermark?: string;
 }
 
 // ---------------------------------------------------------------- the home page hero (CUST-WEB-HERO-001-CP01)
@@ -244,6 +248,8 @@ export interface WebsiteHero {
   slides: HeroSlide[];
   /** Every picture the site has ever recorded, newest first (built-in ones last). */
   media: HeroMedia[];
+  /** BHA-ADMIN-BADGE-001-PR09: the answer's own `viewWatermark` (canonical decimal string) when the server sent a valid one; never a number. Absent = nothing to acknowledge. */
+  viewWatermark?: string;
 }
 
 export interface WebsiteSocialSettings {
@@ -258,6 +264,8 @@ export interface WebsiteSocialSettings {
   zaloNumber: string | null;
   zaloUrl: string | null;
   backToTopEnabled: boolean;
+  /** BHA-ADMIN-BADGE-001-PR09: the answer's own `viewWatermark` (canonical decimal string) when the server sent a valid one; never a number. Absent = nothing to acknowledge. */
+  viewWatermark?: string;
 }
 
 export type WebsiteFailure =
@@ -357,6 +365,12 @@ export function parseTranslationRow(data: unknown): WebsiteTranslationRow | null
   };
 }
 
+/** A watermark as the API writes it: a plain non-negative integer in decimal, no sign, no leading zero. Anything else is not one. */
+export const isWatermark = (value: unknown): value is string => typeof value === "string" && /^(0|[1-9][0-9]*)$/.test(value);
+
+/** The watermark field only when it is a canonical decimal string: a missing or malformed one never makes an otherwise good answer unreadable (it only means "do not acknowledge"). */
+export const markOf = (value: unknown): { viewWatermark?: string } => (isWatermark(value) ? { viewWatermark: value } : {});
+
 const parseFacet = (data: unknown): FacetCount | null => (isRec(data) && isStr(data.name) && isNum(data.count) ? { name: data.name, count: data.count } : null);
 
 export function parseTranslationList(data: unknown): WebsiteTranslationList | null {
@@ -377,7 +391,7 @@ export function parseTranslationList(data: unknown): WebsiteTranslationList | nu
     locale: data.locale, referenceLocale: data.referenceLocale, defaultLocale: data.defaultLocale, isDefaultLocale: data.isDefaultLocale,
     total: data.total, page: data.page, pageSize: data.pageSize,
     facets: { required: facets.required, translated: facets.translated, missing: facets.missing, outdated: facets.outdated, manual: facets.manual, scopes, groups },
-    rows,
+    rows, ...markOf(data.viewWatermark),
   };
 }
 
@@ -476,7 +490,7 @@ export function parseMenu(data: unknown): WebsiteMenu | null {
   const locales = parseList(data.locales, parseMenuLocale);
   const items = parseList(data.items, parseMenuItem);
   if (locales === null || items === null || !isStr(data.revision) || data.revision === "" || !isNum(data.version) || !isStr(data.updatedAtUtc)) return null;
-  return { revision: data.revision, version: data.version, updatedAtUtc: data.updatedAtUtc, locales, items };
+  return { revision: data.revision, version: data.version, updatedAtUtc: data.updatedAtUtc, locales, items, ...markOf(data.viewWatermark) };
 }
 
 const isLocalized = (value: unknown): value is LocalizedText => isRec(value) && Object.values(value).every(strOrNull);
@@ -516,6 +530,7 @@ export function parseHero(data: unknown): WebsiteHero | null {
     revision: data.revision, version: data.version, updatedAtUtc: data.updatedAtUtc, locales, fontKey: data.fontKey as HeroFontKey,
     autoplayEnabled: data.autoplayEnabled, intervalSeconds: data.intervalSeconds, slides, media,
     texts: { title: { ...texts.title }, description: { ...texts.description }, primaryAction: { ...texts.primaryAction }, secondaryAction: { ...texts.secondaryAction } },
+    ...markOf(data.viewWatermark),
   };
 }
 
@@ -525,7 +540,7 @@ export function parseSocialSettings(data: unknown): WebsiteSocialSettings | null
       !isBool(data.zaloEnabled) || !strOrNull(data.zaloNumber) || !strOrNull(data.zaloUrl) || !isBool(data.backToTopEnabled)) return null;
   return { revision: data.revision, updatedAtUtc: data.updatedAtUtc, phoneEnabled: data.phoneEnabled, phoneNumber: data.phoneNumber,
     phoneHref: data.phoneHref, messengerEnabled: data.messengerEnabled, messengerUrl: data.messengerUrl,
-    zaloEnabled: data.zaloEnabled, zaloNumber: data.zaloNumber, zaloUrl: data.zaloUrl, backToTopEnabled: data.backToTopEnabled };
+    zaloEnabled: data.zaloEnabled, zaloNumber: data.zaloNumber, zaloUrl: data.zaloUrl, backToTopEnabled: data.backToTopEnabled, ...markOf(data.viewWatermark) };
 }
 
 const parseLanguages = (data: unknown) => parseList(data, parseLanguage);
@@ -571,9 +586,6 @@ export interface NewsletterSubscriptionPage {
   viewWatermark?: string;
 }
 
-/** A watermark as the API writes it: a plain non-negative integer in decimal, no sign, no leading zero. Anything else is not one. */
-export const isWatermark = (value: unknown): value is string => typeof value === "string" && /^(0|[1-9][0-9]*)$/.test(value);
-
 const optionalDate = (value: unknown): value is string | null | undefined => value === null || value === undefined || isStr(value);
 const MAIL_STATES: readonly string[] = ["Pending", "Sending", "Sent", "Failed", "Cancelled"];
 
@@ -594,7 +606,7 @@ export function parseNewsletterSubscriptionPage(data: unknown): NewsletterSubscr
   if (!isRec(data) || !isNum(data.page) || !isNum(data.pageSize) || !isNum(data.total)) return null;
   const items = parseList(data.items, parseNewsletterSubscription);
   if (!items) return null;
-  return { items, page: data.page, pageSize: data.pageSize, total: data.total, ...(isWatermark(data.viewWatermark) ? { viewWatermark: data.viewWatermark } : {}) };
+  return { items, page: data.page, pageSize: data.pageSize, total: data.total, ...markOf(data.viewWatermark) };
 }
 
 /** BHA-NEWSLETTER-LIVE-001: `recent-activity` = newest sign-up OR verification first (the server decides); left out, the API keeps its first order, newest request first. */
@@ -673,6 +685,8 @@ export interface NewsletterSender {
   customerOriginReady: boolean;
   version: number;
   pendingRequests: number;
+  /** BHA-ADMIN-BADGE-001-PR09: the answer's own `viewWatermark` (canonical decimal string) when the server sent a valid one; never a number. Absent = nothing to acknowledge. */
+  viewWatermark?: string;
 }
 
 const optStr = (value: unknown) => (value === null || value === undefined ? null : isStr(value) ? value : undefined);
@@ -687,7 +701,7 @@ export function parseNewsletterSender(data: unknown): NewsletterSender | null {
     status: data.status as NewsletterSenderStatus, clientId: clientId as string | null, hasClientSecret: data.hasClientSecret,
     connectedEmail: connectedEmail as string | null, senderName: senderName as string | null, replyTo: replyTo as string | null,
     connectedAtUtc: connectedAtUtc as string | null, redirectUri: redirectUri as string | null, scopes: data.scopes as string[],
-    customerOriginReady: data.customerOriginReady, version: data.version, pendingRequests: data.pendingRequests,
+    customerOriginReady: data.customerOriginReady, version: data.version, pendingRequests: data.pendingRequests, ...markOf(data.viewWatermark),
   };
 }
 
@@ -834,6 +848,27 @@ export interface LanguageInput {
 export const listLanguages = (signal?: AbortSignal) =>
   call<WebsiteLanguage[]>("GET", `${SETTINGS}/languages`, undefined, { write: false, parse: parseLanguages, signal });
 
+/**
+ * BHA-ADMIN-BADGE-001-PR09: the three bare-array reads (languages, language-packs/library, currencies) carry their snapshot's watermark in the `X-Admin-View-Watermark` response header. The
+ * `read*` twins are what a menu SCREEN calls to be able to say "seen"; the `list*` functions keep returning the bare array for every other caller (pickers, lookups). A missing or malformed
+ * header is simply no `viewWatermark`: the items still read.
+ */
+export interface WatermarkedItems<T> {
+  items: T[];
+  viewWatermark?: string;
+}
+const readItems = <T,>(path: string, parse: (data: unknown) => T[] | null, signal?: AbortSignal) =>
+  call<WatermarkedItems<T>>("GET", path, undefined, {
+    write: false,
+    signal,
+    parse: (data, headers) => {
+      const items = parse(data);
+      return items ? { items, ...markOf(headers.get("X-Admin-View-Watermark")) } : null;
+    },
+  });
+
+export const readLanguages = (signal?: AbortSignal) => readItems(`${SETTINGS}/languages`, parseLanguages, signal);
+
 export const createLanguage = (code: string, input: LanguageInput) =>
   call<WebsiteLanguage>("POST", `${SETTINGS}/languages`, { code: code.trim(), ...input }, { write: true, parse: parseLanguage });
 
@@ -852,6 +887,8 @@ const PACKS = `${SETTINGS}/language-packs`;
 
 export const listLibraryPacks = (signal?: AbortSignal) =>
   call<LibraryPack[]>("GET", `${PACKS}/library`, undefined, { write: false, parse: parseLibrary, signal });
+
+export const readLibraryPacks = (signal?: AbortSignal) => readItems(`${PACKS}/library`, parseLibrary, signal);
 
 /** Checks a pack on the server and says what installing it would do. Nothing is changed (so it is read-safe to repeat). */
 export const previewPack = (source: PackSource, mode: PackMode) =>
@@ -907,6 +944,8 @@ export interface CurrencyInput {
 
 export const listCurrencies = (signal?: AbortSignal) =>
   call<WebsiteCurrency[]>("GET", `${SETTINGS}/currencies`, undefined, { write: false, parse: parseCurrencies, signal });
+
+export const readCurrencies = (signal?: AbortSignal) => readItems(`${SETTINGS}/currencies`, parseCurrencies, signal);
 
 export const createCurrency = (code: string, input: CurrencyInput) =>
   call<WebsiteCurrency>("POST", `${SETTINGS}/currencies`, { code: code.trim(), ...input }, { write: true, parse: parseCurrency });

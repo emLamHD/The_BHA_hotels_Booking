@@ -11,7 +11,7 @@ import { ErrorPanel, LoadingPanel } from "@/components/website/WebsiteUi";
 import { StaffImage } from "./useStaffImage";
 import UploadPanel from "./UploadPanel";
 import { useUploadQueue } from "./useUploadQueue";
-import { useAckOnRead, useMarkedList } from "./useMarkedList";
+import { useAckOnRead, useMarkedList } from "@/components/website/useMarkedList";
 
 const PAGE_SIZE = 24;
 const BTN = "rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5";
