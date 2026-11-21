@@ -27,6 +27,11 @@
  * acknowledged one's row is merged into the latest summary, and only if the latest summary still lists that Property (a revoked Property is never brought back, a late answer or retry of it
  * is dropped, and what it had to say waits until a summary lists it again).
  * The sidebar never says "seen", and a watermark never comes from the summary GET.
+ *
+ * BHA-ADMIN-BADGE-001-PR13: the Calendar is acknowledged per OBJECT, not per menu (`seenCalendarEntity`, `POST menu-unseen/calendar/entities/seen`): by a click on its bar or by the "mark seen" button of
+ * a removed object. It is its own path: the menu-level route does not exist for the Calendar, nothing here uses a summary's watermark, and nothing is merged into the summary from the answer (its
+ * `lastSeenWatermark` is the OBJECT's cursor, not the Property's) — a successful call only schedules the usual GET. One call per Staff, Property and object is on the wire at a time. Nothing is sent
+ * for a Property the latest answer does not list (or before there is an answer), and the answer of a call that outlived its life is handed back as `dropped`.
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -36,9 +41,12 @@ import {
   MENU_ACTIVITY_READY_EVENT,
   fetchMenuUnseenSummary,
   isMenuActivityHint,
+  markCalendarEntitySeen,
   markMenuSeen,
   markNewsletterSeen,
   menuActivityLiveTarget,
+  type CalendarEntitySeenAnswer,
+  type CalendarEntitySeenRequest,
   type MenuUnseenEntry,
   type MenuUnseenSummary,
 } from "@/lib/api/menuUnseen";
@@ -62,6 +70,9 @@ export type SeenMenu = Extract<
 /** A failed acknowledgement is tried again after these delays (same watermark, same identity), then left to the next successful list. */
 export const ACK_RETRY_MS: readonly number[] = [1500, 4000];
 
+/** One acknowledgement of a Calendar object: the server's answer; `failed` (retry may help; nothing changed); `dropped` (nothing sent, or the answer belongs to a life, Property or session that is gone — paint nothing). */
+export type CalendarAck = { kind: "ok"; answer: CalendarEntitySeenAnswer } | { kind: "failed" } | { kind: "dropped" };
+
 interface SharedLive {
   status: LiveStatus;
   stoppedFor?: LiveStopReason;
@@ -72,6 +83,8 @@ interface SharedLive {
   ack: (watermark: string, identity: string) => void;
   /** The same for any menu that says it. A Property-scoped menu (`promotions`) names its Property as the fourth argument and nothing is sent without it; a global menu has none. */
   seen: (menu: SeenMenu, watermark: string, identity: string, propertyId?: string) => void;
+  /** BHA-ADMIN-BADGE-001-PR13: "this Staff member has seen this Calendar object up to this watermark". Never throws; see `CalendarAck`. */
+  seenCalendarEntity: (identity: string, request: CalendarEntitySeenRequest) => Promise<CalendarAck>;
 }
 
 /** One watermark pair: a global menu has one (`id` ""), a Property-scoped menu one per Property. */
@@ -113,6 +126,10 @@ export const useUnseenScope = (): UnseenScope => useContext(ScopeContext);
 /** A menu's screen says "seen up to this watermark" through this, for the Staff identity that started the read. A no-op without a provider (LocalGate mounts none, so nothing is sent there). */
 export const useMenuSeen = (): SharedLive["seen"] => useContext(SharedContext)?.seen ?? NO_SEEN;
 const NO_SEEN: SharedLive["seen"] = () => undefined;
+
+/** The Calendar's one-object acknowledgement. Without a provider (LocalGate mounts none) nothing is sent and the answer is `dropped`. */
+export const useCalendarSeen = (): SharedLive["seenCalendarEntity"] => useContext(SharedContext)?.seenCalendarEntity ?? NO_CALENDAR_SEEN;
+const NO_CALENDAR_SEEN: SharedLive["seenCalendarEntity"] = () => Promise.resolve({ kind: "dropped" });
 
 /** The Newsletter screen's way into the shared connection and the acknowledgement. `null` when no provider is mounted (the screen then runs by itself). */
 export const useSharedNewsletterLive = (): SharedLive | null => useContext(SharedContext);
@@ -404,6 +421,47 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
     [send],
   );
   const ack = useCallback((watermark: string, forIdentity: string) => seen("newsletter", watermark, forIdentity), [seen]);
+
+  // ---- saying "seen" for ONE Calendar object: one call per Property and object on the wire; the same or a lower watermark meanwhile gets that call back
+  const calendarPending = useRef(new Map<string, { value: bigint; promise: Promise<CalendarAck> }>());
+  const seenCalendarEntity = useCallback(
+    (forIdentity: string, request: CalendarEntitySeenRequest): Promise<CalendarAck> => {
+      const dropped: Promise<CalendarAck> = Promise.resolve({ kind: "dropped" });
+      if (!identityRef.current || forIdentity !== identityRef.current) return dropped;
+      if (!request.propertyId || !request.entityId || !/^(0|[1-9][0-9]*)$/.test(request.observedWatermark)) return dropped;
+      // Only a Property the latest answer lists may be acknowledged; before the first answer nothing is sent, and a revoked Property is never brought back.
+      if (!allowed.current?.has("calendar") || !allowedProperties.current.get("calendar")?.has(request.propertyId)) return dropped;
+      const value = BigInt(request.observedWatermark);
+      const key = `${request.propertyId}|${request.entityKind}|${request.entityId}`;
+      const waiting = calendarPending.current.get(key);
+      if (waiting && waiting.value >= value) return waiting.promise;
+      const gen = generation.current;
+      const promise = (async (): Promise<CalendarAck> => {
+        try {
+          const result = await markCalendarEntitySeen(request);
+          if (gen !== generation.current || forIdentity !== identityRef.current) return { kind: "dropped" };
+          if (result.kind === "ok") {
+            requestRefresh();                                                      // the number comes from the API's next GET, never from this answer
+            return { kind: "ok", answer: result.data };
+          }
+          if (result.kind === "unauthenticated" || result.kind === "denied") {
+            authFailure(result.kind, gen);
+            return { kind: "dropped" };
+          }
+          if (result.kind === "refused" && result.status === 404) {
+            requestRefresh();                                                      // not readable any more: read the numbers again so it leaves the sidebar
+            return { kind: "dropped" };
+          }
+          return { kind: "failed" };
+        } finally {
+          if (calendarPending.current.get(key)?.value === value) calendarPending.current.delete(key);
+        }
+      })();
+      calendarPending.current.set(key, { value, promise });
+      return promise;
+    },
+    [authFailure, requestRefresh],
+  );
   useEffect(() => {
     flushDeferred.current = (forIdentity) => {
       for (const [key, waiting] of [...deferred.current]) {
@@ -432,6 +490,7 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
     fetching.current = false;
     again.current = false;
     acks.current = new Map();
+    calendarPending.current = new Map();
     deferred.current = new Map();
     allowedProperties.current = new Map();
     void runRefresh();
@@ -457,6 +516,7 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
       allowed.current = null;
       allowedProperties.current = new Map();
       deferred.current = new Map();                                                          // what waited belonged to this life only
+      calendarPending.current = new Map();
       setSnapshot(null);
     };
   }, [identity, runRefresh, requestRefresh]);
@@ -510,8 +570,8 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
   const live = useNewsletterLiveConnection(legacyIdentity, callbacks, auth, legacyIdentity !== "");
 
   const shared = useMemo<SharedLive>(
-    () => ({ status: live.status, stoppedFor: live.stoppedFor, retry: live.retry, subscribe, ack, seen }),
-    [live.status, live.stoppedFor, live.retry, subscribe, ack, seen],
+    () => ({ status: live.status, stoppedFor: live.stoppedFor, retry: live.retry, subscribe, ack, seen, seenCalendarEntity }),
+    [live.status, live.stoppedFor, live.retry, subscribe, ack, seen, seenCalendarEntity],
   );
   // Tagged with the identity it was read for: for any other identity (or none) it is empty from this very render, before any effect has run.
   const menus = snapshot && snapshot.identity === identity ? snapshot.menus : EMPTY;

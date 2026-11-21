@@ -85,6 +85,43 @@ export const markMenuSeen = (menu: AdminMenuKey, viewWatermark: string, signal?:
     write: false, parse: propertyId === undefined ? parseGlobal : parseByProperty, signal,
   });
 
+/** The two Calendar object kinds (ADR 0011 §D): the identity of a bar is its object, never its segment. */
+export type CalendarEntityKind = "reservation-unit" | "room-block";
+
+/** What the Calendar's one-object acknowledgement sends: `observedWatermark` is a decimal string that came with the data the Staff member was looking at (board `activity.watermark` or list `observedWatermark`). */
+export interface CalendarEntitySeenRequest {
+  propertyId: string;
+  entityKind: CalendarEntityKind;
+  entityId: string;
+  observedWatermark: string;
+}
+
+/** The server's answer as of ITS moment: the object's cursor after the move, whether a newer event of another person keeps it unread, the Property's unread count and the counter. */
+export interface CalendarEntitySeenAnswer {
+  propertyId: string;
+  entityKind: string;
+  entityId: string;
+  lastSeenWatermark: string;
+  unread: boolean;
+  count: number;
+  currentWatermark: string;
+}
+
+export function parseCalendarEntitySeen(data: unknown): CalendarEntitySeenAnswer | null {
+  if (!isRec(data) || !isStr(data.propertyId) || !isStr(data.entityKind) || !isStr(data.entityId) || typeof data.unread !== "boolean" || !isCount(data.count)) return null;
+  if (!isWatermark(data.lastSeenWatermark) || !isWatermark(data.currentWatermark)) return null;
+  return { propertyId: data.propertyId, entityKind: data.entityKind, entityId: data.entityId, lastSeenWatermark: data.lastSeenWatermark, unread: data.unread, count: data.count, currentWatermark: data.currentWatermark };
+}
+
+/**
+ * Says "this Staff member has seen THIS Calendar object up to `observedWatermark`" (PR-12 route). Metadata like the other acknowledgements (`write: false`, safe to repeat). Never the menu-level
+ * `calendar/seen` (a 400 by design) and never a segment id. A 404 means the Property or the object is no longer readable.
+ */
+export const markCalendarEntitySeen = (request: CalendarEntitySeenRequest, signal?: AbortSignal) =>
+  call<CalendarEntitySeenAnswer>("POST", `${MENU_UNSEEN}/calendar/entities/seen`, {
+    propertyId: request.propertyId, entityKind: request.entityKind, entityId: request.entityId, observedWatermark: request.observedWatermark,
+  }, { write: false, parse: parseCalendarEntitySeen, signal });
+
 /** The Hub's messages: `menuActivity` carries `{ menuKey, propertyId? }` and nothing to count; `menuActivityReady` says the connection is registered. */
 export const MENU_ACTIVITY_EVENT = "menuActivity";
 export const MENU_ACTIVITY_READY_EVENT = "menuActivityReady";
@@ -110,7 +147,16 @@ export interface UnseenGroup {
   latestWatermark: string;
   occurredAtUtc: string;
   actors: ActivityActor[];
+  /**
+   * BHA-ADMIN-BADGE-001-PR13: only the Calendar's groups carry these three (the API's PR-12 contract). `entityId` is the object id (never a segment id); `presence` is the server's business state, not the
+   * date window; `observedWatermark` is the newest number of the UNREAD rows of this snapshot, the only value a "mark seen" from this list may send back. An unknown `presence` is left out (no action).
+   */
+  entityId?: string;
+  presence?: CalendarPresence;
+  observedWatermark?: string;
 }
+
+export type CalendarPresence = "OnBoard" | "Removed";
 
 /** `unseenEvents` is the exact total whatever the (at most 50) groups show; `hasMore` says more groups exist than are listed. */
 export interface MenuChanges {
@@ -135,9 +181,14 @@ function parseGroup(data: unknown): UnseenGroup | null {
   if (!isWatermark(data.latestWatermark) || !isStr(data.occurredAtUtc) || !Array.isArray(data.actors)) return null;
   const actors = data.actors.map(parseActor);
   if (actors.some((actor) => actor === null)) return null;
+  if (data.observedWatermark !== undefined && !isWatermark(data.observedWatermark)) return null;
+  if (data.entityId !== undefined && !isStr(data.entityId)) return null;
   return {
     entityKind: data.entityKind, entityKey: data.entityKey, titleSnapshot: data.titleSnapshot, action: data.action, events: data.events, itemCount: data.itemCount,
     latestWatermark: data.latestWatermark, occurredAtUtc: data.occurredAtUtc, actors: actors as ActivityActor[],
+    ...(data.entityId !== undefined ? { entityId: data.entityId } : {}),
+    ...(data.presence === "OnBoard" || data.presence === "Removed" ? { presence: data.presence } : {}),
+    ...(data.observedWatermark !== undefined ? { observedWatermark: data.observedWatermark } : {}),
   };
 }
 

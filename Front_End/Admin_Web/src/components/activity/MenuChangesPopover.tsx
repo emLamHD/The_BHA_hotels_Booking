@@ -7,6 +7,12 @@
  * chosen is only what the CURRENT summary allows. The request is keyed by identity, menu and Property: when any of them changes (another Staff member, a lost permission, another pick) the
  * old rows are gone in that same render and an answer that arrives late is dropped (and its request aborted). The list shows what the API sends in its order, with the API's totals:
  * `unseenEvents` is the total, each group's `events` its own number, `hasMore` the "50+"; nothing is summed from the groups on screen. Titles are rendered as text.
+ *
+ * BHA-ADMIN-BADGE-001-PR13 (decision D1): the Calendar's list is the one place with a button. ONLY a group whose server `presence` is `Removed` (a cancelled block or reservation) has «Đánh dấu đã xem»; it
+ * sends that group's own `entityId` and `observedWatermark` (this list's snapshot, never the list's `snapshotWatermark`/`lastSeenWatermark`) for the Property being listed, through the shared provider
+ * (one call per object at a time). An `OnBoard` group is acknowledged by opening its bar on the board. Nothing is optimistic: the group goes only when the server says it is no longer unread AND its
+ * cursor reached the watermark this group showed (a late or older answer can never hide a newer group), and the list is then read again; on a failure the group stays and the same button retries; a
+ * "still unread" answer reads the list again and keeps what is still unread. An answer that arrives after the popover closed, or for another Staff/Property/menu, paints nothing.
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -14,8 +20,8 @@ import Link from "next/link";
 import { createPortal } from "react-dom";
 import { ADMIN_MENU, type AdminMenuKey } from "@/lib/adminMenus";
 import { activityTitle, actorLabel, allowedMenus, allowedProperties, formatActivityTime, resolveScope } from "@/lib/adminActivity";
-import { fetchMenuChanges, type MenuChanges } from "@/lib/api/menuUnseen";
-import { useMenuUnseen, useUnseenScope } from "@/components/website/NewsletterBadgeProvider";
+import { fetchMenuChanges, type CalendarEntityKind, type MenuChanges, type UnseenGroup } from "@/lib/api/menuUnseen";
+import { useCalendarSeen, useMenuUnseen, useUnseenScope } from "@/components/website/NewsletterBadgeProvider";
 import { GONE_MESSAGE, toView, type View } from "./activityRequest";
 
 export interface PopoverTarget {
@@ -38,6 +44,8 @@ export const historyHref = (menu: string, propertyId?: string) => `/activity?men
  */
 function useChanges(identity: string, menu: string | undefined, propertyId: string | undefined, reportAuth: (kind: "unauthenticated" | "denied") => void) {
   const [attempt, setAttempt] = useState(0);
+  /** A re-read of the SAME scope (after an acknowledgement): the rows on screen stay until the new answer replaces them, instead of going back to "loading". */
+  const [reloads, setReloads] = useState(0);
   const key = menu ? `${identity}|${menu}|${propertyId ?? ""}|${attempt}` : "";
   const [track, setTrack] = useState({ key, life: 0 });
   if (track.key !== key) setTrack({ key, life: track.life + 1 });
@@ -60,9 +68,28 @@ function useChanges(identity: string, menu: string | undefined, propertyId: stri
       live = false;
       controller.abort();
     };
-  }, [life, menu, propertyId]);
+  }, [life, menu, propertyId, reloads]);
   const view: View<MenuChanges> = done && done.life === life ? done.view : { state: "loading" };
-  return { view, retry: () => setAttempt((count) => count + 1) };
+  return { view, retry: () => setAttempt((count) => count + 1), reload: () => setReloads((count) => count + 1) };
+}
+
+const CALENDAR_KINDS: readonly string[] = ["reservation-unit", "room-block"];
+/** The one object (and watermark) of a group the Calendar's button may acknowledge; `null` for every other group. Only the server's `Removed` presence qualifies. */
+function removedTarget(group: UnseenGroup): { entityKind: CalendarEntityKind; entityId: string; observedWatermark: string } | null {
+  if (group.presence !== "Removed" || !group.entityId || !group.observedWatermark || !CALENDAR_KINDS.includes(group.entityKind)) return null;
+  return { entityKind: group.entityKind as CalendarEntityKind, entityId: group.entityId, observedWatermark: group.observedWatermark };
+}
+const groupKey = (group: UnseenGroup) => `${group.entityKind}|${group.entityId ?? ""}|${group.observedWatermark ?? ""}`;
+
+/**
+ * What the acknowledgements of ONE VIEW of a scope have done (PR-13-C1): groups to hide, calls on the wire, calls that failed. `view` is a number that changes every time the scope changes, so
+ * A → B → A is two different views of A: nothing of the first (a pending call, an error, a hidden group) is carried into the second, and an answer that belongs to the first is dropped.
+ */
+interface AckState {
+  view: number;
+  hidden: readonly string[];
+  pending: readonly string[];
+  failed: readonly string[];
 }
 
 const FIELD = "h-9 w-full rounded-lg border border-gray-300 bg-transparent px-2 text-sm text-gray-800 dark:border-gray-700 dark:text-white/90";
@@ -90,7 +117,26 @@ export default function MenuChangesPopover({ target, onClose }: { target: Popove
   const [pickedMenu, setPickedMenu] = useState<string>(target.initial);
   const [pickedProperty, setPickedProperty] = useState<string | undefined>(undefined);
   const resolved = resolveScope(summary, menus, pickedMenu, pickedProperty);
-  const { view, retry } = useChanges(scope.identity, resolved?.menu, resolved?.propertyId, scope.reportAuth);
+  const { view, retry, reload } = useChanges(scope.identity, resolved?.menu, resolved?.propertyId, scope.reportAuth);
+  const seenCalendarEntity = useCalendarSeen();
+  const ackScope = `${scope.identity}|${resolved?.menu ?? ""}|${resolved?.propertyId ?? ""}`;
+  // A new view starts in the very render the scope changes in (also when it comes back to an earlier value), like the list's own life.
+  const [track, setTrack] = useState({ scope: ackScope, view: 0 });
+  if (track.scope !== ackScope) setTrack({ scope: ackScope, view: track.view + 1 });
+  const ackView = track.scope === ackScope ? track.view : track.view + 1;
+  const [ackRaw, setAck] = useState<AckState>({ view: ackView, hidden: [], pending: [], failed: [] });
+  const ack: AckState = ackRaw.view === ackView ? ackRaw : { view: ackView, hidden: [], pending: [], failed: [] };
+  const live = useRef({ mounted: true, view: ackView });
+  useEffect(() => {
+    live.current.view = ackView;
+  }, [ackView]);
+  useEffect(() => {
+    const state = live.current;
+    state.mounted = true;
+    return () => {
+      state.mounted = false;
+    };
+  }, []);
   const [box, setBox] = useState(() => placement(target.anchor));
   const panel = useRef<HTMLDivElement | null>(null);
 
@@ -154,6 +200,29 @@ export default function MenuChangesPopover({ target, onClose }: { target: Popove
     }
   };
 
+  const markSeen = async (group: UnseenGroup) => {
+    const object = removedTarget(group);
+    if (!object || resolved?.menu !== "calendar" || !resolved.propertyId) return;
+    const item = groupKey(group);
+    const forView = ackView;
+    const forProperty = resolved.propertyId;
+    const change = (update: (state: AckState) => Partial<AckState>) =>
+      setAck((state) => {
+        const base = state.view === forView ? state : { view: forView, hidden: [], pending: [], failed: [] };
+        return { ...base, ...update(base) };
+      });
+    change((state) => ({ pending: [...state.pending, item], failed: state.failed.filter((other) => other !== item) }));
+    const result = await seenCalendarEntity(scope.identity, { propertyId: forProperty, ...object });
+    if (!live.current.mounted || live.current.view !== forView) return;        // closed, or another view now (even of the same scope): nothing of this belongs on screen
+    const settle = (extra: (state: AckState) => Partial<AckState> = () => ({})) => change((state) => ({ pending: state.pending.filter((other) => other !== item), ...extra(state) }));
+    if (result.kind === "dropped") return settle();
+    if (result.kind === "failed") return settle((state) => ({ failed: [...state.failed, item] }));
+    const cleared = !result.answer.unread && BigInt(result.answer.lastSeenWatermark) >= BigInt(object.observedWatermark);
+    settle((state) => (cleared ? { hidden: [...state.hidden, item] } : {}));
+    reload();                                                                   // the list is authoritative: fresh totals, and what is still unread stays
+    panel.current?.focus();
+  };
+
   const properties = resolved ? allowedProperties(summary, resolved.menu) : [];
   const nameOf = (id: string) => scope.propertyNames[id] ?? `Cơ sở ${id.slice(0, 8)}`;
 
@@ -206,13 +275,13 @@ export default function MenuChangesPopover({ target, onClose }: { target: Popove
             <>
               <p data-testid="unseen-popover-total" className="text-gray-700 dark:text-gray-300">
                 <strong>{view.data.unseenEvents}</strong> thay đổi chưa xem
-                {view.data.groups.length > 0 && <> · {view.data.hasMore ? "50+" : view.data.groups.length} nhóm</>}
+                {view.data.groups.length > 0 && <> · {view.data.hasMore ? "50+" : view.data.groups.filter((group) => !ack.hidden.includes(groupKey(group))).length} nhóm</>}
               </p>
-              {view.data.groups.length === 0 ? (
+              {view.data.groups.filter((group) => !ack.hidden.includes(groupKey(group))).length === 0 ? (
                 <p data-testid="unseen-popover-none" className="text-gray-600 dark:text-gray-400">Không có thay đổi nào chưa xem.</p>
               ) : (
                 <ul className="flex flex-col divide-y divide-gray-100 dark:divide-gray-800">
-                  {view.data.groups.slice(0, 50).map((group) => (
+                  {view.data.groups.filter((group) => !ack.hidden.includes(groupKey(group))).slice(0, 50).map((group) => (
                     <li key={`${group.entityKind}|${group.entityKey}|${group.latestWatermark}|${group.actors.map((actor) => actor.staffId ?? actor.kind).join(",")}`} data-testid="unseen-popover-group" className="flex flex-col gap-0.5 py-2">
                       <div className="flex items-start justify-between gap-2">
                         <span className="break-words font-medium text-gray-800 dark:text-white/90">{activityTitle(group.titleSnapshot, group.entityKind, group.itemCount)}</span>
@@ -222,6 +291,23 @@ export default function MenuChangesPopover({ target, onClose }: { target: Popove
                         {group.action} · {[...new Set(group.actors.map((actor) => actorLabel(actor.kind)))].join(", ")}
                         {group.itemCount > 1 ? ` · ${group.itemCount} mục` : ""} · {formatActivityTime(group.occurredAtUtc)}
                       </span>
+                      {resolved.menu === "calendar" && removedTarget(group) && (
+                        <div className="mt-1 flex flex-col items-start gap-1">
+                          <button
+                            type="button"
+                            data-testid="unseen-popover-mark-seen"
+                            aria-disabled={ack.pending.includes(groupKey(group)) || undefined}
+                            onClick={() => { if (!ack.pending.includes(groupKey(group))) void markSeen(group); }}
+                            className="rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-700 aria-disabled:cursor-wait aria-disabled:opacity-60 dark:border-gray-700 dark:text-gray-300"
+                          >
+                            Đánh dấu đã xem
+                          </button>
+                          {ack.failed.includes(groupKey(group)) && <span role="alert" data-testid="unseen-popover-mark-error" className="text-xs text-error-600 dark:text-error-400">Chưa đánh dấu được. Hãy bấm lại để thử lại.</span>}
+                        </div>
+                      )}
+                      {resolved.menu === "calendar" && group.presence === "OnBoard" && (
+                        <span data-testid="unseen-popover-onboard-hint" className="text-xs text-gray-500 dark:text-gray-400">Mở thanh này trên lịch để đánh dấu đã xem.</span>
+                      )}
                     </li>
                   ))}
                 </ul>
