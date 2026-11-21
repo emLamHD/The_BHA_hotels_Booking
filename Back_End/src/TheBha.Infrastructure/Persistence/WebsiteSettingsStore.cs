@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TheBha.Application.Activity;
 using TheBha.Application.Website;
 using TheBha.Domain.Website;
 
@@ -13,12 +14,22 @@ namespace TheBha.Infrastructure.Persistence;
 /// without a rate. The CHECK constraints, the partial unique indexes and the deferred triggers of the
 /// migrations repeat those rules in the database for anything that bypasses this class.
 /// </summary>
-internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvider timeProvider, IContentCatalog content) : IWebsiteSettingsStore
+internal sealed class WebsiteSettingsStore(
+    TheBhaDbContext database, TimeProvider timeProvider, IContentCatalog content, IAdminActivityRecorder recorder, IAdminActivityHint hint) : IWebsiteSettingsStore
 {
+    // BHA-ADMIN-BADGE-001-PR08 (ADR 0011): three menus live here. Every committed Admin operation is ONE event of the stream that owns it (languages, translations or currencies), appended by
+    // WebsiteTransaction as the last statement before COMMIT and only on the branch that changed data; a refusal, a stale write and a set-default of the current default record nothing. A title
+    // is only a language or currency code: never a translation text, an exchange rate or a key.
+    private const string LanguagesMenu = AdminMenuKeys.WebsiteLanguages, TranslationsMenu = AdminMenuKeys.WebsiteTranslations, CurrenciesMenu = AdminMenuKeys.WebsiteCurrencies;
+
     private const int DefaultPageSize = 50;
     private const int MaximumPageSize = 200;
 
     // ------------------------------------------------------------------ reads
+
+    public Task<WatermarkedList<WebsiteLanguageDto>> ReadLanguagesAsync(CancellationToken cancellationToken) =>
+        WebsiteActivity.InSnapshotAsync(
+            database, LanguagesMenu, async watermark => new WatermarkedList<WebsiteLanguageDto>(await ListLanguagesAsync(cancellationToken), watermark), cancellationToken);
 
     public async Task<IReadOnlyList<WebsiteLanguageDto>> ListLanguagesAsync(CancellationToken cancellationToken)
     {
@@ -30,7 +41,10 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
         return [.. languages.Select(language => ToDto(language, coverage[language.Id]))];
     }
 
-    public async Task<WebsiteTranslationListDto?> ListTranslationsAsync(TranslationQuery query, CancellationToken cancellationToken)
+    public Task<WebsiteTranslationListDto?> ListTranslationsAsync(TranslationQuery query, CancellationToken cancellationToken) =>
+        WebsiteActivity.InSnapshotAsync(database, TranslationsMenu, watermark => ReadTranslationsAsync(query, watermark, cancellationToken), cancellationToken);
+
+    private async Task<WebsiteTranslationListDto?> ReadTranslationsAsync(TranslationQuery query, string watermark, CancellationToken cancellationToken)
     {
         if (!LanguageTag.TryNormalize(query.Locale, out _, out var normalized))
         {
@@ -93,14 +107,15 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             .Select(entry => BuildRow(entry.Item, entry.Row, entry.Status, reference))
             .ToList();
         return new WebsiteTranslationListDto(
-            language.Code, referenceLanguage.Code, defaultLanguage.Code, language.IsDefault, filtered.Count, page, pageSize, facets, rows);
+            language.Code, referenceLanguage.Code, defaultLanguage.Code, language.IsDefault, filtered.Count, page, pageSize, facets, rows, watermark);
     }
 
-    public async Task<IReadOnlyList<WebsiteCurrencyDto>> ListCurrenciesAsync(CancellationToken cancellationToken) =>
-        [.. (await database.WebsiteCurrencies.AsNoTracking()
-                .OrderBy(currency => currency.SortOrder).ThenBy(currency => currency.Code)
-                .ToListAsync(cancellationToken))
-            .Select(ToDto)];
+    public Task<WatermarkedList<WebsiteCurrencyDto>> ListCurrenciesAsync(CancellationToken cancellationToken) =>
+        WebsiteActivity.InSnapshotAsync(database, CurrenciesMenu, async watermark => new WatermarkedList<WebsiteCurrencyDto>(
+            [.. (await database.WebsiteCurrencies.AsNoTracking()
+                    .OrderBy(currency => currency.SortOrder).ThenBy(currency => currency.Code)
+                    .ToListAsync(cancellationToken))
+                .Select(ToDto)], watermark), cancellationToken);
 
     // --------------------------------------------------------------- languages
 
@@ -113,7 +128,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             return WebsiteMutationResult<WebsiteLanguageDto>.Invalid(invalid.Field, invalid.Message);
         }
 
-        return await InLockAsync(async now =>
+        return await InLockAsync(LanguagesMenu, command.ActorStaffId, async (now, activity) =>
         {
             var language = new WebsiteLanguage(
                 Guid.NewGuid(), command.Code, command.DisplayName, command.NativeName, command.SortOrder, false, now, command.ActorStaffId);
@@ -139,7 +154,9 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
                     WebsiteErrorCodes.LanguageIncomplete, $"{language.Code} has no texts yet, so it cannot be turned on. Install a language pack or translate it first.", "isActive");
             }
 
-            return WebsiteMutationResult<WebsiteLanguageDto>.Success(await WithCoverageAsync(language, created, cancellationToken));
+            var withCoverage = await WithCoverageAsync(language, created, cancellationToken);
+            activity.Set("Created", "language", language.NormalizedCode, language.Code);
+            return WebsiteMutationResult<WebsiteLanguageDto>.Success(withCoverage);
         }, cancellationToken);
     }
 
@@ -153,7 +170,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             return WebsiteMutationResult<WebsiteLanguageDto>.Invalid(invalid.Field, invalid.Message);
         }
 
-        return await InLockAsync(async now =>
+        return await InLockAsync(LanguagesMenu, command.ActorStaffId, async (now, activity) =>
         {
             if (await FindLanguageAsync(command.Code, cancellationToken) is not { } language)
             {
@@ -188,6 +205,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
                 command.DisplayName, command.NativeName, command.SortOrder, command.IsActive,
                 command.FormatLocale ?? language.FormatLocale, command.Direction ?? language.Direction, command.DefaultCurrencyCode, now, command.ActorStaffId);
             await database.SaveChangesAsync(cancellationToken);
+            activity.Set("Updated", "language", language.NormalizedCode, language.Code);
             return WebsiteMutationResult<WebsiteLanguageDto>.Success(ToDto(language, coverage));
         }, cancellationToken);
     }
@@ -200,7 +218,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             return WebsiteMutationResult<WebsiteLanguageDto>.Invalid(invalid.Field, invalid.Message);
         }
 
-        return await InLockAsync(async now =>
+        return await InLockAsync(LanguagesMenu, command.ActorStaffId, async (now, activity) =>
         {
             if (await FindLanguageAsync(command.Code, cancellationToken) is not { } target)
             {
@@ -238,6 +256,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             await database.SaveChangesAsync(cancellationToken);
             target.MarkDefault(true, now, command.ActorStaffId);
             await database.SaveChangesAsync(cancellationToken);
+            activity.Set("DefaultChanged", "language", target.NormalizedCode, target.Code);
             return WebsiteMutationResult<WebsiteLanguageDto>.Success(ToDto(target, coverage));
         }, cancellationToken);
     }
@@ -250,7 +269,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             return WebsiteMutationResult<bool>.Invalid(invalid.Field, invalid.Message);
         }
 
-        return await InLockAsync(async _ =>
+        return await InLockAsync(LanguagesMenu, command.ActorStaffId, async (_, activity) =>
         {
             if (await FindLanguageAsync(command.Code, cancellationToken) is not { } language)
             {
@@ -278,6 +297,8 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             await database.WebsiteTranslations.Where(row => row.LanguageId == language.Id).ExecuteDeleteAsync(cancellationToken);
             database.WebsiteLanguages.Remove(language);
             await database.SaveChangesAsync(cancellationToken);
+            // The code is the snapshot: the language is gone, its history stays.
+            activity.Set("Deleted", "language", language.NormalizedCode, language.Code);
             return WebsiteMutationResult<bool>.Success(true);
         }, cancellationToken);
     }
@@ -292,7 +313,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             return WebsiteMutationResult<WebsiteTranslationRowDto>.Invalid("expectedVersion", "expectedVersion must be null (no text saved yet) or the version the editor loaded.");
         }
 
-        return await InLockAsync(async now =>
+        return await InLockAsync(TranslationsMenu, command.ActorStaffId, async (now, activity) =>
         {
             var model = await WebsiteLocalizationModel.LoadAsync(content, cancellationToken);
             if (!model.ByKey.TryGetValue(command.Key ?? string.Empty, out var item))
@@ -338,6 +359,8 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             }
 
             await database.SaveChangesAsync(cancellationToken);
+            // The object is the language being edited and the title its code: never the key's text, the value or the reference text.
+            activity.Set("Saved", "translation", language.NormalizedCode, language.Code);
             return WebsiteMutationResult<WebsiteTranslationRowDto>.Success(BuildRow(item, row, "translated", reference.Texts));
         }, cancellationToken);
     }
@@ -350,7 +373,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             return WebsiteMutationResult<WebsiteTranslationRowDto>.Invalid(invalid.Field, invalid.Message);
         }
 
-        return await InLockAsync(async _ =>
+        return await InLockAsync(TranslationsMenu, command.ActorStaffId, async (_, activity) =>
         {
             var model = await WebsiteLocalizationModel.LoadAsync(content, cancellationToken);
             if (!model.ByKey.TryGetValue(command.Key ?? string.Empty, out var item))
@@ -384,6 +407,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             database.WebsiteTranslations.Remove(row);
             await database.SaveChangesAsync(cancellationToken);
             var reference = await ReferenceTextsForAsync(model, cancellationToken);
+            activity.Set("Cleared", "translation", language.NormalizedCode, language.Code);
             return WebsiteMutationResult<WebsiteTranslationRowDto>.Success(BuildRow(item, null, "missing", reference.Texts));
         }, cancellationToken);
     }
@@ -398,7 +422,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             return WebsiteMutationResult<WebsiteCurrencyDto>.Invalid(invalid.Field, invalid.Message);
         }
 
-        return await InLockAsync(async now =>
+        return await InLockAsync(CurrenciesMenu, command.ActorStaffId, async (now, activity) =>
         {
             var currency = new WebsiteCurrency(command.Code, command.Name, command.Symbol, command.MinorUnits, command.SortOrder, now, command.ActorStaffId);
             if (await database.WebsiteCurrencies.AnyAsync(existing => existing.Code == currency.Code, cancellationToken))
@@ -410,6 +434,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             // New currencies start off, with no rate: nothing is guessed and nothing is shown until an operator sets one.
             database.WebsiteCurrencies.Add(currency);
             await database.SaveChangesAsync(cancellationToken);
+            activity.Set("Created", "currency", currency.Code, currency.Code);
             return WebsiteMutationResult<WebsiteCurrencyDto>.Success(ToDto(currency));
         }, cancellationToken);
     }
@@ -422,7 +447,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             return WebsiteMutationResult<WebsiteCurrencyDto>.Invalid(invalid.Field, invalid.Message);
         }
 
-        return await InCurrencyAsync(command.Code, command.ExpectedVersion, allowBase: false, (currency, now) =>
+        return await InCurrencyAsync(command.Code, command.ExpectedVersion, allowBase: false, command.ActorStaffId, "Updated", (currency, now) =>
         {
             currency.Edit(command.Name, command.Symbol, command.MinorUnits, command.SortOrder, now, command.ActorStaffId);
             return Task.FromResult<WebsiteMutationResult<WebsiteCurrencyDto>?>(null);
@@ -438,7 +463,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
         }
 
         ExchangeRate.TryParse(command.VndPerUnit, out var rate);
-        return await InCurrencyAsync(command.Code, command.ExpectedVersion, allowBase: false, (currency, now) =>
+        return await InCurrencyAsync(command.Code, command.ExpectedVersion, allowBase: false, command.ActorStaffId, "RateSet", (currency, now) =>
         {
             currency.SetRate(rate, now, command.ActorStaffId);
             return Task.FromResult<WebsiteMutationResult<WebsiteCurrencyDto>?>(null);
@@ -453,7 +478,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             return WebsiteMutationResult<WebsiteCurrencyDto>.Invalid(invalid.Field, invalid.Message);
         }
 
-        return await InCurrencyAsync(command.Code, command.ExpectedVersion, allowBase: false, (currency, now) =>
+        return await InCurrencyAsync(command.Code, command.ExpectedVersion, allowBase: false, command.ActorStaffId, command.IsActive ? "Enabled" : "Disabled", (currency, now) =>
         {
             if (command.IsActive && !currency.HasRate)
             {
@@ -486,7 +511,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             return WebsiteMutationResult<WebsiteCurrencyDto>.Invalid(invalid.Field, invalid.Message);
         }
 
-        return await InLockAsync(async now =>
+        return await InLockAsync(CurrenciesMenu, command.ActorStaffId, async (now, activity) =>
         {
             if (await FindCurrencyAsync(command.Code, cancellationToken) is not { } target)
             {
@@ -520,6 +545,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             await database.SaveChangesAsync(cancellationToken);
             target.MarkDefault(true, now, command.ActorStaffId);
             await database.SaveChangesAsync(cancellationToken);
+            activity.Set("DefaultChanged", "currency", target.Code, target.Code);
             return WebsiteMutationResult<WebsiteCurrencyDto>.Success(ToDto(target));
         }, cancellationToken);
     }
@@ -532,7 +558,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             return WebsiteMutationResult<bool>.Invalid(invalid.Field, invalid.Message);
         }
 
-        return await InLockAsync(async _ =>
+        return await InLockAsync(CurrenciesMenu, command.ActorStaffId, async (_, activity) =>
         {
             if (await FindCurrencyAsync(command.Code, cancellationToken) is not { } currency)
             {
@@ -569,6 +595,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
 
             database.WebsiteCurrencies.Remove(currency);
             await database.SaveChangesAsync(cancellationToken);
+            activity.Set("Deleted", "currency", currency.Code, currency.Code);
             return WebsiteMutationResult<bool>.Success(true);
         }, cancellationToken);
     }
@@ -576,16 +603,18 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
     // ----------------------------------------------------------------- helpers
 
     private Task<WebsiteMutationResult<T>> InLockAsync<T>(
-        Func<DateTimeOffset, Task<WebsiteMutationResult<T>>> work, CancellationToken cancellationToken) =>
-        WebsiteTransaction.InLockAsync(database, timeProvider, work, cancellationToken);
+        string menu, Guid actorStaffId, Func<DateTimeOffset, ActivityNote, Task<WebsiteMutationResult<T>>> work, CancellationToken cancellationToken) =>
+        WebsiteTransaction.InLockAsync(database, timeProvider, new WebsiteActivityScope(recorder, hint, menu, actorStaffId), work, cancellationToken);
 
     private async Task<WebsiteMutationResult<WebsiteCurrencyDto>> InCurrencyAsync(
         string code,
         int expectedVersion,
         bool allowBase,
+        Guid actorStaffId,
+        string action,
         Func<WebsiteCurrency, DateTimeOffset, Task<WebsiteMutationResult<WebsiteCurrencyDto>?>> change,
         CancellationToken cancellationToken) =>
-        await InLockAsync(async now =>
+        await InLockAsync(CurrenciesMenu, actorStaffId, async (now, activity) =>
         {
             if (await FindCurrencyAsync(code, cancellationToken) is not { } currency)
             {
@@ -609,6 +638,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             }
 
             await database.SaveChangesAsync(cancellationToken);
+            activity.Set(action, "currency", currency.Code, currency.Code);
             return WebsiteMutationResult<WebsiteCurrencyDto>.Success(ToDto(currency));
         }, cancellationToken);
 

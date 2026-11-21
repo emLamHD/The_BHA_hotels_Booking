@@ -16,11 +16,17 @@ namespace TheBha.Api.Controllers;
 [Route("api/admin/v1/website/language-packs")]
 public sealed class AdminWebsiteLanguagePacksController(IWebsiteLanguagePacks packs) : AdminWebsiteControllerBase
 {
+    /// <summary>A bare JSON array that shows the installed state of the languages, so it carries the <c>website-languages</c> number of its snapshot in <c>X-Admin-View-Watermark</c> (BHA-ADMIN-BADGE-001-PR08).</summary>
     [HttpGet("library")]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
+    [AdminBlogViewWatermarkHeader]
     [ProducesResponseType(typeof(IReadOnlyList<LibraryPackDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<LibraryPackDto>>> Library(CancellationToken cancellationToken) =>
-        Ok(await packs.ListLibraryAsync(cancellationToken));
+    public async Task<ActionResult<IReadOnlyList<LibraryPackDto>>> Library(CancellationToken cancellationToken)
+    {
+        var list = await packs.ListLibraryAsync(cancellationToken);
+        Response.Headers[AdminBlogHeaders.ViewWatermark] = list.ViewWatermark;
+        return Ok(list.Items);
+    }
 
     [HttpPost("preview")]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]

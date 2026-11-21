@@ -43,6 +43,9 @@ public sealed partial class ContentPackTests(PostgreSqlWebApplicationFactory fac
         var applied = await target.RunAsync(target.Import(pack, "--apply"));
         Assert.True(applied.Exit == 0, applied.Output);
         Assert.Contains("VERIFIED", applied.Output);
+        // BHA-ADMIN-BADGE-001-PR08: the import is an operator command, not a Staff action: it writes the Website rows (hero, menus, languages, currencies, social) without any activity, counter move or invented Staff actor.
+        Assert.Equal(0, await target.CountAsync("""SELECT count(*) FROM "AdminActivities" """));
+        Assert.Equal(0, await target.CountAsync("""SELECT coalesce(sum("LastSequence"), 0) FROM "MenuActivityStreams" """));
         Assert.Equal(2, await target.CountAsync("""SELECT count(*) FROM "Properties" """));
         Assert.Equal(1, await target.CountAsync($"""SELECT count(*) FROM "Properties" WHERE "Id" = '{RiversideId}' """));
         Assert.Equal(5, await target.CountAsync("""SELECT count(*) FROM "RoomTypes" """));

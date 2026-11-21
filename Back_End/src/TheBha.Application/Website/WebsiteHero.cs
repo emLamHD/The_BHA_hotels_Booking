@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using TheBha.Domain.Website;
 
 namespace TheBha.Application.Website;
@@ -71,6 +72,7 @@ public sealed record HeroMediaDto(
     int Height,
     DateTimeOffset CreatedAtUtc);
 
+/// <summary><c>ViewWatermark</c> (BHA-ADMIN-BADGE-001-PR08): the <c>website-hero</c> number of the same snapshot as the rest; present on the read, absent on the answer of a write.</summary>
 public sealed record HeroAdminDto(
     string Revision,
     int Version,
@@ -82,7 +84,8 @@ public sealed record HeroAdminDto(
     int IntervalSeconds,
     HeroTextsDto Texts,
     IReadOnlyList<HeroSlideDto> Slides,
-    IReadOnlyList<HeroMediaDto> Media);
+    IReadOnlyList<HeroMediaDto> Media,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ViewWatermark = null);
 
 /// <summary><c>ImageUrl</c> is a path on the API; <c>SeedFile</c> is set for a built-in photograph (the Customer looks its credit up by it) and null for an upload, which never inherits another picture's credit.</summary>
 public sealed record PublicHeroSlideDto(Guid Id, string ImageUrl, string? SeedFile, string FocalPosition, string Alt, string Caption);

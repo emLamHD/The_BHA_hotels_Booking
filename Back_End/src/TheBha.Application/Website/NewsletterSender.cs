@@ -1,6 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace TheBha.Application.Website;
 
-/// <summary>What the Admin reads of the sender: metadata only. The client secret and the tokens are never part of it.</summary>
+/// <summary>What the Admin reads of the sender: metadata only. The client secret and the tokens are never part of it. <c>ViewWatermark</c> (BHA-ADMIN-BADGE-001-PR08) is the <c>newsletter-sender</c> number of the same snapshot; present on the read, absent on the answer of a write.</summary>
 public sealed record NewsletterSenderDto(
     string Status,
     string? ClientId,
@@ -13,7 +15,8 @@ public sealed record NewsletterSenderDto(
     IReadOnlyList<string> Scopes,
     bool CustomerOriginReady,
     int Version,
-    int PendingRequests);
+    int PendingRequests,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ViewWatermark = null);
 
 public enum NewsletterSenderStatus { NotConnected, Connected, NeedsReconnect }
 
@@ -27,12 +30,13 @@ public sealed record NewsletterConnectResult(bool Connected, string? Code, Newsl
 public interface INewsletterSender
 {
     Task<NewsletterSenderDto> GetAsync(CancellationToken cancellationToken);
-    Task<NewsletterSenderProfileResult> SaveProfileAsync(string? senderName, string? replyTo, int expectedVersion, CancellationToken cancellationToken);
+    /// <summary><paramref name="actorStaffId"/> is the verified Staff id; it only names who caused the activity event, never what is stored on the sender.</summary>
+    Task<NewsletterSenderProfileResult> SaveProfileAsync(string? senderName, string? replyTo, int expectedVersion, Guid actorStaffId, CancellationToken cancellationToken);
     /// <summary>Starts a connection: stores one single-use state for <paramref name="staffId"/> and returns the Google address to send the browser to. Changes nothing about the current connection.</summary>
     Task<NewsletterConnectStart> BeginConnectAsync(Guid staffId, string? clientId, string? clientSecret, bool switchAccount, CancellationToken cancellationToken);
     /// <summary>Finishes it. Only a fully proved new connection replaces the current one; every other end leaves it untouched.</summary>
     Task<NewsletterConnectResult> CompleteConnectAsync(Guid staffId, string? state, string? code, string? providerError, CancellationToken cancellationToken);
-    Task<NewsletterSenderDto> DisconnectAsync(CancellationToken cancellationToken);
+    Task<NewsletterSenderDto> DisconnectAsync(Guid actorStaffId, CancellationToken cancellationToken);
 }
 
 public static class NewsletterSenderRules

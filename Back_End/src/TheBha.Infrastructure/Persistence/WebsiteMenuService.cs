@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TheBha.Application.Activity;
 using TheBha.Application.Website;
 using TheBha.Domain.Website;
 
@@ -12,22 +13,26 @@ namespace TheBha.Infrastructure.Persistence;
 /// A label is a stored-content text: the content source language's text is the menu row's own column, every other
 /// language's is a translation row keyed by the item's id, so packs, coverage and the Translations editor carry it.
 /// </summary>
-internal sealed class WebsiteMenuService(TheBhaDbContext database, TimeProvider timeProvider) : IWebsiteMenus
+internal sealed class WebsiteMenuService(TheBhaDbContext database, TimeProvider timeProvider, IAdminActivityRecorder recorder, IAdminActivityHint hint) : IWebsiteMenus
 {
     private const string Entity = "menuItem";
     private const string Field = "label";
     private static readonly string KeyPrefix = ContentKey.Prefix + Entity + ".";
 
-    public async Task<MenuAdminDto> GetAdminAsync(CancellationToken cancellationToken)
-    {
-        var state = await database.WebsiteMenuState.AsNoTracking().SingleAsync(cancellationToken);
-        var items = await database.WebsiteMenuItems.AsNoTracking().ToListAsync(cancellationToken);
-        var languages = await database.WebsiteLanguages.AsNoTracking()
-            .OrderBy(language => language.SortOrder).ThenBy(language => language.NormalizedCode)
-            .ToListAsync(cancellationToken);
-        var rows = await LabelRowsAsync(null, cancellationToken);
-        return BuildAdmin(state, items, languages, rows);
-    }
+    // BHA-ADMIN-BADGE-001-PR08 (ADR 0011): one Save of the whole tree is ONE event of the website-menus stream (a no-op or refused Save records nothing); the read answers its watermark from its own snapshot.
+    private const string Menu = AdminMenuKeys.WebsiteMenus;
+
+    public Task<MenuAdminDto> GetAdminAsync(CancellationToken cancellationToken) =>
+        WebsiteActivity.InSnapshotAsync(database, Menu, async watermark =>
+        {
+            var state = await database.WebsiteMenuState.AsNoTracking().SingleAsync(cancellationToken);
+            var items = await database.WebsiteMenuItems.AsNoTracking().ToListAsync(cancellationToken);
+            var languages = await database.WebsiteLanguages.AsNoTracking()
+                .OrderBy(language => language.SortOrder).ThenBy(language => language.NormalizedCode)
+                .ToListAsync(cancellationToken);
+            var rows = await LabelRowsAsync(null, cancellationToken);
+            return BuildAdmin(state, items, languages, rows) with { ViewWatermark = watermark };
+        }, cancellationToken);
 
     public async Task<WebsiteMutationResult<MenuAdminDto>> SaveAsync(SaveMenuCommand command, CancellationToken cancellationToken)
     {
@@ -36,7 +41,7 @@ internal sealed class WebsiteMenuService(TheBhaDbContext database, TimeProvider 
             return WebsiteMutationResult<MenuAdminDto>.Invalid("expectedRevision", "expectedRevision is the revision the editor loaded.");
         }
 
-        return await WebsiteTransaction.InLockAsync(database, timeProvider, async now =>
+        return await WebsiteTransaction.InLockAsync(database, timeProvider, new WebsiteActivityScope(recorder, hint, Menu, command.ActorStaffId), async (now, activity) =>
         {
             var state = await database.WebsiteMenuState.SingleAsync(cancellationToken);
             var existingItems = await database.WebsiteMenuItems.AsNoTracking().ToListAsync(cancellationToken);
@@ -82,8 +87,10 @@ internal sealed class WebsiteMenuService(TheBhaDbContext database, TimeProvider 
             await database.SaveChangesAsync(cancellationToken);
 
             var saved = await database.WebsiteTranslations.AsNoTracking().Where(row => row.Key.StartsWith(KeyPrefix)).ToListAsync(cancellationToken);
-            return WebsiteMutationResult<MenuAdminDto>.Success(
-                BuildAdmin(state, items, [.. languages.OrderBy(language => language.SortOrder).ThenBy(language => language.NormalizedCode)], saved));
+            var admin = BuildAdmin(state, items, [.. languages.OrderBy(language => language.SortOrder).ThenBy(language => language.NormalizedCode)], saved);
+            // One object (the header menu), one generic title: labels and links never go into the history.
+            activity.Set("Saved", "menu", "header-menu", "Header menu");
+            return WebsiteMutationResult<MenuAdminDto>.Success(admin);
         }, cancellationToken);
     }
 

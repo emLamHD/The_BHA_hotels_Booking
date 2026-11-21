@@ -1,19 +1,33 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using TheBha.Application.Activity;
 using TheBha.Application.Website;
 using TheBha.Domain.Website;
 
 namespace TheBha.Infrastructure.Persistence.Newsletter;
 
 internal sealed class NewsletterSenderService(
-    TheBhaDbContext database, TimeProvider timeProvider, NewsletterOptions options, NewsletterSecretProtector protector, IGoogleMailGateway google) : INewsletterSender
+    TheBhaDbContext database, TimeProvider timeProvider, NewsletterOptions options, NewsletterSecretProtector protector, IGoogleMailGateway google,
+    IAdminActivityRecorder recorder, IAdminActivityHint hint) : INewsletterSender
 {
+    // BHA-ADMIN-BADGE-001-PR08 (ADR 0011): the sender is its own stream (newsletter-sender), apart from the subscriptions. A committed profile save, a successful connect and a disconnect that really
+    // changed the connection are each ONE event, appended as the last statement before COMMIT (the stream's counter row is the last lock) and hinted only after it. Everything that talks to
+    // Google (code exchange, user info, revoke) happens BEFORE the transaction, so the counter is never held across that I/O. The snapshot is generic (no address, token, client id, secret or URL),
+    // and the early ends of a connect (BeginConnect, an invalid or spent state, a refusal by the user or by Google) write nothing.
+    private const string Menu = AdminMenuKeys.NewsletterSender, Kind = "sender", Key = "newsletter-sender";
+
+    private WebsiteActivityScope Scope(Guid actorStaffId) => new(recorder, hint, Menu, actorStaffId);
+
     private static readonly TimeSpan StateLifetime = TimeSpan.FromMinutes(10);
 
     private string? RedirectUri => NewsletterReadiness.IsHttpsOrigin(options.AdminOrigin) ? options.AdminOrigin!.TrimEnd('/') + NewsletterSenderRules.CallbackPath : null;
 
-    public async Task<NewsletterSenderDto> GetAsync(CancellationToken cancellationToken)
+    /// <summary>The Admin read: the sender plus the <c>newsletter-sender</c> number of the same snapshot. The answer of a write is read after its own commit (<see cref="ReadAsync"/>) and carries none.</summary>
+    public Task<NewsletterSenderDto> GetAsync(CancellationToken cancellationToken) =>
+        WebsiteActivity.InSnapshotAsync(database, Menu, async watermark => (await ReadAsync(cancellationToken)) with { ViewWatermark = watermark }, cancellationToken);
+
+    private async Task<NewsletterSenderDto> ReadAsync(CancellationToken cancellationToken)
     {
         var row = await database.NewsletterSenderSettings.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
         var pending = await database.NewsletterVerificationRequests.AsNoTracking()
@@ -21,7 +35,7 @@ internal sealed class NewsletterSenderService(
         return ToDto(row, pending);
     }
 
-    public async Task<NewsletterSenderProfileResult> SaveProfileAsync(string? senderName, string? replyTo, int expectedVersion, CancellationToken cancellationToken)
+    public async Task<NewsletterSenderProfileResult> SaveProfileAsync(string? senderName, string? replyTo, int expectedVersion, Guid actorStaffId, CancellationToken cancellationToken)
     {
         var name = senderName?.Trim();
         if (string.IsNullOrEmpty(name)) name = null;
@@ -36,20 +50,27 @@ internal sealed class NewsletterSenderService(
         }
 
         var now = timeProvider.GetUtcNow();
-        // The version is checked INSIDE the write: of two saves that read the same version one UPDATE matches, the other finds it moved.
-        var saved = await database.NewsletterSenderSettings.Where(row => row.Version == expectedVersion)
-            .ExecuteUpdateAsync(set => set.SetProperty(row => row.SenderName, name).SetProperty(row => row.ReplyTo, reply)
-                .SetProperty(row => row.Version, row => row.Version + 1).SetProperty(row => row.UpdatedAtUtc, now), cancellationToken);
-        if (saved == 0)
+        await using (var transaction = await database.Database.BeginTransactionAsync(cancellationToken))
         {
-            // No row at that version: only the very first save (version 0, no row yet) goes on, and it creates the row.
-            if (expectedVersion != 0 || await database.NewsletterSenderSettings.AnyAsync(cancellationToken))
-                return new NewsletterSenderProfileResult(false, "newsletter-sender-version-conflict", null);
-            var created = await CreateSingletonAsync(name, reply, now, cancellationToken);
-            if (!created) return new NewsletterSenderProfileResult(false, "newsletter-sender-version-conflict", null);   // another first save won the row
+            // The version is checked INSIDE the write: of two saves that read the same version one UPDATE matches, the other finds it moved.
+            var saved = await database.NewsletterSenderSettings.Where(row => row.Version == expectedVersion)
+                .ExecuteUpdateAsync(set => set.SetProperty(row => row.SenderName, name).SetProperty(row => row.ReplyTo, reply)
+                    .SetProperty(row => row.Version, row => row.Version + 1).SetProperty(row => row.UpdatedAtUtc, now), cancellationToken);
+            if (saved == 0)
+            {
+                // No row at that version: only the very first save (version 0, no row yet) goes on, and it creates the row.
+                if (expectedVersion != 0 || await database.NewsletterSenderSettings.AnyAsync(cancellationToken))
+                    return new NewsletterSenderProfileResult(false, "newsletter-sender-version-conflict", null);   // leaving the block rolls back: nothing was written
+                var created = await CreateSingletonAsync(name, reply, now, cancellationToken);
+                if (!created) return new NewsletterSenderProfileResult(false, "newsletter-sender-version-conflict", null);   // another first save won the row
+            }
+
+            await WebsiteActivity.RecordAsync(Scope(actorStaffId), "ProfileSaved", Kind, Key, "Sender settings", cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
 
-        return new NewsletterSenderProfileResult(true, null, await GetAsync(cancellationToken));
+        await WebsiteActivity.HintAsync(hint, Menu);
+        return new NewsletterSenderProfileResult(true, null, await ReadAsync(cancellationToken));
     }
 
     public async Task<NewsletterConnectStart> BeginConnectAsync(Guid staffId, string? clientId, string? clientSecret, bool switchAccount, CancellationToken cancellationToken)
@@ -194,11 +215,14 @@ internal sealed class NewsletterSenderService(
             }
         }
 
+        // The last statement before COMMIT: only a fully proved connection that was persisted (and its withdrawals) gets here.
+        await WebsiteActivity.RecordAsync(Scope(staffId), "Connected", Kind, Key, "Gmail sender", cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return new NewsletterConnectResult(true, null, await GetAsync(cancellationToken));
+        await WebsiteActivity.HintAsync(hint, Menu);
+        return new NewsletterConnectResult(true, null, await ReadAsync(cancellationToken));
     }
 
-    public async Task<NewsletterSenderDto> DisconnectAsync(CancellationToken cancellationToken)
+    public async Task<NewsletterSenderDto> DisconnectAsync(Guid actorStaffId, CancellationToken cancellationToken)
     {
         var row = await database.NewsletterSenderSettings.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
         if (row is { ProtectedRefreshToken: not null })
@@ -213,12 +237,25 @@ internal sealed class NewsletterSenderService(
 
             var epoch = row.ConnectionEpoch;
             var now = timeProvider.GetUtcNow();
-            await database.NewsletterSenderSettings.Where(s => s.ConnectionEpoch == epoch)
-                .ExecuteUpdateAsync(set => set.SetProperty(s => s.ProtectedRefreshToken, (string?)null).SetProperty(s => s.Status, NewsletterSenderSettings.StatusNotConnected)
-                    .SetProperty(s => s.UpdatedAtUtc, now).SetProperty(s => s.Version, s => s.Version + 1).SetProperty(s => s.ConnectionEpoch, s => s.ConnectionEpoch + 1), cancellationToken);
+            var recorded = false;
+            await using (var transaction = await database.Database.BeginTransactionAsync(cancellationToken))
+            {
+                var changed = await database.NewsletterSenderSettings.Where(s => s.ConnectionEpoch == epoch)
+                    .ExecuteUpdateAsync(set => set.SetProperty(s => s.ProtectedRefreshToken, (string?)null).SetProperty(s => s.Status, NewsletterSenderSettings.StatusNotConnected)
+                        .SetProperty(s => s.UpdatedAtUtc, now).SetProperty(s => s.Version, s => s.Version + 1).SetProperty(s => s.ConnectionEpoch, s => s.ConnectionEpoch + 1), cancellationToken);
+                // Another connection moved the epoch since it was read: nothing changed here, so nothing is recorded and the transaction ends empty.
+                if (changed > 0)
+                {
+                    await WebsiteActivity.RecordAsync(Scope(actorStaffId), "Disconnected", Kind, Key, "Gmail sender", cancellationToken);
+                    await transaction.CommitAsync(cancellationToken);
+                    recorded = true;
+                }
+            }
+
+            if (recorded) await WebsiteActivity.HintAsync(hint, Menu);
         }
 
-        return await GetAsync(cancellationToken);
+        return await ReadAsync(cancellationToken);
     }
 
     /// <summary>Creates the single sender row if it does not exist yet; false when it already did (the one rule for every path that can make it).</summary>

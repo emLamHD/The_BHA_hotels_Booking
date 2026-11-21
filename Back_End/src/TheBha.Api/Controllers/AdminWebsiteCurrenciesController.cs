@@ -14,11 +14,17 @@ namespace TheBha.Api.Controllers;
 [Route("api/admin/v1/website/currencies")]
 public sealed class AdminWebsiteCurrenciesController(IWebsiteSettingsStore store) : AdminWebsiteControllerBase
 {
+    /// <summary>A bare JSON array; the <c>website-currencies</c> number of the same snapshot travels in <c>X-Admin-View-Watermark</c> (BHA-ADMIN-BADGE-001-PR08).</summary>
     [HttpGet]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
+    [AdminBlogViewWatermarkHeader]
     [ProducesResponseType(typeof(IReadOnlyList<WebsiteCurrencyDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<WebsiteCurrencyDto>>> List(CancellationToken cancellationToken) =>
-        Ok(await store.ListCurrenciesAsync(cancellationToken));
+    public async Task<ActionResult<IReadOnlyList<WebsiteCurrencyDto>>> List(CancellationToken cancellationToken)
+    {
+        var list = await store.ListCurrenciesAsync(cancellationToken);
+        Response.Headers[AdminBlogHeaders.ViewWatermark] = list.ViewWatermark;
+        return Ok(list.Items);
+    }
 
     [HttpPost]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]

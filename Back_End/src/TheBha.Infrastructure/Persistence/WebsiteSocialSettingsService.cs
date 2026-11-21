@@ -1,12 +1,18 @@
 using Microsoft.EntityFrameworkCore;
+using TheBha.Application.Activity;
 using TheBha.Application.Website;
+using TheBha.Domain.Website;
 
 namespace TheBha.Infrastructure.Persistence;
 
-internal sealed class WebsiteSocialSettingsService(TheBhaDbContext database, TimeProvider timeProvider) : IWebsiteSocialSettings
+internal sealed class WebsiteSocialSettingsService(TheBhaDbContext database, TimeProvider timeProvider, IAdminActivityRecorder recorder, IAdminActivityHint hint) : IWebsiteSocialSettings
 {
-    public async Task<WebsiteSocialAdminDto> GetAdminAsync(CancellationToken cancellationToken) =>
-        Admin(await database.WebsiteSocialSettings.AsNoTracking().SingleAsync(cancellationToken));
+    // BHA-ADMIN-BADGE-001-PR08 (ADR 0011): every committed Save is ONE event of the website-social stream; the read answers its watermark from its own snapshot.
+    private const string Menu = AdminMenuKeys.WebsiteSocial;
+
+    public Task<WebsiteSocialAdminDto> GetAdminAsync(CancellationToken cancellationToken) =>
+        WebsiteActivity.InSnapshotAsync(database, Menu, async watermark =>
+            Admin(await database.WebsiteSocialSettings.AsNoTracking().SingleAsync(cancellationToken)) with { ViewWatermark = watermark }, cancellationToken);
 
     public async Task<WebsiteSocialPublicDto> GetPublicAsync(CancellationToken cancellationToken)
     {
@@ -17,7 +23,7 @@ internal sealed class WebsiteSocialSettingsService(TheBhaDbContext database, Tim
     }
 
     public Task<WebsiteMutationResult<WebsiteSocialAdminDto>> SaveAsync(SaveWebsiteSocialCommand command, CancellationToken cancellationToken) =>
-        WebsiteTransaction.InLockAsync(database, timeProvider, async now =>
+        WebsiteTransaction.InLockAsync(database, timeProvider, new WebsiteActivityScope(recorder, hint, Menu, command.ActorStaffId), async (now, activity) =>
         {
             var row = await database.WebsiteSocialSettings.SingleAsync(cancellationToken);
             if (row.Version != command.ExpectedRevision)
@@ -27,6 +33,8 @@ internal sealed class WebsiteSocialSettingsService(TheBhaDbContext database, Tim
             row.Save(now, command.ActorStaffId, command.PhoneEnabled, values!.PhoneNumber, values.PhoneHref,
                 command.MessengerEnabled, values.MessengerUrl, command.ZaloEnabled, values.ZaloNumber, values.ZaloUrl, command.BackToTopEnabled);
             await database.SaveChangesAsync(cancellationToken);
+            // One object, one generic title: the phone number and the links never go into the history.
+            activity.Set("Saved", "social", "social-media", "Social media");
             return WebsiteMutationResult<WebsiteSocialAdminDto>.Success(Admin(row));
         }, cancellationToken);
 

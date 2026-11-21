@@ -147,13 +147,35 @@ internal sealed class WebsiteLocalizationModel
 /// <summary>The part of a translation row coverage needs; the value is not loaded.</summary>
 internal sealed record CoverageRow(bool IsManual, string? SourceHash);
 
-/// <summary>The one transaction shape every website write uses: the site-wide advisory lock first, then the work; any non-success rolls everything back.</summary>
+/// <summary>
+/// The one transaction shape every website write uses: the site-wide advisory lock first, then the work; any non-success rolls everything back. A success whose work set an
+/// <see cref="ActivityNote"/> appends that one activity event as the LAST statement before COMMIT (BHA-ADMIN-BADGE-001-PR08), and only after COMMIT is the hint sent.
+/// </summary>
 internal static class WebsiteTransaction
 {
     public static async Task<WebsiteMutationResult<T>> InLockAsync<T>(
         TheBhaDbContext database,
         TimeProvider timeProvider,
-        Func<DateTimeOffset, Task<WebsiteMutationResult<T>>> work,
+        WebsiteActivityScope activity,
+        Func<DateTimeOffset, ActivityNote, Task<WebsiteMutationResult<T>>> work,
+        CancellationToken cancellationToken)
+    {
+        var note = new ActivityNote();
+        var result = await RunAsync(database, timeProvider, activity, note, work, cancellationToken);
+        if (result.Status == WebsiteMutationStatus.Succeeded && note.Event is not null)
+        {
+            await WebsiteActivity.HintAsync(activity.Hint, activity.MenuKey);
+        }
+
+        return result;
+    }
+
+    private static async Task<WebsiteMutationResult<T>> RunAsync<T>(
+        TheBhaDbContext database,
+        TimeProvider timeProvider,
+        WebsiteActivityScope activity,
+        ActivityNote note,
+        Func<DateTimeOffset, ActivityNote, Task<WebsiteMutationResult<T>>> work,
         CancellationToken cancellationToken)
     {
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
@@ -161,9 +183,14 @@ internal static class WebsiteTransaction
         {
             await AdvisoryLockCoordinator.AcquireKeyAsync(database, BookingAdvisoryLockKeys.ForWebsiteSettings(), cancellationToken);
             database.ChangeTracker.Clear();
-            var result = await work(timeProvider.GetUtcNow());
+            var result = await work(timeProvider.GetUtcNow(), note);
             if (result.Status == WebsiteMutationStatus.Succeeded)
             {
+                if (note.Event is var (action, kind, key, title))
+                {
+                    await WebsiteActivity.RecordAsync(activity, action, kind, key, title, cancellationToken);
+                }
+
                 await transaction.CommitAsync(cancellationToken);
             }
             else
