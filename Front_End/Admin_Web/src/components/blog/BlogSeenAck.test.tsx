@@ -30,7 +30,7 @@ import MediaPickerDialog from "./MediaPickerDialog";
 import SettingsScreen from "./SettingsScreen";
 import BlogAccessGate from "./BlogAccessGate";
 import { lowestMark, type ReadMark } from "./useMarkedList";
-import { ACK_RETRY_MS, BADGE_COALESCE_MS, MenuUnseenProvider, useMenuSeen } from "@/components/website/NewsletterBadgeProvider";
+import { ACK_RETRY_MS, BADGE_COALESCE_MS, MenuUnseenProvider, useMenuSeen, useMenuUnseen } from "@/components/website/NewsletterBadgeProvider";
 import { StaffSessionProvider, useStaffSession } from "@/components/auth/StaffSession";
 import { BOTH, deferred, ok } from "./blogTestUtils";
 import { fetchStaffSession } from "@/lib/api/staff";
@@ -134,6 +134,30 @@ describe("each screen says 'seen' for its own stream with the watermark of its o
     screenCategories.mockResolvedValue(ok({ items: [cat(A)], viewWatermark: "30" }) as never);
     await userEvent.click(screen.getByRole("button", { name: /Đóng/ }));
     await waitFor(() => expect(sent()).toEqual(["blog-categories:20", "blog-categories:30"]));
+  });
+
+  it("Pins: while a category's pins are open the screen waits for the pins read and then says the LOWER of the two categories watermarks", async () => {
+    // The first call (the categories list alone, 20) is refused, so the server's cursor did not move: what the open dialog adds is visible.
+    seenCall.mockReset();
+    seenCall.mockResolvedValueOnce({ kind: "refused", status: 400, code: "menu-unseen-watermark-invalid", field: "viewWatermark", detail: "x" } as never)
+      .mockImplementation((async (_m: string, watermark: string) => ({ kind: "ok", data: entry(watermark, "100") })) as never);
+    const pinsRead = deferred<ReturnType<typeof ok>>();
+    screenCategories.mockResolvedValue(ok({ items: [cat(A)], viewWatermark: "20" }) as never);
+    pins.mockReturnValue(pinsRead.promise as never);
+    posts.mockResolvedValue(ok(postList([], { viewWatermark: "999" })) as never);
+    mount(<CategoriesScreen />);
+    await screen.findByTestId("category-pins");
+    await waitFor(() => expect(sent()).toEqual(["blog-categories:20"]));
+
+    await userEvent.click(within(screen.getByTestId("category-pins")).getByRole("button"));
+    await waitFor(() => expect(pins).toHaveBeenCalled());
+    await flush();
+    expect(sent()).toEqual(["blog-categories:20"]);                                            // the pins read is still out: nothing more is said
+
+    await act(async () => { pinsRead.resolve(ok({ categoryId: A, version: 1, pins: [], viewWatermark: "15" })); await Promise.resolve(); });
+    await waitFor(() => expect(sent()).toEqual(["blog-categories:20", "blog-categories:15"]));  // min(20, 15); never 999 and never the posts stream
+    await flush();
+    expect(sent()).toEqual(["blog-categories:20", "blog-categories:15"]);
   });
 
   it("MediaLibrary → blog-media from GET /media; the picker dialog (the same grid inside an editor) says nothing", async () => {
@@ -309,6 +333,28 @@ describe("the provider's pipeline is per menu", () => {
     await say_("blog-media", "3");
     await waitFor(() => expect(summary).toHaveBeenCalledTimes(2));
     expect(sent()).toEqual(["blog-media:3"]);
+  });
+
+  it("the badge takes the number from the server's answer to 'seen' (no GET needed), and a summary that was already on its way with older marks cannot bring the old number back", async () => {
+    function Count() {
+      return <span data-testid="posts-count">{useMenuUnseen()["blog-posts"]?.count ?? "-"}</span>;
+    }
+    summary.mockResolvedValue({ kind: "ok", data: { "blog-posts": entry("0", "100", 3) } } as never);
+    mount(<Count />);
+    await waitFor(() => expect(screen.getByTestId("posts-count").textContent).toBe("3"));
+
+    const late = deferred<unknown>();
+    summary.mockReturnValueOnce(late.promise as never);
+    await act(async () => { window.dispatchEvent(new Event("focus")); });                      // asks for the numbers again …
+    await waitFor(() => expect(summary).toHaveBeenCalledTimes(2), { timeout: BADGE_COALESCE_MS + 2000 });
+    seenCall.mockResolvedValue({ kind: "ok", data: { count: 0, lastSeenWatermark: "7", currentWatermark: "100" } } as never);
+    await say_("blog-posts", "7");                                                             // … and the screen says "seen" while that GET is still out
+    await waitFor(() => expect(screen.getByTestId("posts-count").textContent).toBe("0"));
+    expect(summary).toHaveBeenCalledTimes(2);                                                  // the server's answer to the POST changed the badge; no new GET
+
+    await act(async () => { late.resolve({ kind: "ok", data: { "blog-posts": entry("0", "100", 3) } }); await Promise.resolve(); });
+    await flush();
+    expect(screen.getByTestId("posts-count").textContent).toBe("0");                           // older marks (last 0 < 7): it never wins
   });
 
   it("the Newsletter keeps its own call, and a screen outside the shell (no provider, LocalGate) sends nothing", async () => {
