@@ -56,8 +56,12 @@ export default function LanguagesPanel() {
   useAckOnRead("website-languages", list.mark && library.mark ? lowestMark(list.mark, library.mark) : null);
   const { state, reload: reloadList } = list;
   const reloadLibrary = library.reload;
-  // A reload reads BOTH again (a pack applied or a card changed moves both snapshots), so the screen's mark advances with it; it answers with the cards, as its callers expect.
-  const reload = useCallback(async () => (await Promise.all([reloadList(), reloadLibrary()]))[0]?.items ?? null, [reloadList, reloadLibrary]);
+  // A reload starts BOTH reads again (a pack applied or a card changed moves both snapshots), so the screen's mark advances with it, but it answers with the cards as soon as THEY are in:
+  // the server checks after a lost save depend on the languages alone, as before. The library read is only the badge's (its mark, or its failure, never reaches the caller).
+  const reload = useCallback(async () => {
+    void reloadLibrary();
+    return (await reloadList())?.items ?? null;
+  }, [reloadList, reloadLibrary]);
   const currencies = useWebsiteList(listCurrencies, []);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

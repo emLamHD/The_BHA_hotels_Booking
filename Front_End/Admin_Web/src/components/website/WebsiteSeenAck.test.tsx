@@ -16,7 +16,7 @@ vi.mock("@/lib/website/newsletterLive", () => ({ startNewsletterLive: vi.fn(() =
 vi.mock("@/lib/api/website", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/website")>()),
   getHero: vi.fn(), getMenu: vi.fn(), getSocialSettings: vi.fn(), saveSocialSettings: vi.fn(), getNewsletterSender: vi.fn(), readCurrencies: vi.fn(), readLanguages: vi.fn(),
-  readLibraryPacks: vi.fn(), updateLanguage: vi.fn(), completeNewsletterConnect: vi.fn(), listLanguages: vi.fn(), listCurrencies: vi.fn(), listLibraryPacks: vi.fn(), listTranslations: vi.fn(),
+  readLibraryPacks: vi.fn(), updateLanguage: vi.fn(), deleteLanguage: vi.fn(), completeNewsletterConnect: vi.fn(), listLanguages: vi.fn(), listCurrencies: vi.fn(), listLibraryPacks: vi.fn(), listTranslations: vi.fn(),
 }));
 vi.mock("@/lib/api/menuUnseen", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/menuUnseen")>()),
@@ -38,7 +38,7 @@ import { ALLOWED, currency, deferred, lang, ok, translations, VND } from "./webs
 import { fetchStaffSession } from "@/lib/api/staff";
 import { fetchMenuUnseenSummary, markMenuSeen, type MenuUnseenEntry } from "@/lib/api/menuUnseen";
 import {
-  getHero, getMenu, getNewsletterSender, getSocialSettings, listCurrencies, completeNewsletterConnect, listLanguages, listLibraryPacks, listTranslations, readCurrencies, readLanguages, readLibraryPacks, saveSocialSettings, updateLanguage,
+  getHero, getMenu, getNewsletterSender, getSocialSettings, listCurrencies, completeNewsletterConnect, listLanguages, listLibraryPacks, listTranslations, readCurrencies, readLanguages, readLibraryPacks, saveSocialSettings, updateLanguage, deleteLanguage,
 } from "@/lib/api/website";
 
 const seenCall = vi.mocked(markMenuSeen);
@@ -100,7 +100,7 @@ const flush = (ms = 60) => act(async () => { await new Promise((resolve) => setT
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff");
-  for (const m of [seenCall, summary, ...Object.values(reads), vi.mocked(listLanguages), vi.mocked(listCurrencies), vi.mocked(listLibraryPacks), vi.mocked(saveSocialSettings), vi.mocked(updateLanguage), vi.mocked(completeNewsletterConnect)]) m.mockReset();
+  for (const m of [seenCall, summary, ...Object.values(reads), vi.mocked(listLanguages), vi.mocked(listCurrencies), vi.mocked(listLibraryPacks), vi.mocked(saveSocialSettings), vi.mocked(updateLanguage), vi.mocked(deleteLanguage), vi.mocked(completeNewsletterConnect)]) m.mockReset();
   session = null;
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: STAFF_A });
   summary.mockResolvedValue({ kind: "ok", data: ALL_SEVEN } as never);
@@ -221,6 +221,47 @@ describe("Languages: one stream behind two reads", () => {
     await userEvent.click(within(screen.getByTestId("switch-en")).getByRole("button"));
     await waitFor(() => expect(sent()).toEqual(["website-languages:25", "website-languages:38"]));      // min(40, 38); the library's 25 would have stayed the mark forever
     expect(reads.library).toHaveBeenCalledTimes(2);
+  });
+
+  it("the server check after a lost save finishes from the languages read; the ack waits for the library and then says the lower mark (C1)", async () => {
+    reads.languages.mockResolvedValue(items([VI, FR], "30") as never);
+    reads.library.mockResolvedValue(items([], "25") as never);
+    vi.mocked(deleteLanguage).mockResolvedValue({ kind: "unverified", message: "Máy chủ Admin không trả lời." } as never);
+    mount(<LanguagesPanel />);
+    await waitFor(() => expect(sent()).toEqual(["website-languages:25"]));
+    await userEvent.click(within(screen.getByTestId("delete-fr")).getByRole("button"));
+    await userEvent.click(within(screen.getByTestId("dialog-confirm")).getByRole("button"));
+    await screen.findByTestId("write-unverified");
+
+    const libraryRead = deferred<ReturnType<typeof items>>();
+    reads.languages.mockResolvedValue(items([VI], "40") as never);
+    reads.library.mockReturnValueOnce(libraryRead.promise as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("server-note")).toHaveTextContent("fr không còn trên máy chủ");
+    expect(within(screen.getByTestId("dialog-cancel")).getByRole("button")).toBeEnabled();
+    await flush();
+    expect(sent()).toEqual(["website-languages:25"]);                                    // the library is still out: no new ack
+
+    await act(async () => { libraryRead.resolve(items([], "38")); await Promise.resolve(); });
+    await waitFor(() => expect(sent()).toEqual(["website-languages:25", "website-languages:38"]));      // min(40, 38)
+  });
+
+  it("a failed library read after a reload leaves the server check done and says nothing new", async () => {
+    reads.languages.mockResolvedValue(items([VI, FR], "30") as never);
+    reads.library.mockResolvedValue(items([], "25") as never);
+    vi.mocked(deleteLanguage).mockResolvedValue({ kind: "unverified", message: "Máy chủ Admin không trả lời." } as never);
+    mount(<LanguagesPanel />);
+    await waitFor(() => expect(sent()).toEqual(["website-languages:25"]));
+    await userEvent.click(within(screen.getByTestId("delete-fr")).getByRole("button"));
+    await userEvent.click(within(screen.getByTestId("dialog-confirm")).getByRole("button"));
+    await screen.findByTestId("write-unverified");
+
+    reads.languages.mockResolvedValue(items([VI], "40") as never);
+    reads.library.mockResolvedValue({ kind: "network", message: "x" } as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("server-note")).toHaveTextContent("fr không còn trên máy chủ");
+    await flush();
+    expect(sent()).toEqual(["website-languages:25"]);
   });
 
   it("a library read without a valid mark means no acknowledgement at all (the cards alone are not enough)", async () => {
