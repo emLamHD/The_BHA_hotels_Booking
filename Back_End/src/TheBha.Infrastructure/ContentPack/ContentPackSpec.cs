@@ -88,6 +88,7 @@ public static class ContentPackSpec
         ["NewsletterVerificationRequests"] = "confirmation mails queued for visitors' addresses (personal data and link tokens): a pack never carries them",
         ["NewsletterVerificationActivities"] = "which verifications happened and when (no address or token), numbered in the commit order of one environment: operational history, never content",
         ["MenuActivityStreams"] = "the counter that numbers one environment's menu activity: operational state, never content (the migration seeds its row)",
+        ["MenuActivityCutovers"] = "the one-row marker that says a menu's activity moved to the shared table in one environment (written by its operator command, never updated): operational state, never content",
         ["StaffMenuSeen"] = "how far each Staff member of one environment has seen a menu: per-account operational state, never content",
         ["AdminActivities"] = "what Staff and visitors did in each Admin menu (safe title snapshots, never a person's data), numbered in the commit order of one environment: operational history, never content",
         ["StaffMenuPropertySeen"] = "how far each Staff member of one environment has seen a Property-scoped menu: per-account operational state, never content",

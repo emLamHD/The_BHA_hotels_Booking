@@ -87,6 +87,8 @@ public static class InfrastructureServiceCollectionExtensions
         // BHA-NEWSLETTER-003: Staff add, edit, invite, unsubscribe, archive and delete.
         services.AddScoped<INewsletterSubscriptionAdmin, NewsletterSubscriptionAdminService>();
         services.AddScoped<IMenuUnseen, MenuUnseenService>();
+        // BHA-ADMIN-BADGE-001-PR14: the Newsletter cutover, run only by its operator command.
+        services.AddScoped<INewsletterActivityCutover, TheBha.Infrastructure.Persistence.Newsletter.NewsletterActivityCutover>();
         // BHA-ADMIN-BADGE-001-PR03: one class reads the shared per-menu unseen state and judges who may read a menu; the host supplies AdminMenuRoles from its permission map.
         services.AddScoped<TheBha.Infrastructure.Persistence.Activity.AdminMenuUnseenService>();
         services.AddScoped<TheBha.Application.Activity.IAdminMenuUnseen>(sp => sp.GetRequiredService<TheBha.Infrastructure.Persistence.Activity.AdminMenuUnseenService>());
