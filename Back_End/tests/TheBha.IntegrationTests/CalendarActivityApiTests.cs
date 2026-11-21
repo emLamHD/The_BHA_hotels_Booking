@@ -110,27 +110,28 @@ public sealed class CalendarActivityApiTests(PostgreSqlWebApplicationFactory fac
 
     /// <summary>
     /// Pauses the FIRST read that follows the cursor upsert of an entity acknowledgement, after PostgreSQL has executed it (its snapshot is fixed) and before the application has used the result. A
-    /// response built from several reads is torn by a commit made in that gap; one built from one statement is not. Armed by the upsert itself, so seeding and other requests are never paused.
+    /// response built from several reads is torn by a commit made in that gap; one built from one statement is not. Armed by the upsert itself and only for the DbContext (request) that ran it, so seeding and other requests are never paused.
     /// </summary>
     private sealed class AfterEntitySeenUpsert : DbCommandInterceptor
     {
         private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _armed, _tripped;
+        private volatile Microsoft.EntityFrameworkCore.DbContext? _armedContext;
+        private int _tripped;
 
         public Task Reached => _reached.Task;
         public void Release() => _released.TrySetResult();
 
         public override ValueTask<int> NonQueryExecutedAsync(System.Data.Common.DbCommand command, CommandExecutedEventData eventData, int result, CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.Contains("INSERT INTO \"StaffEntitySeen\"", StringComparison.Ordinal)) Volatile.Write(ref _armed, 1);
+            if (command.CommandText.Contains("INSERT INTO \"StaffEntitySeen\"", StringComparison.Ordinal)) _armedContext = eventData.Context;
             return ValueTask.FromResult(result);
         }
 
         public override async ValueTask<System.Data.Common.DbDataReader> ReaderExecutedAsync(
             System.Data.Common.DbCommand command, CommandExecutedEventData eventData, System.Data.Common.DbDataReader result, CancellationToken cancellationToken = default)
         {
-            if (Volatile.Read(ref _armed) == 1 && Interlocked.Exchange(ref _tripped, 1) == 0)
+            if (_armedContext is { } armed && ReferenceEquals(armed, eventData.Context) && Interlocked.Exchange(ref _tripped, 1) == 0)
             {
                 _reached.TrySetResult();
                 await _released.Task.WaitAsync(cancellationToken);
