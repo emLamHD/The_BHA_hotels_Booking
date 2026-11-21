@@ -1,8 +1,10 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using TheBha.Application.Activity;
 using TheBha.Application.Blog;
 using TheBha.Application.Website;
 using TheBha.Domain.Blog;
+using TheBha.Domain.Website;
 
 namespace TheBha.Infrastructure.Persistence;
 
@@ -10,7 +12,10 @@ internal sealed partial class AdminBlogService
 {
     // ---- reads ----
 
-    public async Task<WebsiteMutationResult<BlogPostListDto>> ListPostsAsync(BlogPostListQuery query, CancellationToken cancellationToken)
+    public Task<WebsiteMutationResult<BlogPostListDto>> ListPostsAsync(BlogPostListQuery query, CancellationToken cancellationToken) =>
+        InSnapshotAsync(AdminMenuKeys.BlogPosts, watermark => ListPostsAsync(query, watermark, cancellationToken), cancellationToken);
+
+    private async Task<WebsiteMutationResult<BlogPostListDto>> ListPostsAsync(BlogPostListQuery query, string watermark, CancellationToken cancellationToken)
     {
         var translations = db.BlogPostTranslations.AsNoTracking().AsQueryable();
         if (!string.IsNullOrWhiteSpace(query.Locale))
@@ -57,7 +62,7 @@ internal sealed partial class AdminBlogService
         var offset = (long)(page - 1) * pageSize;
         if (offset >= total)
         {
-            return WebsiteMutationResult<BlogPostListDto>.Success(new BlogPostListDto([], page, pageSize, total));
+            return WebsiteMutationResult<BlogPostListDto>.Success(new BlogPostListDto([], page, pageSize, total, watermark));
         }
 
         var ids = await db.BlogPosts.AsNoTracking()
@@ -91,7 +96,7 @@ internal sealed partial class AdminBlogService
                         Staff(emails, t.UpdatedByStaffId), shown?.CoverMediaId);
                 }).ToList());
         }).ToList();
-        return WebsiteMutationResult<BlogPostListDto>.Success(new BlogPostListDto(items, page, pageSize, total));
+        return WebsiteMutationResult<BlogPostListDto>.Success(new BlogPostListDto(items, page, pageSize, total, watermark));
     }
 
     public async Task<WebsiteMutationResult<BlogPostAdminDto>> GetPostAsync(Guid postId, CancellationToken cancellationToken)
@@ -230,7 +235,9 @@ internal sealed partial class AdminBlogService
             return Fail<BlogPostAdminDto>(pointed);
         }
 
+        await RecordAsync(AdminMenuKeys.BlogPosts, command.ActorStaffId, AdminActivityActions.Created, TranslationKind, translation.Id.ToString("D"), content.Title, cancellationToken, correlationId: command.CorrelationId);
         await transaction.CommitAsync(cancellationToken);
+        await HintAsync(AdminMenuKeys.BlogPosts);
         return await ReloadAsync(post.Id, cancellationToken);
     }
 
@@ -289,7 +296,9 @@ internal sealed partial class AdminBlogService
                 return Fail<BlogPostAdminDto>(pointed);
             }
 
+            await RecordAsync(AdminMenuKeys.BlogPosts, command.ActorStaffId, AdminActivityActions.Created, TranslationKind, translation.Id.ToString("D"), content.Title, cancellationToken, correlationId: command.CorrelationId);
             await transaction.CommitAsync(cancellationToken);
+            await HintAsync(AdminMenuKeys.BlogPosts);
             return await ReloadAsync(command.PostId, cancellationToken);
         }
 
@@ -332,7 +341,9 @@ internal sealed partial class AdminBlogService
             return Fail<BlogPostAdminDto>(saved2);
         }
 
+        await RecordAsync(AdminMenuKeys.BlogPosts, command.ActorStaffId, AdminActivityActions.DraftSaved, TranslationKind, translation.Id.ToString("D"), content.Title, cancellationToken, correlationId: command.CorrelationId);
         await transaction.CommitAsync(cancellationToken);
+        await HintAsync(AdminMenuKeys.BlogPosts);
         return await ReloadAsync(command.PostId, cancellationToken);
     }
 
@@ -369,6 +380,9 @@ internal sealed partial class AdminBlogService
             return Fail<BlogPostAdminDto>(archived);
         }
 
+        // A publish of a saved draft may carry the chain's id; a republish (no draft) is its own event and never does.
+        string action, title;
+        Guid? correlationId = null;
         if (translation.DraftRevisionId is not { } draftId)
         {
             if (translation.Republish(command.ActorStaffId, now) is { } republish)
@@ -379,6 +393,8 @@ internal sealed partial class AdminBlogService
             }
 
             Audit(command.ActorStaffId, "post.republish", command.PostId, translation.Id, null, locale, translation.PublishedRevisionId, translation.Version);
+            action = "Republished";
+            title = await ShownTitleAsync(translation, cancellationToken);
         }
         else
         {
@@ -395,6 +411,9 @@ internal sealed partial class AdminBlogService
             }
 
             Audit(command.ActorStaffId, "post.publish", command.PostId, translation.Id, null, locale, draft.Id, translation.Version, SlugDetail(draft.ToContent()));
+            action = AdminActivityActions.Published;
+            title = draft.Title;
+            correlationId = command.CorrelationId;
         }
 
         if (await SaveAsync(cancellationToken) is { } saved)
@@ -402,12 +421,14 @@ internal sealed partial class AdminBlogService
             return Fail<BlogPostAdminDto>(saved);
         }
 
+        await RecordAsync(AdminMenuKeys.BlogPosts, command.ActorStaffId, action, TranslationKind, translation.Id.ToString("D"), title, cancellationToken, correlationId: correlationId);
         await transaction.CommitAsync(cancellationToken);
+        await HintAsync(AdminMenuKeys.BlogPosts);
         return await ReloadAsync(command.PostId, cancellationToken);
     }
 
     private async Task<WebsiteMutationResult<BlogPostAdminDto>> TransitionAsync(
-        BlogTransitionCommand command, string action, Func<BlogPostTranslation, DateTimeOffset, BlogProblem?> change, CancellationToken cancellationToken)
+        BlogTransitionCommand command, string action, string activity, Func<BlogPostTranslation, DateTimeOffset, BlogProblem?> change, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var (translation, locale, problem) = await LoadForTransitionAsync(command.PostId, command.Locale, command.ExpectedVersion, cancellationToken);
@@ -427,18 +448,20 @@ internal sealed partial class AdminBlogService
             return Fail<BlogPostAdminDto>(saved);
         }
 
+        await RecordAsync(AdminMenuKeys.BlogPosts, command.ActorStaffId, activity, TranslationKind, translation.Id.ToString("D"), await ShownTitleAsync(translation, cancellationToken), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        await HintAsync(AdminMenuKeys.BlogPosts);
         return await ReloadAsync(command.PostId, cancellationToken);
     }
 
     public Task<WebsiteMutationResult<BlogPostAdminDto>> UnpublishAsync(BlogTransitionCommand command, CancellationToken cancellationToken) =>
-        TransitionAsync(command, "post.unpublish", (t, now) => t.Unpublish(command.ActorStaffId, now), cancellationToken);
+        TransitionAsync(command, "post.unpublish", "Unpublished", (t, now) => t.Unpublish(command.ActorStaffId, now), cancellationToken);
 
     public Task<WebsiteMutationResult<BlogPostAdminDto>> ArchiveAsync(BlogTransitionCommand command, CancellationToken cancellationToken) =>
-        TransitionAsync(command, "post.archive", (t, now) => t.Archive(command.ActorStaffId, now), cancellationToken);
+        TransitionAsync(command, "post.archive", "Archived", (t, now) => t.Archive(command.ActorStaffId, now), cancellationToken);
 
     public Task<WebsiteMutationResult<BlogPostAdminDto>> UnarchiveAsync(BlogTransitionCommand command, CancellationToken cancellationToken) =>
-        TransitionAsync(command, "post.unarchive", (t, now) => t.Unarchive(command.ActorStaffId, now), cancellationToken);
+        TransitionAsync(command, "post.unarchive", "Unarchived", (t, now) => t.Unarchive(command.ActorStaffId, now), cancellationToken);
 
     public async Task<WebsiteMutationResult<BlogPostAdminDto>> RestoreAsync(RestoreBlogRevisionCommand command, CancellationToken cancellationToken)
     {
@@ -507,7 +530,9 @@ internal sealed partial class AdminBlogService
             return Fail<BlogPostAdminDto>(saved);
         }
 
+        await RecordAsync(AdminMenuKeys.BlogPosts, command.ActorStaffId, "Restored", TranslationKind, translation.Id.ToString("D"), content.Title, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        await HintAsync(AdminMenuKeys.BlogPosts);
         return await ReloadAsync(command.PostId, cancellationToken);
     }
 }

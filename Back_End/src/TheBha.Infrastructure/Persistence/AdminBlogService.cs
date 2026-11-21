@@ -1,7 +1,10 @@
+using System.Data;
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using TheBha.Application.Activity;
 using TheBha.Application.Blog;
 using TheBha.Application.Website;
 using TheBha.Domain.Blog;
@@ -14,11 +17,68 @@ namespace TheBha.Infrastructure.Persistence;
 /// translation, category, pin list or the settings carries the version it was made from (a stale one is refused, and EF enforces the same
 /// token, so two writers on one version cannot both win). The Staff actor is the verified session's, passed in; permission is decided
 /// before this runs.
+/// <para>
+/// BHA-ADMIN-BADGE-001-PR06 (ADR 0011 §A, §D): every Admin write also appends ONE activity event to its menu's stream (<c>blog-posts</c>, <c>blog-categories</c>, <c>blog-media</c>,
+/// <c>blog-settings</c>), by name, as the last statement before COMMIT — after the business writes, the <see cref="BlogAudit"/> row and every business lock — so a failure of the recorder
+/// rolls the write, its audit and the counter back together. The hint goes out only after COMMIT. A list the Admin screens load answers its watermark from the same REPEATABLE READ
+/// snapshot as its rows.
+/// </para>
 /// </summary>
 internal sealed partial class AdminBlogService(
-    TheBhaDbContext db, IHeroMediaStorage storage, IBlogImagePipeline pipeline, TimeProvider clock, ILogger<AdminBlogService> logger) : IAdminBlog
+    TheBhaDbContext db, IHeroMediaStorage storage, IBlogImagePipeline pipeline, TimeProvider clock, IAdminActivityRecorder recorder, IAdminActivityHint hint,
+    ILogger<AdminBlogService> logger) : IAdminBlog
 {
+    /// <summary>One kind for every action on a translation (create, save, publish, …) and the translation id as key: the recorder links a Save-then-Publish chain only on the same kind and key.</summary>
+    private const string TranslationKind = "post-translation";
+
+    private const string CategoryKind = "category", MediaKind = "media", MediaBatchKind = "media-batch", SettingsKind = "settings", SettingsKey = "blog-settings";
+
     private static readonly BlogProblem Stale = new(BlogErrorCodes.StaleVersion, "expectedVersion", "It was changed by someone else. Reload and try again.");
+
+    // ---- activity and snapshot plumbing (BHA-ADMIN-BADGE-001-PR06) ----
+
+    /// <summary>Appends the event on this context's open transaction. The actor is always the verified session's Staff id passed in the command.</summary>
+    private Task RecordAsync(
+        string menu, Guid actor, string action, string kind, string key, string? title, CancellationToken cancellationToken, int itemCount = 1, Guid? correlationId = null) =>
+        recorder.RecordAsync(new AdminActivityEntry(menu, null, AdminActorKind.Staff, actor, action, kind, key, title, itemCount, correlationId), cancellationToken);
+
+    /// <summary>Called only after COMMIT. Not given the caller's token: the change is already durable, and a cancelled caller must not skip the hint (delivery is bounded and best effort).</summary>
+    private Task HintAsync(string menu) => hint.PublishAsync(menu, null, CancellationToken.None);
+
+    /// <summary>The title of the revision the Admin list shows for a translation (the draft, else the published one): the safe snapshot of an operation that carries no new text.</summary>
+    private async Task<string> ShownTitleAsync(BlogPostTranslation translation, CancellationToken cancellationToken) =>
+        (translation.DraftRevisionId ?? translation.PublishedRevisionId) is { } revisionId
+            ? await db.BlogPostRevisions.AsNoTracking().Where(r => r.Id == revisionId).Select(r => r.Title).SingleOrDefaultAsync(cancellationToken) ?? string.Empty
+            : string.Empty;
+
+    /// <summary>
+    /// A category's name for an activity snapshot: the website's default language when the category has a text in it, else the first language in code order. Read before a delete
+    /// removes the texts.
+    /// </summary>
+    private async Task<string> CategoryTitleAsync(Guid categoryId, CancellationToken cancellationToken)
+    {
+        var names = await db.BlogCategoryTranslations.AsNoTracking().Where(t => t.CategoryId == categoryId).Select(t => new { t.Locale, t.Name }).ToListAsync(cancellationToken);
+        if (names.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var defaultCode = await db.WebsiteLanguages.AsNoTracking().Where(language => language.IsDefault).Select(language => language.NormalizedCode).FirstOrDefaultAsync(cancellationToken);
+        return (names.FirstOrDefault(n => n.Locale == defaultCode) ?? names.OrderBy(n => n.Locale, StringComparer.Ordinal).First()).Name;
+    }
+
+    /// <summary>
+    /// Runs <paramref name="read"/> inside one REPEATABLE READ snapshot whose FIRST statement reads the stream's counter, so the rows <paramref name="read"/> returns and the watermark
+    /// are the same committed state: every event up to the watermark is reflected in the rows and none after it is claimed. Only the public GET entry points call it (a write's answer is read
+    /// after its own commit and carries no watermark).
+    /// </summary>
+    private async Task<T> InSnapshotAsync<T>(string menuKey, Func<string, Task<T>> read, CancellationToken cancellationToken)
+    {
+        await using var snapshot = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken);
+        var watermark = (await db.MenuActivityStreams.AsNoTracking().Where(stream => stream.MenuKey == menuKey).Select(stream => stream.LastSequence).SingleAsync(cancellationToken))
+            .ToString(CultureInfo.InvariantCulture);
+        return await read(watermark);
+    }
 
     // ---- shared plumbing ----
 

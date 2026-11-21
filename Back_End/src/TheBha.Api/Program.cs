@@ -533,6 +533,28 @@ builder.Services.AddCors(options =>
                     .AllowCredentials();
             }
         });
+        // BHA-ADMIN-BADGE-001-PR06: the Blog's two narrow variants of the shared Staff policies above. Same Admin origins, method and credentials; the write allows one more request header
+        // (the optional correlation id) and the read exposes one response header (the categories' view watermark). Attached by marker below, never to another route.
+        options.AddPolicy(AdminBlogHeaders.CorrelationCorsPolicy, policy =>
+        {
+            if (cors.AdminOrigins.Length > 0)
+            {
+                policy.WithOrigins(cors.AdminOrigins)
+                    .WithHeaders("Content-Type", AdminBlogHeaders.CorrelationId)
+                    .WithMethods("POST")
+                    .AllowCredentials();
+            }
+        });
+        options.AddPolicy(AdminBlogHeaders.WatermarkCorsPolicy, policy =>
+        {
+            if (cors.AdminOrigins.Length > 0)
+            {
+                policy.WithOrigins(cors.AdminOrigins)
+                    .WithMethods("GET")
+                    .WithExposedHeaders(AdminBlogHeaders.ViewWatermark)
+                    .AllowCredentials();
+            }
+        });
         // BHA-NEWSLETTER-LIVE-001: the Hub's own policy (negotiate is the only cross-origin call: the WebSocket is not CORS), so no other Admin policy is widened.
         options.AddPolicy(StaffNewsletterLiveAccess.CorsPolicy, policy =>
         {
@@ -737,12 +759,14 @@ if (staffCalendarMode)
             return;
         }
 
-        var policy = endpoint.Metadata.OfType<IHttpMethodMetadata>().LastOrDefault()?.HttpMethods switch
-        {
-            ["GET"] => StaffCalendarModeGuard.ReadCorsPolicy,
-            ["POST"] => StaffCalendarModeGuard.WriteCorsPolicy,
-            _ => null
-        };
+        var policy = endpoint.Metadata.OfType<AdminBlogCorrelationHeaderAttribute>().Any() ? AdminBlogHeaders.CorrelationCorsPolicy
+            : endpoint.Metadata.OfType<AdminBlogViewWatermarkHeaderAttribute>().Any() ? AdminBlogHeaders.WatermarkCorsPolicy
+            : endpoint.Metadata.OfType<IHttpMethodMetadata>().LastOrDefault()?.HttpMethods switch
+            {
+                ["GET"] => StaffCalendarModeGuard.ReadCorsPolicy,
+                ["POST"] => StaffCalendarModeGuard.WriteCorsPolicy,
+                _ => null
+            };
         if (policy is not null)
         {
             endpoint.Metadata.Add(new EnableCorsAttribute(policy));

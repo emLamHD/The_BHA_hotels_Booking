@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using TheBha.Application.Website;
 using TheBha.Domain.Blog;
 
@@ -21,12 +22,14 @@ public sealed record BlogDraftInput(
     IReadOnlyList<Guid> CategoryIds,
     Guid? PrimaryCategoryId);
 
-public sealed record CreateBlogPostCommand(Guid PostId, string Locale, BlogDraftInput Draft, Guid ActorStaffId);
+/// <summary><c>CorrelationId</c> (BHA-ADMIN-BADGE-001-PR06, ADR 0011 §D) is the optional id of one Save-then-Publish chain, taken from <c>X-Admin-Correlation-Id</c>. It only asks the activity recorder to link rows for display and counting; it never changes whether the write succeeds.</summary>
+public sealed record CreateBlogPostCommand(Guid PostId, string Locale, BlogDraftInput Draft, Guid ActorStaffId, Guid? CorrelationId = null);
 
 /// <summary><c>ExpectedVersion</c> 0 creates the translation (the post must exist and have none in this locale); otherwise it must equal the current version.</summary>
-public sealed record SaveBlogDraftCommand(Guid PostId, string Locale, int ExpectedVersion, BlogDraftInput Draft, Guid ActorStaffId);
+public sealed record SaveBlogDraftCommand(Guid PostId, string Locale, int ExpectedVersion, BlogDraftInput Draft, Guid ActorStaffId, Guid? CorrelationId = null);
 
-public sealed record BlogTransitionCommand(Guid PostId, string Locale, int ExpectedVersion, Guid ActorStaffId);
+/// <summary><c>CorrelationId</c> is read only by publish; unpublish, archive and unarchive ignore it.</summary>
+public sealed record BlogTransitionCommand(Guid PostId, string Locale, int ExpectedVersion, Guid ActorStaffId, Guid? CorrelationId = null);
 
 public sealed record RestoreBlogRevisionCommand(Guid PostId, string Locale, Guid RevisionId, int ExpectedVersion, Guid ActorStaffId);
 
@@ -93,7 +96,8 @@ public sealed record BlogTranslationRowDto(
 
 public sealed record BlogPostRowDto(Guid Id, DateTimeOffset UpdatedAtUtc, IReadOnlyList<BlogTranslationRowDto> Translations);
 
-public sealed record BlogPostListDto(IReadOnlyList<BlogPostRowDto> Items, int Page, int PageSize, int Total);
+/// <summary><c>ViewWatermark</c> (BHA-ADMIN-BADGE-001-PR06): the <c>blog-posts</c> stream's number read in the SAME snapshot as <c>Items</c> and <c>Total</c>; a decimal string, never a JSON number.</summary>
+public sealed record BlogPostListDto(IReadOnlyList<BlogPostRowDto> Items, int Page, int PageSize, int Total, string ViewWatermark);
 
 public sealed record BlogRevisionSummaryDto(
     Guid Id, int Number, string State, string Origin, string Title, string Slug, DateTimeOffset CreatedAtUtc, BlogStaffDto? CreatedBy,
@@ -111,9 +115,14 @@ public sealed record BlogCategoryAdminDto(
 
 public sealed record BlogPinDto(Guid PostId, int Position, bool Effective, IReadOnlyDictionary<string, string> Titles);
 
-public sealed record BlogPinsDto(Guid CategoryId, int Version, IReadOnlyList<BlogPinDto> Pins);
+/// <summary><c>ViewWatermark</c>: the <c>blog-categories</c> number of the same snapshot; present on the read, absent on the answer of a write.</summary>
+public sealed record BlogPinsDto(Guid CategoryId, int Version, IReadOnlyList<BlogPinDto> Pins, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ViewWatermark = null);
 
-public sealed record BlogSettingsDto(Guid? HomeSectionCategoryId, int Version, DateTimeOffset UpdatedAtUtc);
+/// <summary>The categories array answers as a bare JSON array (the Admin already reads it so); its watermark travels in the <c>X-Admin-View-Watermark</c> response header instead.</summary>
+public sealed record BlogCategoryListDto(IReadOnlyList<BlogCategoryAdminDto> Items, string ViewWatermark);
+
+/// <summary><c>ViewWatermark</c>: the <c>blog-settings</c> number of the same snapshot; present on the read, absent on the answer of a write.</summary>
+public sealed record BlogSettingsDto(Guid? HomeSectionCategoryId, int Version, DateTimeOffset UpdatedAtUtc, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ViewWatermark = null);
 
 public sealed record BlogMediaFile(Stream Content, string ContentType);
 
@@ -213,7 +222,7 @@ public interface IAdminBlog
 
     Task<WebsiteMutationResult<BlogSettingsDto>> SetSettingsAsync(SetBlogSettingsCommand command, CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<BlogCategoryAdminDto>> ListCategoriesAsync(CancellationToken cancellationToken);
+    Task<BlogCategoryListDto> ListCategoriesAsync(CancellationToken cancellationToken);
 
     Task<WebsiteMutationResult<BlogCategoryAdminDto>> CreateCategoryAsync(CreateBlogCategoryCommand command, CancellationToken cancellationToken);
 

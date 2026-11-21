@@ -39,7 +39,8 @@ public sealed record BlogMediaDto(
 
 public sealed record BlogMediaListQuery(string? Q, string? Usage, int Page, int PageSize);
 
-public sealed record BlogMediaListDto(IReadOnlyList<BlogMediaDto> Items, int Page, int PageSize, int Total);
+/// <summary><c>ViewWatermark</c> (BHA-ADMIN-BADGE-001-PR06): the <c>blog-media</c> number read in the SAME snapshot as <c>Items</c> and <c>Total</c>; a decimal string.</summary>
+public sealed record BlogMediaListDto(IReadOnlyList<BlogMediaDto> Items, int Page, int PageSize, int Total, string ViewWatermark);
 
 /// <summary>One use of a picture: the article translation, the revision (draft, live, or kept in history), and where in it (<c>cover</c>, <c>og</c>, <c>body</c>).</summary>
 public sealed record BlogMediaUseDto(

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using TheBha.Application.Blog;
 using TheBha.Application.Website;
 using TheBha.Domain.Blog;
+using TheBha.Domain.Website;
 
 namespace TheBha.Infrastructure.Persistence;
 
@@ -9,13 +10,14 @@ internal sealed partial class AdminBlogService
 {
     // ---- settings ----
 
-    public async Task<BlogSettingsDto> GetSettingsAsync(CancellationToken cancellationToken)
-    {
-        var row = await db.BlogSettings.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
-        return row is null
-            ? new BlogSettingsDto(null, 0, DateTimeOffset.UnixEpoch)
-            : new BlogSettingsDto(row.HomeSectionCategoryId, row.Version, row.UpdatedAtUtc);
-    }
+    public Task<BlogSettingsDto> GetSettingsAsync(CancellationToken cancellationToken) =>
+        InSnapshotAsync(AdminMenuKeys.BlogSettings, async watermark =>
+        {
+            var row = await db.BlogSettings.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+            return row is null
+                ? new BlogSettingsDto(null, 0, DateTimeOffset.UnixEpoch, watermark)
+                : new BlogSettingsDto(row.HomeSectionCategoryId, row.Version, row.UpdatedAtUtc, watermark);
+        }, cancellationToken);
 
     public async Task<WebsiteMutationResult<BlogSettingsDto>> SetSettingsAsync(SetBlogSettingsCommand command, CancellationToken cancellationToken)
     {
@@ -38,17 +40,21 @@ internal sealed partial class AdminBlogService
             return Fail<BlogSettingsDto>(saved);
         }
 
+        // One singleton object: a fixed token as its key and a generic title (the settings hold no text of their own).
+        await RecordAsync(AdminMenuKeys.BlogSettings, command.ActorStaffId, "Saved", SettingsKind, SettingsKey, "Blog settings", cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        await HintAsync(AdminMenuKeys.BlogSettings);
         return WebsiteMutationResult<BlogSettingsDto>.Success(new BlogSettingsDto(row.HomeSectionCategoryId, row.Version, row.UpdatedAtUtc));
     }
 
     // ---- categories ----
 
-    public async Task<IReadOnlyList<BlogCategoryAdminDto>> ListCategoriesAsync(CancellationToken cancellationToken)
-    {
-        var categories = await db.BlogCategories.AsNoTracking().Include(c => c.Translations).OrderBy(c => c.SortOrder).ThenBy(c => c.Id).ToListAsync(cancellationToken);
-        return await ToDtosAsync(categories, cancellationToken);
-    }
+    public Task<BlogCategoryListDto> ListCategoriesAsync(CancellationToken cancellationToken) =>
+        InSnapshotAsync(AdminMenuKeys.BlogCategories, async watermark =>
+        {
+            var categories = await db.BlogCategories.AsNoTracking().Include(c => c.Translations).OrderBy(c => c.SortOrder).ThenBy(c => c.Id).ToListAsync(cancellationToken);
+            return new BlogCategoryListDto(await ToDtosAsync(categories, cancellationToken), watermark);
+        }, cancellationToken);
 
     private async Task<IReadOnlyList<BlogCategoryAdminDto>> ToDtosAsync(List<BlogCategory> categories, CancellationToken cancellationToken)
     {
@@ -137,7 +143,9 @@ internal sealed partial class AdminBlogService
             return Fail<BlogCategoryAdminDto>(saved);
         }
 
+        await RecordAsync(AdminMenuKeys.BlogCategories, command.ActorStaffId, "Created", CategoryKind, category.Id.ToString("D"), await CategoryTitleAsync(category.Id, cancellationToken), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        await HintAsync(AdminMenuKeys.BlogCategories);
         return WebsiteMutationResult<BlogCategoryAdminDto>.Success(await OneAsync(category.Id, cancellationToken));
     }
 
@@ -220,7 +228,9 @@ internal sealed partial class AdminBlogService
             return Fail<BlogCategoryAdminDto>(saved);
         }
 
+        await RecordAsync(AdminMenuKeys.BlogCategories, command.ActorStaffId, "Saved", CategoryKind, category.Id.ToString("D"), await CategoryTitleAsync(category.Id, cancellationToken), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        await HintAsync(AdminMenuKeys.BlogCategories);
         return WebsiteMutationResult<BlogCategoryAdminDto>.Success(await OneAsync(category.Id, cancellationToken));
     }
 
@@ -248,6 +258,8 @@ internal sealed partial class AdminBlogService
                 section ? "This category feeds the home section. Choose another category for it first." : "Articles (published, drafts or past versions) still use this category."));
         }
 
+        // The name is the object's safe snapshot and it goes with the row: read it before the delete.
+        var title = await CategoryTitleAsync(category.Id, cancellationToken);
         db.Remove(category);
         Audit(command.ActorStaffId, "category.delete", categoryId: category.Id, versionAfter: category.Version);
         if (await SaveAsync(cancellationToken) is { } saved)
@@ -255,19 +267,22 @@ internal sealed partial class AdminBlogService
             return Fail<bool>(saved.Code == BlogErrorCodes.CategoryMissing ? new BlogProblem(BlogErrorCodes.CategoryInUse, "id", "Articles still use this category.") : saved);
         }
 
+        await RecordAsync(AdminMenuKeys.BlogCategories, command.ActorStaffId, "Deleted", CategoryKind, category.Id.ToString("D"), title, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        await HintAsync(AdminMenuKeys.BlogCategories);
         return WebsiteMutationResult<bool>.Success(true);
     }
 
     // ---- pins ----
 
-    public async Task<WebsiteMutationResult<BlogPinsDto>> GetPinsAsync(Guid categoryId, CancellationToken cancellationToken)
-    {
-        var category = await db.BlogCategories.AsNoTracking().SingleOrDefaultAsync(c => c.Id == categoryId, cancellationToken);
-        return category is null
-            ? Fail<BlogPinsDto>(new BlogProblem(BlogErrorCodes.NotFound, "id", "The category does not exist."))
-            : WebsiteMutationResult<BlogPinsDto>.Success(await PinsDtoAsync(category, cancellationToken));
-    }
+    public Task<WebsiteMutationResult<BlogPinsDto>> GetPinsAsync(Guid categoryId, CancellationToken cancellationToken) =>
+        InSnapshotAsync(AdminMenuKeys.BlogCategories, async watermark =>
+        {
+            var category = await db.BlogCategories.AsNoTracking().SingleOrDefaultAsync(c => c.Id == categoryId, cancellationToken);
+            return category is null
+                ? Fail<BlogPinsDto>(new BlogProblem(BlogErrorCodes.NotFound, "id", "The category does not exist."))
+                : WebsiteMutationResult<BlogPinsDto>.Success(await PinsDtoAsync(category, cancellationToken) with { ViewWatermark = watermark });
+        }, cancellationToken);
 
     /// <summary>The published translations (post, locale, title) of this category: what a pin can take effect on.</summary>
     private IQueryable<(Guid PostId, string Locale, string Title)> PublishedIn(Guid categoryId) =>
@@ -348,7 +363,9 @@ internal sealed partial class AdminBlogService
             return Fail<BlogPinsDto>(saved);
         }
 
+        await RecordAsync(AdminMenuKeys.BlogCategories, command.ActorStaffId, "PinsSaved", CategoryKind, category.Id.ToString("D"), await CategoryTitleAsync(category.Id, cancellationToken), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        await HintAsync(AdminMenuKeys.BlogCategories);
         return WebsiteMutationResult<BlogPinsDto>.Success(await PinsDtoAsync(category, cancellationToken));
     }
 }

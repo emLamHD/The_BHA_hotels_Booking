@@ -17,44 +17,82 @@ internal sealed partial class AdminBlogService
 {
     // ---- taking pictures in ----
 
+    private static readonly BlogProblem CouldNotStore = new(
+        BlogErrorCodes.MediaProcessingFailed, "file", "The picture could not be stored. Check the library, then upload it again if it is not there.");
+
+    /// <summary>A picture whose files are all written and whose row is not inserted yet (BHA-ADMIN-BADGE-001-PR06).</summary>
+    private sealed record Pending(Guid Id, BlogMedia Row, List<string> Files);
+
+    private sealed record Taken(BlogMediaDto? Media, BlogProblem? Problem);
+
     public async Task<WebsiteMutationResult<BlogMediaDto>> UploadMediaAsync(BlogMediaUpload upload, Guid actorStaffId, CancellationToken cancellationToken)
     {
-        var (media, problem) = await TakeInAsync(upload, actorStaffId, cancellationToken);
-        return problem is null ? WebsiteMutationResult<BlogMediaDto>.Success(media!) : Fail<BlogMediaDto>(problem);
+        var (picture, problem) = await PrepareAsync(upload, actorStaffId, cancellationToken);
+        if (picture is null)
+        {
+            return Fail<BlogMediaDto>(problem!);
+        }
+
+        var taken = (await CommitPicturesAsync([picture], actorStaffId, single: true))[0];
+        return taken.Problem is null ? WebsiteMutationResult<BlogMediaDto>.Success(taken.Media!) : Fail<BlogMediaDto>(taken.Problem);
     }
 
+    /// <summary>
+    /// Phase A of a batch, per picture and without any transaction: read, inspect and process every file, write the files, and keep the rows for phase B. One that is refused or fails does not
+    /// undo the others. A caller that goes away stops the batch; the pictures already prepared are still taken in (they are complete, with all their files), then the cancellation is rethrown.
+    /// Phase B (<see cref="CommitPicturesAsync"/>) is ONE short transaction: the counter row of <c>blog-media</c> is taken only there, never while a file is being processed.
+    /// </summary>
     public async Task<BlogMediaBatchDto> UploadMediaBatchAsync(IReadOnlyList<BlogMediaUpload> uploads, Guid actorStaffId, CancellationToken cancellationToken)
     {
-        var items = new List<BlogMediaBatchItemDto>(uploads.Count);
-        for (var index = 0; index < uploads.Count; index++)
+        var items = new BlogMediaBatchItemDto?[uploads.Count];
+        var prepared = new List<(int Index, Pending Picture)>(uploads.Count);
+        var cancelled = false;
+        for (var index = 0; index < uploads.Count && !cancelled; index++)
         {
-            // A caller that went away stops the batch; the pictures already taken in stay (they are complete rows with all their files).
-            cancellationToken.ThrowIfCancellationRequested();
             var upload = uploads[index];
             var name = PlainName(upload.FileName, BlogMediaLimits.FileName);
             try
             {
-                var (media, problem) = await TakeInAsync(upload, actorStaffId, cancellationToken);
-                items.Add(new BlogMediaBatchItemDto(index, name, media?.Id ?? upload.ClientId, media, problem));
+                cancellationToken.ThrowIfCancellationRequested();
+                var (picture, problem) = await PrepareAsync(upload, actorStaffId, cancellationToken);
+                if (picture is null)
+                {
+                    items[index] = new BlogMediaBatchItemDto(index, name, upload.ClientId, null, problem);
+                }
+                else
+                {
+                    prepared.Add((index, picture));
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                throw;
+                cancelled = true;
             }
             catch (Exception exception)
             {
                 logger.LogWarning(exception, "Blog picture {Index} of a batch could not be stored.", index);
-                items.Add(new BlogMediaBatchItemDto(
-                    index, name, upload.ClientId, null,
-                    new BlogProblem(BlogErrorCodes.MediaProcessingFailed, "file", "The picture could not be stored. Check the library, then upload it again if it is not there.")));
+                items[index] = new BlogMediaBatchItemDto(index, name, upload.ClientId, null, CouldNotStore);
             }
         }
 
-        var succeeded = items.Count(item => item.Media is not null);
-        return new BlogMediaBatchDto(items, succeeded, items.Count - succeeded);
+        if (prepared.Count > 0)
+        {
+            var taken = await CommitPicturesAsync([.. prepared.Select(entry => entry.Picture)], actorStaffId, single: false);
+            for (var position = 0; position < prepared.Count; position++)
+            {
+                var index = prepared[position].Index;
+                items[index] = new BlogMediaBatchItemDto(index, PlainName(uploads[index].FileName, BlogMediaLimits.FileName), taken[position].Media?.Id ?? uploads[index].ClientId, taken[position].Media, taken[position].Problem);
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var done = items.Select(item => item!).ToList();
+        var succeeded = done.Count(item => item.Media is not null);
+        return new BlogMediaBatchDto(done, succeeded, done.Count - succeeded);
     }
 
-    private async Task<(BlogMediaDto? Media, BlogProblem? Problem)> TakeInAsync(BlogMediaUpload upload, Guid actorStaffId, CancellationToken cancellationToken)
+    /// <summary>Everything up to and including the files: the pre-checks, the pipeline and every file write. No database write. A failure after the first file removes the files written so far (no row exists).</summary>
+    private async Task<(Pending? Picture, BlogProblem? Problem)> PrepareAsync(BlogMediaUpload upload, Guid actorStaffId, CancellationToken cancellationToken)
     {
         if (!storage.IsConfigured)
         {
@@ -64,7 +102,6 @@ internal sealed partial class AdminBlogService
 
         var id = upload.ClientId ?? Guid.NewGuid();
         var written = new List<string>();
-        var committing = false;
         try
         {
             // A repeat of an id is refused, not replayed: a client that lost the answer reads the picture back instead of uploading it twice.
@@ -115,34 +152,120 @@ internal sealed partial class AdminBlogService
             var row = new BlogMedia(
                 id, originalKey, info.ContentType, bytes.Length, image.Width, image.Height, displayName.Length > 0 ? displayName : "Picture", fileName,
                 Sha256Hex(bytes.Span), actorStaffId, clock.GetUtcNow(), variants);
-            db.BlogMedia.Add(row);
-            Audit(actorStaffId, "media.upload", detail: new { id, image.Width, image.Height, variants = variants.Count });
-
-            // The commit is not given the caller's token: a cancelled commit leaves the outcome unknown, and then no file may be deleted.
+            // A caller that went away before the commit takes this picture nothing in (the catch below removes its files: no row will refer to them).
             cancellationToken.ThrowIfCancellationRequested();
-            committing = true;
-            if (await SaveAsync(CancellationToken.None) is { } refused)
-            {
-                await DeleteFilesAsync(written);
-                return (null, refused);
-            }
-
-            return (ToMediaDto(row, new BlogMediaUsageSummaryDto(0, 0, 0)), null);
+            return (new Pending(id, row, written), null);
         }
         catch
         {
-            if (!committing || await RowExistsAsync(id) == false)
-            {
-                await DeleteFilesAsync(written);
-            }
-
+            // Nothing is in the database yet, so no row can refer to these files.
+            await DeleteFilesAsync(written);
             throw;
         }
-        finally
+    }
+
+    /// <summary>
+    /// Phase B: ONE READ COMMITTED transaction for the prepared pictures. Each is inserted with its audit row inside its own savepoint, so one the database refuses (or a raced id) is rolled back
+    /// alone, its files removed (that rollback is certain) and the others kept. When at least one picture went in, ONE activity is recorded (<c>ItemCount</c> = the pictures that went in) as the
+    /// last statement before COMMIT, so the pictures, their audits and the event commit or vanish together. The caller's token is deliberately not used: a caller that went away must not lose
+    /// pictures that are complete. A failure BEFORE the commit was sent rolls everything back for certain (every file goes); only a failure of the COMMIT itself leaves the outcome unknown,
+    /// and then only a picture the database says is absent loses its files. A <paramref name="single"/> upload rethrows; a batch answers a per-picture failure instead.
+    /// </summary>
+    private async Task<IReadOnlyList<Taken>> CommitPicturesAsync(IReadOnlyList<Pending> pictures, Guid actorStaffId, bool single)
+    {
+        var results = new Taken?[pictures.Count];
+        var commitSent = false;
+        var inserted = 0;
+        try
         {
-            // One failed picture must not leave its pending rows in the tracker for the next one of a batch to save.
-            db.ChangeTracker.Clear();
+            await using (var transaction = await db.Database.BeginTransactionAsync(CancellationToken.None))
+            {
+                for (var index = 0; index < pictures.Count; index++)
+                {
+                    var picture = pictures[index];
+                    var savepoint = $"blog_picture_{index}";
+                    await transaction.CreateSavepointAsync(savepoint, CancellationToken.None);
+                    try
+                    {
+                        db.BlogMedia.Add(picture.Row);
+                        Audit(actorStaffId, "media.upload", detail: new { id = picture.Id, picture.Row.Width, picture.Row.Height, variants = picture.Row.Variants.Count });
+                        if (await SaveAsync(CancellationToken.None) is { } refused)
+                        {
+                            await transaction.RollbackToSavepointAsync(savepoint, CancellationToken.None);
+                            await DeleteFilesAsync(picture.Files);
+                            results[index] = new Taken(null, refused);
+                        }
+                        else
+                        {
+                            results[index] = new Taken(ToMediaDto(picture.Row, new BlogMediaUsageSummaryDto(0, 0, 0)), null);
+                            inserted++;
+                        }
+                    }
+                    catch (Exception exception) when (!single)
+                    {
+                        await transaction.RollbackToSavepointAsync(savepoint, CancellationToken.None);
+                        await DeleteFilesAsync(picture.Files);
+                        logger.LogWarning(exception, "Blog picture {Id} of a batch could not be stored.", picture.Id);
+                        results[index] = new Taken(null, CouldNotStore);
+                    }
+                    catch
+                    {
+                        // A single picture: the answer is the failure itself. The rollback of its own savepoint is certain, so its files go; the outer handler leaves them alone.
+                        await transaction.RollbackToSavepointAsync(savepoint, CancellationToken.None);
+                        await DeleteFilesAsync(picture.Files);
+                        results[index] = new Taken(null, CouldNotStore);
+                        throw;
+                    }
+                    finally
+                    {
+                        // One failed picture must not leave its pending rows in the tracker for the next one to save.
+                        db.ChangeTracker.Clear();
+                    }
+                }
+
+                if (inserted > 0)
+                {
+                    var only = pictures[Array.FindIndex(results, taken => taken?.Media is not null)];
+                    await RecordAsync(
+                        AdminMenuKeys.BlogMedia, actorStaffId, "Uploaded", single ? MediaKind : MediaBatchKind, (single ? only.Id : Guid.NewGuid()).ToString("D"),
+                        single ? only.Row.DisplayName : string.Empty, CancellationToken.None, itemCount: inserted);
+                    commitSent = true;
+                    await transaction.CommitAsync(CancellationToken.None);
+                }
+            }
         }
+        catch (Exception exception)
+        {
+            // Before the commit was sent the rollback is certain, so no file is referenced: every picture not already cleaned goes. After it, only a picture the database says is absent.
+            for (var index = 0; index < pictures.Count; index++)
+            {
+                if (results[index] is { Problem: not null })
+                {
+                    continue;
+                }
+
+                if (!commitSent || await RowExistsAsync(pictures[index].Id) == false)
+                {
+                    await DeleteFilesAsync(pictures[index].Files);
+                }
+            }
+
+            db.ChangeTracker.Clear();
+            if (single)
+            {
+                throw;
+            }
+
+            logger.LogError(exception, "A batch of {Count} Blog pictures could not be committed (commit sent: {CommitSent}).", pictures.Count, commitSent);
+            return [.. results.Select(taken => taken is { Problem: not null } ? taken : new Taken(null, CouldNotStore))];
+        }
+
+        if (inserted > 0)
+        {
+            await HintAsync(AdminMenuKeys.BlogMedia);
+        }
+
+        return [.. results.Select(taken => taken!)];
     }
 
     private static string NewKey(string extension) => $"blog/{Guid.NewGuid():N}.{extension}";
@@ -209,7 +332,10 @@ internal sealed partial class AdminBlogService
 
     private static string LikeEscape(string text) => text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);
 
-    public async Task<BlogMediaListDto> ListMediaAsync(BlogMediaListQuery query, CancellationToken cancellationToken)
+    public Task<BlogMediaListDto> ListMediaAsync(BlogMediaListQuery query, CancellationToken cancellationToken) =>
+        InSnapshotAsync(AdminMenuKeys.BlogMedia, watermark => ListMediaAsync(query, watermark, cancellationToken), cancellationToken);
+
+    private async Task<BlogMediaListDto> ListMediaAsync(BlogMediaListQuery query, string watermark, CancellationToken cancellationToken)
     {
         var size = query.PageSize <= 0 ? BlogMediaLimits.DefaultPageSize : Math.Min(query.PageSize, BlogLimits.MaxPageSize);
         var page = Math.Max(1, query.Page);
@@ -239,7 +365,7 @@ internal sealed partial class AdminBlogService
             : await rows.OrderByDescending(row => row.CreatedAtUtc).ThenBy(row => row.Id)
                 .Skip((int)offset).Take(size).Include(row => row.Variants).ToListAsync(cancellationToken);
         var usage = await UsageSummariesAsync(pageRows.Select(row => row.Id).ToList(), cancellationToken);
-        return new BlogMediaListDto([.. pageRows.Select(row => ToMediaDto(row, usage.GetValueOrDefault(row.Id) ?? new BlogMediaUsageSummaryDto(0, 0, 0)))], page, size, total);
+        return new BlogMediaListDto([.. pageRows.Select(row => ToMediaDto(row, usage.GetValueOrDefault(row.Id) ?? new BlogMediaUsageSummaryDto(0, 0, 0)))], page, size, total, watermark);
     }
 
     public async Task<WebsiteMutationResult<BlogMediaDto>> GetMediaAsync(Guid mediaId, CancellationToken cancellationToken)
@@ -287,6 +413,7 @@ internal sealed partial class AdminBlogService
 
     public async Task<WebsiteMutationResult<BlogMediaDto>> UpdateMediaAsync(UpdateBlogMediaCommand command, CancellationToken cancellationToken)
     {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var row = await db.BlogMedia.Include(media => media.Variants).SingleOrDefaultAsync(media => media.Id == command.MediaId, cancellationToken);
         if (row is null)
         {
@@ -311,6 +438,10 @@ internal sealed partial class AdminBlogService
         {
             return Fail<BlogMediaDto>(saved);
         }
+
+        await RecordAsync(AdminMenuKeys.BlogMedia, command.ActorStaffId, "Updated", MediaKind, row.Id.ToString("D"), row.DisplayName, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        await HintAsync(AdminMenuKeys.BlogMedia);
 
         var usage = await UsageSummariesAsync([row.Id], cancellationToken);
         return WebsiteMutationResult<BlogMediaDto>.Success(ToMediaDto(row, usage.GetValueOrDefault(row.Id) ?? new BlogMediaUsageSummaryDto(0, 0, 0)));
@@ -420,9 +551,11 @@ internal sealed partial class AdminBlogService
                     : saved);
             }
 
+            await RecordAsync(AdminMenuKeys.BlogMedia, command.ActorStaffId, "Deleted", MediaKind, row.Id.ToString("D"), row.DisplayName, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
 
+        await HintAsync(AdminMenuKeys.BlogMedia);
         await DeleteFilesAsync(keys);
         return WebsiteMutationResult<bool>.Success(true);
     }

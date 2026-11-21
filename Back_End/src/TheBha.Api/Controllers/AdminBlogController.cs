@@ -35,9 +35,16 @@ public sealed class AdminBlogController(IAdminBlog blog) : AdminWebsiteControlle
 
     // ---- categories ----
 
+    /// <summary>A bare JSON array (the Admin already reads it so); the <c>blog-categories</c> number of the same snapshot travels in <c>X-Admin-View-Watermark</c>.</summary>
     [HttpGet("categories")]
     [StaffWebsitePermission(StaffGlobalPermission.BlogAccess)]
-    public async Task<ActionResult<IReadOnlyList<BlogCategoryAdminDto>>> Categories(CancellationToken cancellationToken) => Ok(await blog.ListCategoriesAsync(cancellationToken));
+    [AdminBlogViewWatermarkHeader]
+    public async Task<ActionResult<IReadOnlyList<BlogCategoryAdminDto>>> Categories(CancellationToken cancellationToken)
+    {
+        var list = await blog.ListCategoriesAsync(cancellationToken);
+        Response.Headers[AdminBlogHeaders.ViewWatermark] = list.ViewWatermark;
+        return Ok(list.Items);
+    }
 
     [HttpPost("categories")]
     [StaffWebsitePermission(StaffGlobalPermission.BlogPublish)]
@@ -83,18 +90,28 @@ public sealed class AdminBlogController(IAdminBlog blog) : AdminWebsiteControlle
 
     [HttpPost("posts")]
     [StaffWebsitePermission(StaffGlobalPermission.BlogEdit)]
+    [AdminBlogCorrelationHeader]
     public async Task<ActionResult> CreatePost([FromBody] CreateBlogPostRequest request, CancellationToken cancellationToken) =>
-        Respond(await blog.CreatePostAsync(new CreateBlogPostCommand(request.Id, request.Locale, request.Draft.ToInput(), ActorStaffId), cancellationToken), post => Ok(post));
+        Respond(
+            await blog.CreatePostAsync(new CreateBlogPostCommand(request.Id, request.Locale, request.Draft.ToInput(), ActorStaffId, AdminBlogHeaders.ReadCorrelationId(Request.Headers)), cancellationToken),
+            post => Ok(post));
 
     [HttpPost("posts/{postId:guid}/translations/{locale}/draft")]
     [StaffWebsitePermission(StaffGlobalPermission.BlogEdit)]
+    [AdminBlogCorrelationHeader]
     public async Task<ActionResult> SaveDraft(Guid postId, string locale, [FromBody] SaveBlogDraftRequest request, CancellationToken cancellationToken) =>
-        Respond(await blog.SaveDraftAsync(new SaveBlogDraftCommand(postId, locale, request.ExpectedVersion, request.Draft.ToInput(), ActorStaffId), cancellationToken), post => Ok(post));
+        Respond(
+            await blog.SaveDraftAsync(
+                new SaveBlogDraftCommand(postId, locale, request.ExpectedVersion, request.Draft.ToInput(), ActorStaffId, AdminBlogHeaders.ReadCorrelationId(Request.Headers)), cancellationToken),
+            post => Ok(post));
 
     [HttpPost("posts/{postId:guid}/translations/{locale}/publish")]
     [StaffWebsitePermission(StaffGlobalPermission.BlogPublish)]
+    [AdminBlogCorrelationHeader]
     public async Task<ActionResult> Publish(Guid postId, string locale, [FromBody] VersionRequest request, CancellationToken cancellationToken) =>
-        Respond(await blog.PublishAsync(new BlogTransitionCommand(postId, locale, request.ExpectedVersion, ActorStaffId), cancellationToken), post => Ok(post));
+        Respond(
+            await blog.PublishAsync(new BlogTransitionCommand(postId, locale, request.ExpectedVersion, ActorStaffId, AdminBlogHeaders.ReadCorrelationId(Request.Headers)), cancellationToken),
+            post => Ok(post));
 
     [HttpPost("posts/{postId:guid}/translations/{locale}/unpublish")]
     [StaffWebsitePermission(StaffGlobalPermission.BlogPublish)]
