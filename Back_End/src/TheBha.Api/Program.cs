@@ -51,6 +51,14 @@ if (newsletterRateLimit.PermitLimit <= 0 || newsletterRateLimit.WindowSeconds <=
     throw new InvalidOperationException("Newsletter rate-limit values must be positive.");
 }
 
+var directReservationRateLimit = builder.Configuration
+    .GetSection(DirectReservationRateLimitOptions.SectionName)
+    .Get<DirectReservationRateLimitOptions>() ?? new DirectReservationRateLimitOptions();
+if (directReservationRateLimit.PermitLimit <= 0 || directReservationRateLimit.WindowSeconds <= 0)
+{
+    throw new InvalidOperationException("Booking:DirectCheckout:RateLimiting values must be positive.");
+}
+
 var cookieSession = builder.Configuration
     .GetSection(CookieSessionOptions.SectionName)
     .Get<CookieSessionOptions>() ?? new CookieSessionOptions();
@@ -241,6 +249,7 @@ builder.Services.AddSwaggerGen(options =>
     options.OperationFilter<AuthOperationFilter>();
     options.OperationFilter<StaffAuthOperationFilter>();
     options.OperationFilter<BookingHoldOperationFilter>();
+    options.OperationFilter<DirectReservationOperationFilter>();
     options.OperationFilter<ReservationLifecycleOperationFilter>();
     options.OperationFilter<AdminReservationAssignmentOpenApiOperationFilter>();
     options.OperationFilter<AdminOperationalBlockOpenApiOperationFilter>();
@@ -585,12 +594,15 @@ builder.Services.AddRateLimiter(options =>
         }
 
         var newsletter = context.HttpContext.Request.Path.StartsWithSegments(NewsletterRateLimit.PathPrefix, StringComparison.OrdinalIgnoreCase);
+        // BHA-CHECKOUT-001-PR05: a booking write is not an authentication attempt: its own wording and code. Only POST /api/v1/reservations carries a limit (the policy is attached to that action alone).
+        var booking = context.HttpContext.Request.Path.StartsWithSegments(DirectReservationRateLimitOptions.PathPrefix, StringComparison.OrdinalIgnoreCase);
         await Results.Problem(
                 statusCode: StatusCodes.Status429TooManyRequests,
                 title: "Too many requests",
-                detail: newsletter
+                detail: newsletter || booking
                     ? "Please wait a moment before sending this again."
-                    : "Please wait before attempting this authentication operation again.")
+                    : "Please wait before attempting this authentication operation again.",
+                extensions: booking ? new Dictionary<string, object?> { ["code"] = "booking.rate-limited" } : null)
             .ExecuteAsync(context.HttpContext);
     };
     options.AddPolicy("auth-register", context =>
@@ -608,6 +620,11 @@ builder.Services.AddRateLimiter(options =>
             context,
             newsletterRateLimit.PermitLimit,
             newsletterRateLimit.WindowSeconds));
+    options.AddPolicy(DirectReservationRateLimitOptions.PolicyName, context =>
+        CreateAuthenticationLimiter(
+            context,
+            directReservationRateLimit.PermitLimit,
+            directReservationRateLimit.WindowSeconds));
     options.AddPolicy(StaffAuthentication.LoginRateLimitPolicy, context =>
         CreateAuthenticationLimiter(
             context,

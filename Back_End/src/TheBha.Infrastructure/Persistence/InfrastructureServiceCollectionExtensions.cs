@@ -58,6 +58,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton((configuration.GetSection(BookingIntakeOptions.SectionName).Get<BookingIntakeOptions>() ?? new BookingIntakeOptions()).Build());
         services.AddScoped<IBookingHoldCreationStore, BookingHoldCreationStore>();
         services.AddScoped<IBookingHoldCreation, BookingHoldCreation>();
+        services.AddScoped<IDirectReservationCreationStore, DirectReservationCreationStore>();
+        services.AddScoped<IDirectReservationCreation, DirectReservationCreation>();
         services.AddScoped<IBookingHoldConfirmationStore, BookingHoldConfirmationStore>();
         services.AddScoped<IBookingHoldConfirmation, BookingHoldConfirmation>();
         services.AddSingleton<IReservationIdGenerator, CryptographicReservationIdGenerator>();

@@ -287,6 +287,7 @@ internal sealed class BookingHoldCreationStore(
 public static class BookingAdvisoryLockKeys
 {
     private const string IdempotencyNamespace = "thebha:booking:idempotency:v1:";
+    private const string DirectIdempotencyNamespace = "thebha:booking:direct-idempotency:v1:";
     private const string InventoryNamespace = "thebha:booking:inventory:v1:";
     private const string HoldTransitionNamespace = "thebha:booking:hold-transition:v1:";
     private const string ReservationTransitionNamespace = "thebha:booking:reservation-transition:v1:";
@@ -297,6 +298,13 @@ public static class BookingAdvisoryLockKeys
 
     public static long ForIdempotency(string idempotencyKeyHash) =>
         HashToInt64(IdempotencyNamespace + idempotencyKeyHash);
+
+    /// <summary>
+    /// BHA-CHECKOUT-001-PR05: class 1 for a Direct create request, from its scope (Property and owner) and key hashes. Its own namespace: a Hold's key and a Direct key never share a lock, and two owners
+    /// using the same key text never wait for each other.
+    /// </summary>
+    public static long ForDirectIdempotency(string scopeHash, string keyHash) =>
+        HashToInt64(DirectIdempotencyNamespace + scopeHash + ":" + keyHash);
 
     public static long ForHoldTransition(Guid holdId) =>
         HashToInt64(HoldTransitionNamespace + holdId.ToString("D"));

@@ -385,6 +385,33 @@ public static partial class BookingHoldRequestSecurity
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
+    /// <summary>
+    /// BHA-CHECKOUT-001-PR05: the fingerprint of a Direct create request. Its own version string, so it can never equal a Hold's. It covers every normalized input that affects the booking, the price the guest
+    /// confirmed, the payment method and the owner (<paramref name="ownerScope"/> is <c>customer:{id}</c> or <c>guest:{tokenHash}</c>); each field is length-prefixed, so no two different requests encode alike.
+    /// </summary>
+    public static string CreateDirectFingerprint(CreateBookingHoldRequest normalizedRequest, string ownerScope)
+    {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Append(hash, "thebha-direct-reservation-request:v1");
+        Append(hash, normalizedRequest.PropertyId.ToString("D"));
+        Append(hash, normalizedRequest.RoomTypeId.ToString("D"));
+        Append(hash, normalizedRequest.RatePlanId.ToString("D"));
+        Append(hash, normalizedRequest.CheckIn.ToString("yyyy-MM-dd", culture));
+        Append(hash, normalizedRequest.CheckOut.ToString("yyyy-MM-dd", culture));
+        Append(hash, normalizedRequest.Adults.ToString(culture));
+        Append(hash, normalizedRequest.Children.ToString(culture));
+        Append(hash, normalizedRequest.Rooms.ToString(culture));
+        Append(hash, normalizedRequest.FullName!);
+        Append(hash, normalizedRequest.Email!);
+        Append(hash, normalizedRequest.Phone!);
+        Append(hash, ownerScope);
+        Append(hash, normalizedRequest.ExpectedTotalAmount!.Value.ToString("0.00", culture));
+        Append(hash, normalizedRequest.ExpectedCurrencyCode!);
+        Append(hash, DirectReservationPaymentMethods.PayAtProperty);
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+    }
+
     public static string Sha256Hex(string value)
     {
         var bytes = StrictUtf8.GetBytes(value);

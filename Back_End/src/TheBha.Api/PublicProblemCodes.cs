@@ -73,7 +73,36 @@ public static class PublicProblemCodes
 
         // BHA-CHECKOUT-001-PR05: intake switches (a new Hold or a new Direct Reservation)
         ("Booking closed", null, "booking.closed"),
-        ("Direct checkout unavailable", null, "checkout.direct-unavailable")
+        ("Direct checkout unavailable", null, "checkout.direct-unavailable"),
+
+        // BHA-CHECKOUT-001-PR05: POST /api/v1/reservations (Direct, pay at the property). The field rules are the Hold's, under this route's own title.
+        ("Invalid reservation request", "propertyId is required", "validation.property-required"),
+        ("Invalid reservation request", "roomTypeId is required", "validation.room-type-required"),
+        ("Invalid reservation request", "ratePlanId is required", "validation.rate-plan-required"),
+        ("Invalid reservation request", "checkIn must be earlier", "validation.dates-order"),
+        ("Invalid reservation request", "Stay cannot exceed", "validation.stay-too-long"),
+        ("Invalid reservation request", "adults must be", "validation.adults-required"),
+        ("Invalid reservation request", "children cannot be negative", "validation.children-negative"),
+        ("Invalid reservation request", "rooms must be", "validation.rooms-required"),
+        ("Invalid reservation request", "rooms cannot exceed", "validation.rooms-too-many"),
+        ("Invalid reservation request", "checkIn cannot be earlier", "validation.check-in-past"),
+        ("Invalid reservation request", "Idempotency-Key is required", "validation.idempotency-key-required"),
+        ("Invalid reservation request", "Idempotency-Key", "validation.idempotency-key-invalid"),
+        ("Invalid reservation request", "fullName", "validation.full-name-invalid"),
+        ("Invalid reservation request", "email", "validation.email-invalid"),
+        ("Invalid reservation request", "phone", "validation.phone-invalid"),
+        ("Invalid reservation request", "The requested occupancy", "validation.occupancy-exceeds"),
+        ("Invalid reservation request", "expectedTotalAmount", "validation.expected-price-invalid"),
+        ("Invalid reservation request", "expectedCurrencyCode", "validation.expected-price-invalid"),
+        ("Invalid reservation request", "paymentMethod", "validation.payment-method-invalid"),
+        ("Invalid reservation request", "A booking access token cannot be sent", "validation.access-token-with-session"),
+        ("Reservation price changed", null, "reservation.price-changed"),
+        ("Reservation conflict", "Current pricing is unavailable", "reservation.pricing-unavailable"),
+        ("Reservation conflict", "The selected rooms are no longer available", "reservation.rooms-unavailable"),
+        ("Reservation conflict", "Current pricing exceeds", "reservation.pricing-out-of-range"),
+        ("Reservation conflict", "The Idempotency-Key was already used", "reservation.idempotency-conflict"),
+        ("Reservation conflict", "The current price cannot be charged", "reservation.amount-unsupported"),
+        ("Reservation conflict", null, "reservation.offer-not-bookable")
     ];
 
     public static string Resolve(int status, string? title, string? detail)
