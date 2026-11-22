@@ -108,6 +108,7 @@ public sealed class BookingPromotionPricingApiTests(PostgreSqlWebApplicationFact
         Assert.Equal(2 * 2 * 150_000m, stored.DiscountTotalAmount);
         Assert.Equal(2, stored.PromotionVersion);   // created as version 1, activated as version 2
         Assert.Null(stored.ReservationId);
+        Assert.NotEqual(Guid.Empty, stored.Id);   // the surrogate key (PR01) exists from the first save
         Assert.All(await context.InventoryHoldItemNights.ToListAsync(), n => Assert.Equal(n.ListUnitAmount - n.UnitAmount, 150_000m));
     }
 
@@ -258,11 +259,17 @@ public sealed class BookingPromotionPricingApiTests(PostgreSqlWebApplicationFact
         await using var context = factory.CreateDbContext();
         var snapshot = await context.BookingPromotionApplications.SingleAsync();
         Assert.Equal(reservation.GetProperty("reservationId").GetGuid(), snapshot.ReservationId);
+        Assert.Equal(holdId, snapshot.HoldId);   // a confirmed Hold's snapshot carries both ids
+        Assert.NotEqual(Guid.Empty, snapshot.Id);
+        Assert.Equal((10m, 2), (snapshot.Value, snapshot.PromotionVersion));   // the persisted history, not just the response
 
         // A replay of the confirmation, and a later read, give the same price.
         var replay = await Confirm(client, holdId, token);
         Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
         Assert.Equal(2 * 1_350_000m, (await replay.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("totalAmount").GetDecimal());
+        await using var afterReplay = factory.CreateDbContext();
+        var unchanged = await afterReplay.BookingPromotionApplications.SingleAsync();   // still exactly one row, same identity and values
+        Assert.Equal((snapshot.Id, snapshot.HoldId, snapshot.ReservationId, snapshot.DiscountTotalAmount), (unchanged.Id, unchanged.HoldId, unchanged.ReservationId, unchanged.DiscountTotalAmount));
     }
 
     [Fact]

@@ -5,6 +5,11 @@
   public request, physical allocation integration, direct Admin/walk-in/OTA
   unit creation) remain target architecture, implementation pending.
 - **Date:** 2026-08-19. Foundation implemented 2026-08-23.
+- **Update 2026-11-22 (`BHA-CHECKOUT-001-PR01`):** item 3 now has its
+  persistence/read/cancel foundation for the Reservation **header**: a
+  Reservation without a source Hold can be stored, read and cancelled (see the
+  note under item 3). No public route creates one yet (PR 05); the rest of the
+  direct-creation target (Admin/walk-in/OTA entry points) remains pending.
 
 `PMS-BE-001.1` implemented the Hold/Reservation item/unit decomposition
 described in the Decision section below as CURRENT / AS-BUILT:
@@ -112,6 +117,33 @@ into one writable surface.
    independent business rows from persistence onward — they may diverge in
    occupancy, guest assignment, nightly price, or physical-room assignment
    without any split or reconciliation operation.
+
+   > **AS-BUILT note (`BHA-CHECKOUT-001-PR01`, migration
+   > `AddDirectReservationSource`).** The unit-level allowance above was
+   > already in the schema; the Reservation header was the gap (it required a
+   > Hold). Now `Reservations."Source"` (`Hold` | `Direct`, NOT NULL, database
+   > default `Hold`) and a nullable `SourceHoldId` are tied by
+   > `CK_Reservations_Source` (`Hold` ⇔ hold id present); the composite FK and
+   > the unique `IX_Reservations_SourceHoldId` are unchanged (a NULL skips the FK
+   > and is allowed more than once). No fake `InventoryHold` is ever created.
+   > `Reservation.CreateDirect` requires every unit to have no source hold item
+   > and a promotion snapshot for any night sold below its list price; the
+   > Hold-sourced constructor is unchanged. `BookingPromotionApplications` is
+   > re-keyed to a surrogate `Id` (old rows: `Id = HoldId`; the database
+   > generates it for a writer that omits it), with `HoldId` nullable-unique,
+   > `ReservationId` unique, and `CK_BookingPromotionApplications_Source` (at
+   > least one id). Valid shapes: Hold unconfirmed (`HoldId`), confirmed Hold
+   > (both), Direct (`ReservationId`). Cross-table rules (a `ReservationId`-only
+   > snapshot belongs to a Direct reservation; a both-ids snapshot matches its
+   > reservation's hold; a Direct reservation's units have no source item) are
+   > enforced by the aggregate and tests, not by the database (S1 OI-9).
+   > Cancellation locks `ForHoldTransition(holdId)` for a Hold-sourced
+   > reservation and the separate `ForReservationTransition(reservationId)` for
+   > a Direct one, in the same lock order. **Rollback floor:** once a `Direct`
+   > row exists, a binary older than this migration cannot load it (`SourceHoldId`
+   > was a non-nullable `Guid`), and `Down` refuses while any Direct reservation
+   > or Hold-less promotion snapshot exists. Deploy the migration and a
+   > Direct-aware binary before any route that writes Direct rows (PR 05).
 4. **Separate the commercial record from physical allocation, within the
    commercial date boundary — and separately, from operational capacity
    attribution.** The authoritative commercial record of a sale is

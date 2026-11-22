@@ -746,8 +746,10 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("TheBha.Domain.Bookings.BookingPromotionApplication", b =>
                 {
-                    b.Property<Guid>("HoldId")
-                        .HasColumnType("uuid");
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
 
                     b.Property<string>("CurrencyCode")
                         .HasMaxLength(3)
@@ -757,6 +759,9 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.Property<decimal>("DiscountTotalAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("HoldId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Kind")
                         .IsRequired()
@@ -790,7 +795,10 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
-                    b.HasKey("HoldId");
+                    b.HasKey("Id");
+
+                    b.HasIndex("HoldId")
+                        .IsUnique();
 
                     b.HasIndex("PromotionId");
 
@@ -800,6 +808,8 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.ToTable("BookingPromotionApplications", null, t =>
                         {
                             t.HasCheckConstraint("CK_BookingPromotionApplications_Amounts", "\"DiscountTotalAmount\" > 0 AND \"ListTotalAmount\" > \"DiscountTotalAmount\"");
+
+                            t.HasCheckConstraint("CK_BookingPromotionApplications_Source", "\"HoldId\" IS NOT NULL OR \"ReservationId\" IS NOT NULL");
 
                             t.HasCheckConstraint("CK_BookingPromotionApplications_Value", "\"Value\" > 0 AND \"PromotionVersion\" >= 1");
                         });
@@ -1047,7 +1057,14 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("PropertyId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("SourceHoldId")
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Hold");
+
+                    b.Property<Guid?>("SourceHoldId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Status")
@@ -1089,6 +1106,8 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_Reservations_Occupancy", "\"Adults\" >= 1 AND \"Children\" >= 0");
 
                             t.HasCheckConstraint("CK_Reservations_Ownership", "(\"CustomerAccountId\" IS NOT NULL AND \"GuestAccessTokenHash\" IS NULL) OR (\"CustomerAccountId\" IS NULL AND \"GuestAccessTokenHash\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_Reservations_Source", "(\"Source\" = 'Hold' AND \"SourceHoldId\" IS NOT NULL) OR (\"Source\" = 'Direct' AND \"SourceHoldId\" IS NULL)");
 
                             t.HasCheckConstraint("CK_Reservations_Status", "\"Status\" IN ('Confirmed', 'Cancelled')");
 
@@ -3882,8 +3901,7 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.HasOne("TheBha.Domain.Bookings.InventoryHold", null)
                         .WithOne("PromotionApplication")
                         .HasForeignKey("TheBha.Domain.Bookings.BookingPromotionApplication", "HoldId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("TheBha.Domain.Promotions.Promotion", null)
                         .WithMany()
@@ -3962,8 +3980,7 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .WithOne()
                         .HasForeignKey("TheBha.Domain.Bookings.Reservation", "PropertyId", "SourceHoldId")
                         .HasPrincipalKey("TheBha.Domain.Bookings.InventoryHold", "PropertyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("TheBha.Domain.Bookings.ReservationUnit", b =>
