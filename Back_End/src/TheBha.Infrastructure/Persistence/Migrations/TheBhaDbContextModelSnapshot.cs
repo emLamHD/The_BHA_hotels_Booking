@@ -1285,6 +1285,202 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Notifications.EmailOutboxDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("AcceptedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("ClaimId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("FirstAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastOutcome")
+                        .HasMaxLength(48)
+                        .HasColumnType("character varying(48)");
+
+                    b.Property<DateTimeOffset?>("LeaseUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Locale")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("NextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PinnedFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PinnedFrom")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProtectedMessage")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProtectedRecipient")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("RecipientKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("TemplateKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("UncertainSend")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LeaseUntilUtc")
+                        .HasDatabaseName("IX_EmailOutboxDeliveries_Lease")
+                        .HasFilter("\"Status\" = 'Sending'");
+
+                    b.HasIndex("NextAttemptAtUtc", "Id")
+                        .HasDatabaseName("IX_EmailOutboxDeliveries_Pending")
+                        .HasFilter("\"Status\" = 'Pending'");
+
+                    b.HasIndex("PropertyId", "CreatedAtUtc")
+                        .HasDatabaseName("IX_EmailOutboxDeliveries_Failures")
+                        .HasFilter("\"Status\" IN ('Failed', 'NeedsReconciliation')");
+
+                    b.HasIndex("PropertyId", "EventId");
+
+                    b.HasIndex("EventId", "Purpose", "RecipientKey")
+                        .IsUnique();
+
+                    b.ToTable("EmailOutboxDeliveries", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_EmailOutboxDeliveries_Accepted", "(\"Status\" = 'Accepted') = (\"AcceptedAtUtc\" IS NOT NULL) AND (\"Status\" <> 'Accepted' OR \"ProviderMessageId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_EmailOutboxDeliveries_Attempts", "\"Attempts\" >= 0");
+
+                            t.HasCheckConstraint("CK_EmailOutboxDeliveries_Claim", "(\"Status\" = 'Sending') = (\"ClaimId\" IS NOT NULL) AND (\"ClaimId\" IS NULL) = (\"LeaseUntilUtc\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_EmailOutboxDeliveries_Ids", "\"Id\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"EventId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"PropertyId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("CK_EmailOutboxDeliveries_Payload", "(\"Status\" NOT IN ('Pending', 'Sending') OR (\"ProtectedRecipient\" IS NOT NULL AND \"ProtectedMessage\" IS NOT NULL)) AND (\"Status\" <> 'Accepted' OR (\"ProtectedRecipient\" IS NULL AND \"ProtectedMessage\" IS NULL))");
+
+                            t.HasCheckConstraint("CK_EmailOutboxDeliveries_Pin", "(\"FirstAttemptAtUtc\" IS NULL) = (\"PinnedFingerprint\" IS NULL) AND (\"PinnedFingerprint\" IS NULL) = (\"PinnedFrom\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_EmailOutboxDeliveries_Status", "\"Status\" IN ('Pending', 'Sending', 'Accepted', 'Failed', 'NeedsReconciliation')");
+
+                            t.HasCheckConstraint("CK_EmailOutboxDeliveries_Text", "btrim(\"Purpose\") <> '' AND btrim(\"RecipientKey\") <> '' AND btrim(\"TemplateKey\") <> '' AND btrim(\"Locale\") <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Notifications.EmailOutboxEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("FanoutAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastOutcome")
+                        .HasMaxLength(48)
+                        .HasColumnType("character varying(48)");
+
+                    b.Property<DateTimeOffset>("NextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("Payload");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SchemaVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PropertyId", "CreatedAtUtc")
+                        .HasDatabaseName("IX_EmailOutboxEvents_Failed")
+                        .HasFilter("\"Status\" = 'Failed'");
+
+                    b.HasIndex("NextAttemptAtUtc", "CreatedAtUtc", "Id")
+                        .HasDatabaseName("IX_EmailOutboxEvents_Due")
+                        .HasFilter("\"Status\" = 'Pending'");
+
+                    b.ToTable("EmailOutboxEvents", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_EmailOutboxEvents_Attempts", "\"FanoutAttempts\" >= 0");
+
+                            t.HasCheckConstraint("CK_EmailOutboxEvents_Completed", "(\"Status\" = 'Completed') = (\"CompletedAtUtc\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_EmailOutboxEvents_Ids", "\"Id\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"PropertyId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("CK_EmailOutboxEvents_Payload", "jsonb_typeof(\"Payload\") = 'object' AND octet_length(\"Payload\"::text) <= 4096");
+
+                            t.HasCheckConstraint("CK_EmailOutboxEvents_Status", "\"Status\" IN ('Pending', 'Completed', 'Failed')");
+
+                            t.HasCheckConstraint("CK_EmailOutboxEvents_Type", "btrim(\"EventType\") <> ''");
+
+                            t.HasCheckConstraint("CK_EmailOutboxEvents_Version", "\"SchemaVersion\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Promotions.Promotion", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4124,6 +4320,25 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasForeignKey("PropertyId", "ReservationUnitId")
                         .HasPrincipalKey("PropertyId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Notifications.EmailOutboxDelivery", b =>
+                {
+                    b.HasOne("TheBha.Domain.Notifications.EmailOutboxEvent", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId", "EventId")
+                        .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Notifications.EmailOutboxEvent", b =>
+                {
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

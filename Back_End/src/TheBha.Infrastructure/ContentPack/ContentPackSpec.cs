@@ -86,6 +86,8 @@ public static class ContentPackSpec
         ["NewsletterSubscriptionAudits"] = "history of what Staff did to visitors' subscriptions (who and when, never an address): operational history of one environment, never content",
         ["NewsletterOAuthStates"] = "single-use OAuth sign-in state of one environment: never content",
         ["NewsletterVerificationRequests"] = "confirmation mails queued for visitors' addresses (personal data and link tokens): a pack never carries them",
+        ["EmailOutboxEvents"] = "transactional e-mail queue of one environment (what happened to a reservation, by id): runtime data, never content",
+        ["EmailOutboxDeliveries"] = "transactional e-mails queued for guests' and Staff's addresses (protected personal data and rendered messages): a pack never carries them",
         ["NewsletterVerificationActivities"] = "which verifications happened and when (no address or token), numbered in the commit order of one environment: operational history, never content",
         ["MenuActivityStreams"] = "the counter that numbers one environment's menu activity: operational state, never content (the migration seeds its row)",
         ["MenuActivityCutovers"] = "the one-row marker that says a menu's activity moved to the shared table in one environment (written by its operator command, never updated): operational state, never content",
