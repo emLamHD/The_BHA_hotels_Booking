@@ -656,10 +656,14 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
                 "/api/v1/booking-holds/{holdId}",
                 "/api/v1/booking-holds/{holdId}/cancel",
                 "/api/v1/booking-holds/{holdId}/confirm",
+                // BHA-CHECKOUT-001-PR05: the one Direct (pay at the property) create route.
+                "/api/v1/reservations",
                 "/api/v1/reservations/{reservationId}",
                 "/api/v1/reservations/{reservationId}/cancel"
             }.Order(),
             reservationRelatedPaths);
+        var directCreate = paths.GetProperty("/api/v1/reservations");
+        Assert.Equal(new[] { "post" }, directCreate.EnumerateObject().Select(method => method.Name).ToArray());
         Assert.True(paths.GetProperty("/api/v1/booking-holds/{holdId}")
             .TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/api/v1/booking-holds/{holdId}/cancel")
