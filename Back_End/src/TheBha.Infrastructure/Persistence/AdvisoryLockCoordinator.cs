@@ -124,7 +124,9 @@ public sealed class LockPlanBuilder
 ///    before the rest of the plan is known;
 /// 2. ReservationUnit locks, sorted;
 /// 3. RoomType inventory-scope locks, sorted;
-/// 4. daily inventory locks, sorted.
+/// 4. daily inventory locks, sorted;
+/// 5. (BHA-CHECKOUT-001-PR02) the per-reservation folio key, a leaf: always last, no lock of any class
+///    is taken after it (see <see cref="BookingAdvisoryLockKeys.ForReservationFolio"/>).
 /// No path may acquire an earlier class after a later one. All locks are
 /// transaction-scoped (<c>pg_advisory_xact_lock</c>) and release automatically
 /// on commit or rollback.

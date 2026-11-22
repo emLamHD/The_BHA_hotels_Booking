@@ -68,6 +68,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IReservationCancellationStore, ReservationCancellationStore>();
         services.AddScoped<IReservationCancellation, ReservationCancellation>();
         services.AddSingleton<IGuestAccessTokenGenerator, CryptographicGuestAccessTokenGenerator>();
+        services.AddScoped<IFolioPosting, FolioPostingStore>();
+        services.AddScoped<IFolioReader, FolioReader>();
         services.AddScoped<IAssignmentMutationStore, AssignmentMutationStore>();
         services.AddScoped<IOperationalBlockMutationStore, OperationalBlockMutationStore>();
         services.AddScoped<IReservationBoardDataSource, ReservationBoardDataLoader>();

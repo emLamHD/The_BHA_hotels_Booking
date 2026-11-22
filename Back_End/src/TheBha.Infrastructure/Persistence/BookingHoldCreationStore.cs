@@ -498,6 +498,7 @@ public static class BookingAdvisoryLockKeys
     private const string InventoryNamespace = "thebha:booking:inventory:v1:";
     private const string HoldTransitionNamespace = "thebha:booking:hold-transition:v1:";
     private const string ReservationTransitionNamespace = "thebha:booking:reservation-transition:v1:";
+    private const string ReservationFolioNamespace = "thebha:booking:reservation-folio:v1:";
     private const string ReservationUnitNamespace = "thebha:pms:reservation-unit:v1:";
     private const string RoomTypeInventoryScopeNamespace = "thebha:pms:roomtype-inventory-scope:v1:";
     private const string WebsiteSettingsNamespace = "thebha:website:settings:v1";
@@ -511,6 +512,13 @@ public static class BookingAdvisoryLockKeys
     /// <summary>Serializes lifecycle transitions of a Reservation that has no Hold (a Hold-sourced one uses <see cref="ForHoldTransition"/>). Separate namespace: a reservation id never collides with a hold id.</summary>
     public static long ForReservationTransition(Guid reservationId) =>
         HashToInt64(ReservationTransitionNamespace + reservationId.ToString("D"));
+
+    /// <summary>
+    /// BHA-CHECKOUT-001-PR02: serializes every folio posting of one Reservation (replay check, reference check, refund/reversal quota, insert). A LEAF lock: taken after any other booking lock a caller needs
+    /// (hold/reservation transition, ReservationUnit, RoomType scope, inventory) and never before one. The folio writer takes no other lock.
+    /// </summary>
+    public static long ForReservationFolio(Guid reservationId) =>
+        HashToInt64(ReservationFolioNamespace + reservationId.ToString("D"));
 
     public static long ForInventory(
         Guid propertyId,
