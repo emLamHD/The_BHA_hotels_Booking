@@ -106,8 +106,12 @@ internal sealed class BookingPromotionApplicationConfiguration : IEntityTypeConf
         {
             t.HasCheckConstraint("CK_BookingPromotionApplications_Amounts", "\"DiscountTotalAmount\" > 0 AND \"ListTotalAmount\" > \"DiscountTotalAmount\"");
             t.HasCheckConstraint("CK_BookingPromotionApplications_Value", "\"Value\" > 0 AND \"PromotionVersion\" >= 1");
+            t.HasCheckConstraint("CK_BookingPromotionApplications_Source", "\"HoldId\" IS NOT NULL OR \"ReservationId\" IS NOT NULL");
         });
-        b.HasKey(x => x.HoldId);
+        b.HasKey(x => x.Id);
+        // The database fills Id for a writer built before PR01 that still inserts only HoldId (the migration backfilled old rows with their HoldId).
+        b.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
+        b.HasIndex(x => x.HoldId).IsUnique();
         b.Property(x => x.Slug).HasMaxLength(PromotionLimits.Slug);
         b.Property(x => x.Title).HasMaxLength(PromotionLimits.Title);
         b.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);

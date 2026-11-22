@@ -356,6 +356,12 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
   [ADR 0005](../ADR/0005-separate-commercial-commitment-from-physical-allocation.md)
   và
   [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md).
+- CURRENT (`BHA-CHECKOUT-001-PR01`): persistence/đọc/hủy cho reservation nguồn
+  `Direct` (không có Hold) — `Reservations.Source` + `SourceHoldId` nullable
+  (`CK_Reservations_Source`), `BookingPromotionApplications` khóa theo `Id`
+  (`HoldId` hoặc `ReservationId` hoặc cả hai) — xem ADR 0005 mục 3. Chưa có
+  route công khai nào tạo `Direct` (PR 05); sau khi có hàng `Direct`, binary cũ
+  hơn migration không nạp được hàng đó (mức sàn rollback).
 - CURRENT (`PMS-BE-001.2`): `Effective OperationalBlock` (§9, ADR 0006) làm
   giảm usable physical capacity trước khi daily control
   (`SellableLimit`/`IsStopSell`, ADR 0004) và operational demand được áp

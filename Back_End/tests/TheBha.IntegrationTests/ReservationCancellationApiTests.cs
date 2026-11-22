@@ -655,6 +655,247 @@ public sealed class ReservationCancellationApiTests(PostgreSqlWebApplicationFact
         Assert.True(requestBody.GetProperty("required").GetBoolean());
     }
 
+    // ---- BHA-CHECKOUT-001-PR01: a Direct reservation (no source Hold) cancels through the same path ----
+
+    [Fact]
+    public async Task Direct_guest_owner_cancels_and_replays_with_one_calendar_event_and_no_second_one()
+    {
+        await SeedFixedAsync();
+        var (reservationId, token) = await SeedDirectAsync();
+        using var client = factory.CreateClient();
+        Assert.Equal(0, await CalendarEventCountAsync());
+
+        var first = await CancelAsync(client, reservationId, token, "Direct reason.");
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var firstBody = await first.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Cancelled", firstBody.GetProperty("status").GetString());
+        Assert.Equal(FixedUtc, firstBody.GetProperty("cancelledAtUtc").GetDateTimeOffset());
+        Assert.Equal(1, await CalendarEventCountAsync());
+
+        // Replay (even after the cutoff) keeps the original timestamp and reason and records nothing.
+        factory.Clock.UtcNow = LocalMidnightUtc(DefaultCheckIn).AddDays(5);
+        var replay = await CancelAsync(client, reservationId, token, "Later reason.");
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        var replayBody = await replay.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(firstBody.GetProperty("cancelledAtUtc").GetDateTimeOffset(), replayBody.GetProperty("cancelledAtUtc").GetDateTimeOffset());
+        Assert.Equal("Direct reason.", replayBody.GetProperty("cancellationReason").GetString());
+        Assert.Equal(1, await CalendarEventCountAsync());
+
+        await using var context = factory.CreateDbContext();
+        var reservation = await context.Reservations.Include(item => item.Units).SingleAsync(item => item.Id == reservationId);
+        Assert.Equal((ReservationSource.Direct, (Guid?)null, ReservationStatus.Cancelled), (reservation.Source, reservation.SourceHoldId, reservation.Status));
+        Assert.All(reservation.Units, unit => Assert.Equal(CommitmentStatus.Cancelled, unit.CommitmentStatus));
+    }
+
+    [Fact]
+    public async Task Direct_cancel_after_the_cutoff_is_refused_without_an_event()
+    {
+        await SeedFixedAsync();
+        var (reservationId, token) = await SeedDirectAsync();
+        using var client = factory.CreateClient();
+        factory.Clock.UtcNow = LocalMidnightUtc(DefaultCheckIn);
+
+        AssertProblem(await CancelAsync(client, reservationId, token, "Too late."), HttpStatusCode.Conflict);
+
+        Assert.Equal(0, await CalendarEventCountAsync());
+        await using var context = factory.CreateDbContext();
+        Assert.Equal(ReservationStatus.Confirmed, (await context.Reservations.SingleAsync(item => item.Id == reservationId)).Status);
+    }
+
+    [Fact]
+    public async Task Direct_cancel_keeps_absent_and_unauthorized_apart_from_a_direct_reservation()
+    {
+        await SeedFixedAsync();
+        var (reservationId, token) = await SeedDirectAsync();
+        using var client = factory.CreateClient();
+
+        AssertProblem(await CancelAsync(client, Guid.NewGuid(), token, "Reason"), HttpStatusCode.NotFound);
+        AssertProblem(await CancelAsync(client, reservationId, NewGuestToken(), "Reason"), HttpStatusCode.NotFound);
+        AssertProblem(await CancelAsync(client, reservationId, null, "Reason"), HttpStatusCode.Unauthorized);
+
+        Assert.Equal(0, await CalendarEventCountAsync());
+        await using var context = factory.CreateDbContext();
+        Assert.Equal(ReservationStatus.Confirmed, (await context.Reservations.SingleAsync(item => item.Id == reservationId)).Status);
+    }
+
+    [Fact]
+    public async Task Direct_authenticated_owner_cancels_own_reservation()
+    {
+        await SeedFixedAsync();
+        using var application = WithGenerousLoginRateLimit();
+        using var client = application.CreateClient();
+        var customerId = await CreateCustomerAsync(client, "direct-cancel-owner@example.com");
+        var (reservationId, _) = await SeedDirectAsync(customerId: customerId);
+
+        var response = await CancelAsync(client, reservationId, null, "No longer needed.");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await using var context = factory.CreateDbContext();
+        Assert.Equal(ReservationStatus.Cancelled, (await context.Reservations.SingleAsync(item => item.Id == reservationId)).Status);
+    }
+
+    [Fact]
+    public async Task Direct_cancel_takes_the_reservation_transition_lock_not_a_hold_lock()
+    {
+        // The blocker holds only the inventory lock, so seeing the reservation-transition lock held proves the cancel itself took it first (lock order: transition -> unit -> inventory).
+        await SeedFixedAsync();
+        var (reservationId, token) = await SeedDirectAsync();
+        var transitionLock = BookingAdvisoryLockKeys.ForReservationTransition(reservationId);
+        var inventoryLock = BookingAdvisoryLockKeys.ForInventory(PropertyId, DeluxeRoomTypeId, DefaultCheckIn);
+        Assert.True(await CanAcquireAdvisoryLockAsync(transitionLock));
+
+        await using var blockerConnection = new NpgsqlConnection(factory.ConnectionString);
+        await blockerConnection.OpenAsync();
+        await using var blockerTransaction = await blockerConnection.BeginTransactionAsync();
+        using var client = factory.CreateClient();
+        Task<HttpResponseMessage> cancelTask;
+        try
+        {
+            await AcquireAdvisoryLockAsync(blockerConnection, inventoryLock, CancellationToken.None);
+            cancelTask = CancelAsync(client, reservationId, token, "Reason");
+            await WaitUntilLockIsHeldAsync(transitionLock, TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            await blockerTransaction.RollbackAsync();
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await cancelTask).StatusCode);
+        await WaitUntilLockIsAvailableAsync(transitionLock, TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task Concurrent_direct_cancels_give_one_transition_one_event_and_one_replay()
+    {
+        await SeedFixedAsync();
+        var (reservationId, token) = await SeedDirectAsync();
+        using var firstClient = factory.CreateClient();
+        using var secondClient = factory.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        var responses = await Task.WhenAll(
+            CancelAsync(firstClient, reservationId, token, "Reason A", timeout.Token),
+            CancelAsync(secondClient, reservationId, token, "Reason B", timeout.Token));
+
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+        var bodies = await Task.WhenAll(responses.Select(response => response.Content.ReadFromJsonAsync<JsonElement>(timeout.Token)));
+        Assert.Equal(bodies[0].GetProperty("cancelledAtUtc").GetDateTimeOffset(), bodies[1].GetProperty("cancelledAtUtc").GetDateTimeOffset());
+        Assert.Equal(bodies[0].GetProperty("cancellationReason").GetString(), bodies[1].GetProperty("cancellationReason").GetString());
+        Assert.Equal(1, await CalendarEventCountAsync());
+    }
+
+    [Fact]
+    public async Task Direct_cancel_removes_capacity_and_its_room_assignment_and_restores_availability()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var before = await GetAvailableRoomsAsync(client, "DLX-KING", DefaultCheckIn);
+
+        var (reservationId, token) = await SeedDirectAsync();
+        Assert.Equal(before - 1, await GetAvailableRoomsAsync(client, "DLX-KING", DefaultCheckIn));
+
+        Guid segmentId;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            await using var context = factory.CreateDbContext();
+            var unitId = (await context.ReservationUnits.SingleAsync(unit => unit.ReservationId == reservationId)).Id;
+            var roomId = await context.PhysicalRooms
+                .Where(room => room.PropertyId == PropertyId && room.RoomTypeId == DeluxeRoomTypeId)
+                .OrderBy(room => room.RoomNumber)
+                .Select(room => room.Id)
+                .FirstAsync();
+            var created = await scope.ServiceProvider.GetRequiredService<TheBha.Application.Scheduling.IAssignmentMutationStore>().CreateAsync(
+                new TheBha.Application.Scheduling.CreateAssignmentCommand(
+                    PropertyId, unitId, new TheBha.Application.Scheduling.AssignmentDestination(roomId, DefaultCheckIn, DefaultCheckIn.AddDays(2)), "actor:front-desk", null, null),
+                CancellationToken.None);
+            Assert.Equal(TheBha.Application.Scheduling.SegmentMutationStatus.Succeeded, created.Status);
+            segmentId = created.Segments![0].Id;
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await CancelAsync(client, reservationId, token, "Reason")).StatusCode);
+
+        Assert.Equal(before, await GetAvailableRoomsAsync(client, "DLX-KING", DefaultCheckIn));
+        await using var read = factory.CreateDbContext();
+        Assert.Equal(TheBha.Domain.Scheduling.RoomOccupancySegmentStatus.Cancelled, (await read.RoomOccupancySegments.SingleAsync(segment => segment.Id == segmentId)).Status);
+        Assert.Equal(1, await read.RoomOccupancySegmentAudits.CountAsync(audit => audit.SegmentId == segmentId && audit.EventType == TheBha.Domain.Scheduling.RoomOccupancySegmentAuditEventType.Cancelled));
+    }
+
+    [Fact]
+    public async Task Hold_confirm_replay_and_cancel_are_unaffected_by_a_direct_reservation_on_the_same_room_type()
+    {
+        await SeedFixedAsync();
+        var (directId, directToken) = await SeedDirectAsync();
+        using var client = factory.CreateClient();
+
+        var (reservationId, guestToken, holdId) = await CreateAndConfirmGuestHoldAsync(client);
+        var replay = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal(reservationId, (await replay.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("reservationId").GetGuid());
+        Assert.Equal(HttpStatusCode.OK, (await CancelAsync(client, reservationId, guestToken, "Hold reason")).StatusCode);
+
+        await using var context = factory.CreateDbContext();
+        var hold = await context.Reservations.SingleAsync(item => item.Id == reservationId);
+        Assert.Equal((ReservationSource.Hold, (Guid?)holdId, ReservationStatus.Cancelled), (hold.Source, hold.SourceHoldId, hold.Status));
+        var direct = await context.Reservations.SingleAsync(item => item.Id == directId);
+        Assert.Equal((ReservationSource.Direct, ReservationStatus.Confirmed), (direct.Source, direct.Status));
+        Assert.NotEmpty(directToken);
+    }
+
+    [Fact]
+    public async Task Hold_sourced_cancel_still_serializes_on_the_hold_transition_lock_and_a_direct_one_does_not()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var (reservationId, guestToken, holdId) = await CreateAndConfirmGuestHoldAsync(client);
+        var (directId, _) = await SeedDirectAsync();
+        var holdLock = BookingAdvisoryLockKeys.ForHoldTransition(holdId);
+        var inventoryLock = BookingAdvisoryLockKeys.ForInventory(PropertyId, DeluxeRoomTypeId, DefaultCheckIn);
+
+        await using var blockerConnection = new NpgsqlConnection(factory.ConnectionString);
+        await blockerConnection.OpenAsync();
+        await using var blockerTransaction = await blockerConnection.BeginTransactionAsync();
+        Task<HttpResponseMessage> cancelTask;
+        try
+        {
+            await AcquireAdvisoryLockAsync(blockerConnection, inventoryLock, CancellationToken.None);
+            cancelTask = CancelAsync(client, reservationId, guestToken, "Reason");
+            await WaitUntilLockIsHeldAsync(holdLock, TimeSpan.FromSeconds(10));
+            // The Direct reservation's own transition lock is untouched by a Hold-sourced cancel.
+            Assert.True(await CanAcquireAdvisoryLockAsync(BookingAdvisoryLockKeys.ForReservationTransition(directId)));
+        }
+        finally
+        {
+            await blockerTransaction.RollbackAsync();
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await cancelTask).StatusCode);
+    }
+
+    private async Task<(Guid ReservationId, string Token)> SeedDirectAsync(Guid? customerId = null)
+    {
+        var token = NewGuestToken();
+        var reservation = Reservation.CreateDirect(
+            Guid.NewGuid(), $"BHA-DIRECT-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}", PropertyId, customerId, "Direct Guest", "direct@example.com", "+84 900 000 777",
+            DefaultCheckIn, DefaultCheckIn.AddDays(2), 2, 0, "VND", FixedUtc.AddMinutes(-5),
+            customerId is null ? BookingHoldRequestSecurity.Sha256Hex(token) : null,
+            [new ReservationUnitPlan(null, DeluxeRoomTypeId,
+                [new(DefaultCheckIn, RatePlanId, 1_000_000m), new(DefaultCheckIn.AddDays(1), RatePlanId, 1_000_000m)])]);
+        await using var context = factory.CreateDbContext();
+        context.Reservations.Add(reservation);
+        await context.SaveChangesAsync();
+        return (reservation.Id, token);
+    }
+
+    private static string NewGuestToken() =>
+        Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(BookingHoldCreationLimits.GuestTokenEntropyBytes))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private async Task<int> CalendarEventCountAsync()
+    {
+        await using var context = factory.CreateDbContext();
+        return await context.AdminActivities.CountAsync(row => row.MenuKey == "calendar");
+    }
+
     private async Task<(Guid ReservationId, string GuestToken, Guid HoldId)>
         CreateAndConfirmGuestHoldAsync(
             HttpClient client,

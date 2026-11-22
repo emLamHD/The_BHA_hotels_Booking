@@ -20,6 +20,10 @@ internal sealed class ReservationConfiguration : IEntityTypeConfiguration<Reserv
                 "(\"CustomerAccountId\" IS NULL OR \"CustomerAccountId\" <> " +
                 "'00000000-0000-0000-0000-000000000000'::uuid)");
             table.HasCheckConstraint(
+                "CK_Reservations_Source",
+                "(\"Source\" = 'Hold' AND \"SourceHoldId\" IS NOT NULL) OR " +
+                "(\"Source\" = 'Direct' AND \"SourceHoldId\" IS NULL)");
+            table.HasCheckConstraint(
                 "CK_Reservations_ConfirmationNumber",
                 "\"ConfirmationNumber\" ~ '^[A-Z0-9-]+$'");
             table.HasCheckConstraint(
@@ -77,6 +81,12 @@ internal sealed class ReservationConfiguration : IEntityTypeConfiguration<Reserv
             .HasMaxLength(3)
             .IsRequired();
         builder.Property(reservation => reservation.TotalAmount).HasPrecision(18, 2);
+        // Every row that predates PR01, and any writer that omits the column, is a Hold row.
+        builder.Property(reservation => reservation.Source)
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .HasDefaultValue(ReservationSource.Hold)
+            .IsRequired();
         builder.Property(reservation => reservation.Status)
             .HasConversion<string>()
             .HasMaxLength(20)

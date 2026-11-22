@@ -27,24 +27,31 @@ internal sealed class ReservationCancellationStore(
         await using var transaction = await dbContext.Database.BeginTransactionAsync(
             cancellationToken);
 
-        var sourceHoldId = await dbContext.Reservations
+        // Projecting a row (not a bare nullable id) keeps "no such Reservation for this caller" (null) apart from "a Direct Reservation, which has no Hold" (SourceHoldId null).
+        var origin = await dbContext.Reservations
             .AsNoTracking()
             .Where(item => item.Id == reservationId)
             .Where(item =>
                 (customerAccountId != null && item.CustomerAccountId == customerAccountId) ||
                 (guestAccessTokenHash != null &&
                  item.GuestAccessTokenHash == guestAccessTokenHash))
-            .Select(item => (Guid?)item.SourceHoldId)
+            .Select(item => new { item.Source, item.SourceHoldId })
             .SingleOrDefaultAsync(cancellationToken);
-        if (sourceHoldId is null)
+        if (origin is null)
         {
             await transaction.RollbackAsync(cancellationToken);
             return ReservationCancellationResult.NotFound(
                 "The requested Reservation does not exist.");
         }
 
+        // CK_Reservations_Source guarantees the pairing; anything else is corrupt data, never a guess.
         await AcquireLockAsync(
-            BookingAdvisoryLockKeys.ForHoldTransition(sourceHoldId.Value),
+            origin switch
+            {
+                { Source: ReservationSource.Hold, SourceHoldId: { } holdId } => BookingAdvisoryLockKeys.ForHoldTransition(holdId),
+                { Source: ReservationSource.Direct, SourceHoldId: null } => BookingAdvisoryLockKeys.ForReservationTransition(reservationId),
+                _ => throw new InvalidOperationException("The Reservation source and its hold id disagree.")
+            },
             cancellationToken);
 
         // Re-run the same bounded ownership+identity predicate under the lock rather

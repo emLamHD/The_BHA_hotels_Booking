@@ -14,8 +14,9 @@ public sealed record AppliedPromotionSnapshot(
     string? CurrencyCode);
 
 /// <summary>
-/// The promotion snapshot of one Hold, linked to its Reservation at confirmation. It is copied, never recalculated: editing,
-/// disabling or expiring the promotion afterwards changes nothing here. The totals are derived from the nights by the Hold.
+/// The promotion snapshot of one Hold (<see cref="HoldId"/> only, then both ids once confirmed) or of one Direct Reservation
+/// (<see cref="ReservationId"/> only); at least one id is always set (<c>CK_BookingPromotionApplications_Source</c>). It is copied, never
+/// recalculated: editing, disabling or expiring the promotion afterwards changes nothing here. The totals are derived from the nights.
 /// </summary>
 public sealed class BookingPromotionApplication
 {
@@ -24,8 +25,18 @@ public sealed class BookingPromotionApplication
     }
 
     internal BookingPromotionApplication(Guid holdId, AppliedPromotionSnapshot promotion, decimal listTotalAmount, decimal discountTotalAmount)
+        : this(DomainGuard.RequiredId(holdId, nameof(holdId)), null, promotion, listTotalAmount, discountTotalAmount)
     {
-        HoldId = DomainGuard.RequiredId(holdId, nameof(holdId));
+    }
+
+    internal static BookingPromotionApplication ForReservation(Guid reservationId, AppliedPromotionSnapshot promotion, decimal listTotalAmount, decimal discountTotalAmount) =>
+        new(null, DomainGuard.RequiredId(reservationId, nameof(reservationId)), promotion, listTotalAmount, discountTotalAmount);
+
+    private BookingPromotionApplication(Guid? holdId, Guid? reservationId, AppliedPromotionSnapshot promotion, decimal listTotalAmount, decimal discountTotalAmount)
+    {
+        Id = Guid.NewGuid();
+        HoldId = holdId;
+        ReservationId = reservationId;
         PromotionId = DomainGuard.RequiredId(promotion.PromotionId, nameof(promotion.PromotionId));
         PromotionVersion = promotion.PromotionVersion >= 1 ? promotion.PromotionVersion : throw new DomainException("promotionVersion is out of range.");
         Slug = DomainGuard.Required(promotion.Slug, nameof(promotion.Slug), PromotionLimits.Slug);
@@ -37,7 +48,9 @@ public sealed class BookingPromotionApplication
         DiscountTotalAmount = discountTotalAmount > 0 ? discountTotalAmount : throw new DomainException("discountTotalAmount must be greater than zero.");
     }
 
-    public Guid HoldId { get; private set; }
+    /// <summary>Surrogate key. Existing rows were backfilled with their <see cref="HoldId"/>; the database generates it for a writer that omits it.</summary>
+    public Guid Id { get; private set; }
+    public Guid? HoldId { get; private set; }
     public Guid? ReservationId { get; private set; }
     public Guid PromotionId { get; private set; }
     public int PromotionVersion { get; private set; }

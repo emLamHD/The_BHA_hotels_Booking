@@ -497,6 +497,7 @@ public static class BookingAdvisoryLockKeys
     private const string IdempotencyNamespace = "thebha:booking:idempotency:v1:";
     private const string InventoryNamespace = "thebha:booking:inventory:v1:";
     private const string HoldTransitionNamespace = "thebha:booking:hold-transition:v1:";
+    private const string ReservationTransitionNamespace = "thebha:booking:reservation-transition:v1:";
     private const string ReservationUnitNamespace = "thebha:pms:reservation-unit:v1:";
     private const string RoomTypeInventoryScopeNamespace = "thebha:pms:roomtype-inventory-scope:v1:";
     private const string WebsiteSettingsNamespace = "thebha:website:settings:v1";
@@ -506,6 +507,10 @@ public static class BookingAdvisoryLockKeys
 
     public static long ForHoldTransition(Guid holdId) =>
         HashToInt64(HoldTransitionNamespace + holdId.ToString("D"));
+
+    /// <summary>Serializes lifecycle transitions of a Reservation that has no Hold (a Hold-sourced one uses <see cref="ForHoldTransition"/>). Separate namespace: a reservation id never collides with a hold id.</summary>
+    public static long ForReservationTransition(Guid reservationId) =>
+        HashToInt64(ReservationTransitionNamespace + reservationId.ToString("D"));
 
     public static long ForInventory(
         Guid propertyId,

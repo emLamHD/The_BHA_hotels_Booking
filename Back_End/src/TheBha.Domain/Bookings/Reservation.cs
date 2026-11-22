@@ -16,6 +16,7 @@ public sealed class Reservation
     {
     }
 
+    /// <summary>Creates a Reservation sourced from a confirmed Hold (<see cref="ReservationSource.Hold"/>). Direct creation goes through <see cref="CreateDirect"/>.</summary>
     public Reservation(
         Guid id,
         string confirmationNumber,
@@ -36,9 +37,38 @@ public sealed class Reservation
         string? cancellationReason,
         string? guestAccessTokenHash,
         IEnumerable<ReservationUnitPlan> units)
+        : this(
+            ReservationSource.Hold,
+            DomainGuard.RequiredId(sourceHoldId, nameof(sourceHoldId)),
+            id, confirmationNumber, propertyId, customerAccountId, fullName, email, phone, checkIn, checkOut,
+            adults, children, currencyCode, status, confirmedAtUtc, cancelledAtUtc, cancellationReason,
+            guestAccessTokenHash, units)
+    {
+    }
+
+    private Reservation(
+        ReservationSource source,
+        Guid? sourceHoldId,
+        Guid id,
+        string confirmationNumber,
+        Guid propertyId,
+        Guid? customerAccountId,
+        string fullName,
+        string email,
+        string phone,
+        DateOnly checkIn,
+        DateOnly checkOut,
+        int adults,
+        int children,
+        string currencyCode,
+        ReservationStatus status,
+        DateTimeOffset confirmedAtUtc,
+        DateTimeOffset? cancelledAtUtc,
+        string? cancellationReason,
+        string? guestAccessTokenHash,
+        IEnumerable<ReservationUnitPlan> units)
     {
         BookingGuard.ValidateReservationHeader(id, propertyId, checkIn, checkOut, adults, children);
-        DomainGuard.RequiredId(sourceHoldId, nameof(sourceHoldId));
         var contact = BookingGuard.NormalizeContact(fullName, email, phone);
         var confirmedAt = BookingGuard.RequireUtc(confirmedAtUtc, nameof(confirmedAtUtc));
         ArgumentNullException.ThrowIfNull(units);
@@ -50,6 +80,7 @@ public sealed class Reservation
 
         Id = id;
         ConfirmationNumber = BookingGuard.NormalizeConfirmationNumber(confirmationNumber);
+        Source = source;
         SourceHoldId = sourceHoldId;
         PropertyId = propertyId;
         CustomerAccountId = customerAccountId;
@@ -102,7 +133,10 @@ public sealed class Reservation
 
     public Guid Id { get; private set; }
     public string ConfirmationNumber { get; private set; } = string.Empty;
-    public Guid SourceHoldId { get; private set; }
+    public ReservationSource Source { get; private set; }
+
+    /// <summary>The Hold this Reservation confirmed; <c>null</c> exactly when <see cref="Source"/> is <see cref="ReservationSource.Direct"/> (<c>CK_Reservations_Source</c>).</summary>
+    public Guid? SourceHoldId { get; private set; }
     public Guid PropertyId { get; private set; }
     public Guid? CustomerAccountId { get; private set; }
     public string FullName { get; private set; } = string.Empty;
@@ -121,8 +155,66 @@ public sealed class Reservation
     public string? GuestAccessTokenHash { get; private set; }
     public IReadOnlyList<ReservationUnit> Units => _units.AsReadOnly();
 
-    /// <summary>The promotion snapshot copied from the source Hold; <c>null</c> when no promotion applied.</summary>
+    /// <summary>The promotion snapshot: copied from the source Hold, or (Direct) saved with the Reservation's own prices; <c>null</c> when no promotion applied.</summary>
     public BookingPromotionApplication? PromotionApplication { get; private set; }
+
+    /// <summary>
+    /// Creates a Confirmed Reservation with no source Hold (BHA-CHECKOUT-001-PR01). Same ownership, date and price guards as the Hold-sourced
+    /// constructor; every Unit must have no source Hold item, and a night sold below its list price needs the promotion snapshot that priced it
+    /// (the snapshot is saved as given, never recalculated). No public route calls this yet.
+    /// </summary>
+    public static Reservation CreateDirect(
+        Guid id,
+        string confirmationNumber,
+        Guid propertyId,
+        Guid? customerAccountId,
+        string fullName,
+        string email,
+        string phone,
+        DateOnly checkIn,
+        DateOnly checkOut,
+        int adults,
+        int children,
+        string currencyCode,
+        DateTimeOffset confirmedAtUtc,
+        string? guestAccessTokenHash,
+        IEnumerable<ReservationUnitPlan> units,
+        AppliedPromotionSnapshot? promotion = null)
+    {
+        ArgumentNullException.ThrowIfNull(units);
+        var unitPlans = units.ToArray();
+        if (unitPlans.Any(plan => plan.SourceInventoryHoldItemId is not null))
+        {
+            throw new DomainException("A Direct Reservation cannot reference a source Hold item.");
+        }
+
+        var reservation = new Reservation(
+            ReservationSource.Direct, null, id, confirmationNumber, propertyId, customerAccountId, fullName, email,
+            phone, checkIn, checkOut, adults, children, currencyCode, ReservationStatus.Confirmed, confirmedAtUtc,
+            null, null, guestAccessTokenHash, unitPlans);
+
+        var nights = reservation.Units.SelectMany(unit => unit.Nights).ToList();
+        var listTotal = nights.Sum(night => night.ListUnitAmount);
+        var discountTotal = listTotal - reservation.TotalAmount;
+        if (promotion is null)
+        {
+            if (discountTotal != 0)
+            {
+                throw new DomainException("A discounted night needs the promotion that priced it.");
+            }
+        }
+        else
+        {
+            if (promotion.CurrencyCode is not null && promotion.CurrencyCode != reservation.CurrencyCode)
+            {
+                throw new DomainException("The promotion currency must match the Reservation currency.");
+            }
+
+            reservation.PromotionApplication = BookingPromotionApplication.ForReservation(id, promotion, listTotal, discountTotal);
+        }
+
+        return reservation;
+    }
 
     internal void AttachPromotionApplication(BookingPromotionApplication application)
     {

@@ -593,6 +593,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         Assert.Contains("CK_InventoryHoldItemNights_Amount", checks);
         Assert.Contains("CK_Reservations_Cancellation", checks);
         Assert.Contains("CK_Reservations_Ownership", checks);
+        Assert.Contains("CK_Reservations_Source", checks);
         Assert.Contains("CK_ReservationUnitNights_Amount", checks);
         Assert.Contains("CK_ReservationUnits_CommitmentStatus", checks);
     }
