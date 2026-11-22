@@ -1200,6 +1200,48 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Bookings.ReservationCreationRequest", b =>
+                {
+                    b.Property<string>("ScopeHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.Property<string>("KeyHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("ReservationId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("ScopeHash", "KeyHash");
+
+                    b.HasIndex("ReservationId")
+                        .IsUnique();
+
+                    b.HasIndex("PropertyId", "ReservationId");
+
+                    b.ToTable("ReservationCreationRequests", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ReservationCreationRequests_Hashes", "\"ScopeHash\" ~ '^[0-9a-f]{64}$' AND \"KeyHash\" ~ '^[0-9a-f]{64}$' AND \"RequestFingerprint\" ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("CK_ReservationCreationRequests_Ids", "\"PropertyId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"ReservationId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Bookings.ReservationUnit", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4378,6 +4420,16 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasForeignKey("TheBha.Domain.Bookings.Reservation", "PropertyId", "SourceHoldId")
                         .HasPrincipalKey("TheBha.Domain.Bookings.InventoryHold", "PropertyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Bookings.ReservationCreationRequest", b =>
+                {
+                    b.HasOne("TheBha.Domain.Bookings.Reservation", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId", "ReservationId")
+                        .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("TheBha.Domain.Bookings.ReservationUnit", b =>

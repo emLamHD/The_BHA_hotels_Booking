@@ -69,7 +69,11 @@ public static class PublicProblemCodes
         ("Booking Hold cannot be confirmed", "The Hold cannot be confirmed: The Hold has expired", "hold.expired"),
         ("Booking Hold cannot be confirmed", null, "hold.not-confirmable"),
         ("Booking Hold cannot be cancelled", null, "hold.not-cancellable"),
-        ("Reservation cannot be cancelled", null, "reservation.not-cancellable")
+        ("Reservation cannot be cancelled", null, "reservation.not-cancellable"),
+
+        // BHA-CHECKOUT-001-PR05: intake switches (a new Hold or a new Direct Reservation)
+        ("Booking closed", null, "booking.closed"),
+        ("Direct checkout unavailable", null, "checkout.direct-unavailable")
     ];
 
     public static string Resolve(int status, string? title, string? detail)

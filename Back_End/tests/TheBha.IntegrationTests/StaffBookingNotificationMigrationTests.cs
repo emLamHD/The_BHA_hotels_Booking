@@ -62,7 +62,7 @@ public sealed class StaffBookingNotificationMigrationTests(ITestOutputHelper out
         foreach (var table in NewTables) Assert.Equal(0, await ScalarAsync<long>($"SELECT count(*) FROM \"{table}\""));
         Assert.False(context.Database.HasPendingModelChanges()); // the whole chain and today's model agree
         Assert.Contains(PrMigration, await context.Database.GetAppliedMigrationsAsync());
-        Assert.Empty(await context.Database.GetPendingMigrationsAsync());
+        Assert.Equal(["20261122134842_AddDirectReservationCreationRequests"], await context.Database.GetPendingMigrationsAsync()); // only the migration PR05 added after this one
     }
 
     [Fact]

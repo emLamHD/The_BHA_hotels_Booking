@@ -80,7 +80,10 @@ public enum BookingHoldCreationStatus
     Unauthorized,
     NotFound,
     Conflict,
-    PriceChanged
+    PriceChanged,
+
+    /// <summary>Booking:AcceptingNewReservations is off: no new Hold is taken.</summary>
+    Closed
 }
 
 public sealed record BookingHoldCreationResult(
@@ -109,6 +112,9 @@ public sealed record BookingHoldCreationResult(
 
     public static BookingHoldCreationResult Conflict(string error) =>
         new(BookingHoldCreationStatus.Conflict, null, error);
+
+    public static BookingHoldCreationResult Closed(string error) =>
+        new(BookingHoldCreationStatus.Closed, null, error);
 }
 
 public sealed record PreparedBookingHoldRequest(

@@ -16,7 +16,8 @@ namespace TheBha.Infrastructure.Persistence;
 internal sealed class BookingHoldCreationStore(
     TheBhaDbContext dbContext,
     TimeProvider timeProvider,
-    IGuestAccessTokenGenerator guestAccessTokenGenerator) : IBookingHoldCreationStore
+    IGuestAccessTokenGenerator guestAccessTokenGenerator,
+    BookingIntake intake) : IBookingHoldCreationStore
 {
     public async Task<BookingHoldCreationResult> CreateAsync(
         PreparedBookingHoldRequest request,
@@ -39,6 +40,15 @@ internal sealed class BookingHoldCreationStore(
                     transaction,
                     existing,
                     request.RequestFingerprint,
+                    cancellationToken);
+            }
+
+            // A replay above is still answered; only a NEW Hold is refused while intake is stopped. No inventory lock is taken for it.
+            if (!intake.AcceptingNewReservations)
+            {
+                return await RollbackResultAsync(
+                    transaction,
+                    BookingHoldCreationResult.Closed("New reservations are not being accepted right now."),
                     cancellationToken);
             }
 
