@@ -113,6 +113,8 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
         builder.UseSetting("DataProtection:KeysPath", KeysRoot);
         // BHA-NEWSLETTER-002: no host starts the confirmation-mail worker on its own; the tests drive the dispatcher by hand.
         builder.UseSetting("Website:Newsletter:WorkerEnabled", "false");
+        // BHA-CHECKOUT-001-PR03: no host starts the e-mail outbox timer either; the tests that enable dispatch drive the dispatcher by hand.
+        builder.UseSetting("Email:Outbox:WorkerEnabled", "false");
 
         // The host default (`reloadOnChange: true`) puts an inotify watch on
         // every appsettings file, and this suite builds one host per boundary
@@ -225,6 +227,8 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
         await context.Database.ExecuteSqlRawAsync(
             """
             TRUNCATE TABLE
+                "EmailOutboxDeliveries",
+                "EmailOutboxEvents",
                 "FolioEntries",
                 "ReservationUnitNights",
                 "ReservationUnits",

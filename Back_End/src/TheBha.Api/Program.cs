@@ -284,6 +284,12 @@ if (googleOverride.Exists())
     }
 }
 
+// BHA-CHECKOUT-001-PR03: the e-mail provider's address can be changed only in Development (a local stub): the API key is sent to it.
+if (!builder.Environment.IsDevelopment() && builder.Configuration.GetSection($"{TheBha.Application.Notifications.EmailOutboxOptions.SectionName}:Resend:BaseUrl").Exists())
+{
+    throw new InvalidOperationException("Email:Outbox:Resend:BaseUrl may be set only in Development.");
+}
+
 builder.Services.AddSingleton(newsletter);
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services

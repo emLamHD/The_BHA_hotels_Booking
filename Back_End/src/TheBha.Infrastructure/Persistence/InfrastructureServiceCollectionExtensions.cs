@@ -103,6 +103,19 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<INewsletterSender, TheBha.Infrastructure.Persistence.Newsletter.NewsletterSenderService>();
         services.AddScoped<INewsletterVerificationDispatcher, TheBha.Infrastructure.Persistence.Newsletter.NewsletterVerificationDispatcher>();
         services.AddHostedService<TheBha.Infrastructure.Persistence.Newsletter.NewsletterVerificationWorker>();
+        // BHA-CHECKOUT-001-PR03: the transactional e-mail outbox. Everything is off by default (Email:Outbox:DispatchEnabled / WorkerEnabled) and no handler or template is registered here: the booking mails belong to PR07.
+        var emailOutbox = configuration.GetSection(TheBha.Application.Notifications.EmailOutboxOptions.SectionName).Get<TheBha.Application.Notifications.EmailOutboxOptions>() ?? new TheBha.Application.Notifications.EmailOutboxOptions();
+        emailOutbox.Validate();
+        services.AddSingleton(emailOutbox);
+        services.AddSingleton<TheBha.Infrastructure.Persistence.Notifications.EmailOutboxProtector>();
+        services.AddSingleton<TheBha.Application.Notifications.EmailTemplateRenderer>();
+        services.AddHttpClient<TheBha.Application.Notifications.IEmailTransport, TheBha.Infrastructure.Persistence.Notifications.ResendEmailTransport>(
+                TheBha.Infrastructure.Persistence.Notifications.ResendEmailTransport.HttpClientName, (provider, client) => client.Timeout = TimeSpan.FromSeconds(provider.GetRequiredService<TheBha.Application.Notifications.EmailOutboxOptions>().HttpTimeoutSeconds))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+        services.AddScoped<TheBha.Application.Notifications.IEmailOutbox, TheBha.Infrastructure.Persistence.Notifications.EmailOutboxStore>();
+        services.AddScoped<TheBha.Application.Notifications.IEmailOutboxFailures, TheBha.Infrastructure.Persistence.Notifications.EmailOutboxFailureReader>();
+        services.AddScoped<TheBha.Application.Notifications.IEmailOutboxDispatcher, TheBha.Infrastructure.Persistence.Notifications.EmailOutboxDispatcher>();
+        services.AddHostedService<TheBha.Infrastructure.Persistence.Notifications.EmailOutboxWorker>();
         services.AddScoped<DevelopmentDataSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.RiversideDemoSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.PromotionDemoSeeder>();
