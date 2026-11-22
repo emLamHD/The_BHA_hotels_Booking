@@ -69,6 +69,10 @@ public abstract class DirectReservationTestSupport(PostgreSqlWebApplicationFacto
 
     protected static string NewToken() => new CryptographicGuestAccessTokenGenerator().Generate();
 
+    /// <summary>The body of a Hold request for the same stay: the Direct body without the fields only the Direct route has.</summary>
+    protected Dictionary<string, object?> HoldBody(Guid? roomTypeId = null, int startOffset = 3) =>
+        Body(roomTypeId, startOffset: startOffset).Without("expectedTotalAmount").Without("expectedCurrencyCode").Without("paymentMethod");
+
     protected Dictionary<string, object?> Body(
         Guid? roomTypeId = null,
         int rooms = 1,
@@ -128,6 +132,24 @@ public abstract class DirectReservationTestSupport(PostgreSqlWebApplicationFacto
 
         tweak?.Invoke(request);
         return await client.SendAsync(request, cancellationToken);
+    }
+
+    protected static async Task<HttpResponseMessage> PostHoldAsync(HttpClient client, string key, object body)
+    {
+        var csrf = (await (await client.GetAsync("/api/v1/auth/csrf")).Content.ReadFromJsonAsync<Csrf>())!;
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/booking-holds") { Content = JsonContent.Create(body) };
+        request.Headers.Add("Idempotency-Key", key);
+        request.Headers.Add(csrf.HeaderName, csrf.Token);
+        return await client.SendAsync(request);
+    }
+
+    protected static async Task<HttpResponseMessage> ConfirmAsync(HttpClient client, Guid holdId, string token)
+    {
+        var csrf = (await (await client.GetAsync("/api/v1/auth/csrf")).Content.ReadFromJsonAsync<Csrf>())!;
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/booking-holds/{holdId}/confirm");
+        request.Headers.Add("X-Booking-Access-Token", token);
+        request.Headers.Add(csrf.HeaderName, csrf.Token);
+        return await client.SendAsync(request);
     }
 
     protected static async Task<JsonElement> JsonAsync(HttpResponseMessage response) =>
