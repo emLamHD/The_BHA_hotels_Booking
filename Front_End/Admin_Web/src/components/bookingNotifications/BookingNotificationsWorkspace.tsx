@@ -5,6 +5,8 @@
  * Saving here changes a notification preference only: no account, password, role or membership, and no e-mail is sent. Every request is authorized on the server for a Manager of the chosen Property;
  * this screen only shows what that Manager may manage.
  *
+ * A row keeps its identity across versions (keyed by Staff id only): a reload after a stale or lost write refreshes the version and the server's value but never replaces what the Manager typed.
+ *
  * Honest parts: "Chưa cấu hình" means no notification address (the login address is never used), a save carries the version it was made from (a stale one is refused and the draft kept), a lost answer is never
  * resent, and the roster is keyed by Property: switching Property remounts it, aborts the old read and refuses any answer that names another Property, so one Property's addresses never show under another.
  */
@@ -113,12 +115,12 @@ function RosterBody({ roster, propertyId, propertyName, reload }: { roster: Reci
         ) : (
           <ul className="mt-4 flex flex-col divide-y divide-gray-200 dark:divide-gray-800">
             {roster.staff.map((row) => (
-              <StaffRow key={`${row.staffAccountId}:${row.version}`} row={row} propertyId={propertyId} reload={reload} />
+              <StaffRow key={row.staffAccountId} row={row} propertyId={propertyId} reload={reload} />
             ))}
           </ul>
         )}
       </div>
-      <FallbackCard key={`fallback:${roster.fallback.version}`} fallback={roster.fallback} propertyId={propertyId} reload={reload} />
+      <FallbackCard fallback={roster.fallback} propertyId={propertyId} reload={reload} />
     </>
   );
 }
@@ -140,7 +142,10 @@ function StaffRow({ row, propertyId, reload }: { row: RecipientStaff; propertyId
       return;
     }
     const result = await write.run(() => saveStaffEmail(propertyId, row.staffAccountId, row.version, email));
-    if (result?.kind === "ok") await reload();
+    if (result?.kind === "ok") {
+      setDraft(result.data.notificationEmail ?? "");   // the server's normalised value; a refused or lost write never touches the draft
+      await reload();
+    }
   };
   const toggle = async (enabled: boolean) => {
     const result = await write.run(() => setStaffEnabled(propertyId, row.staffAccountId, row.version, enabled));
@@ -173,6 +178,7 @@ function StaffRow({ row, propertyId, reload }: { row: RecipientStaff; propertyId
             className={`${FIELD} ${error ? FIELD_ERROR : ""}`}
           />
           {error && <p className="mt-1.5 text-xs text-error-500" data-testid="booking-notification-email-error">{error}</p>}
+          {dirty && row.notificationEmail !== null && <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400" data-testid="booking-notification-server-value">Máy chủ đang lưu: {row.notificationEmail}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <ActionButton testId="booking-notification-save" disabled={working || !dirty || draft.trim() === ""} onClick={() => void save(draft.trim())}>Lưu email</ActionButton>
@@ -183,7 +189,7 @@ function StaffRow({ row, propertyId, reload }: { row: RecipientStaff; propertyId
           </label>
         </div>
       </div>
-      <WriteFeedback status={write.status} working={working} serverNote={null} onReloadLatest={() => void reload()} onCheckServer={() => void reload().then(() => write.release())} fieldErrorOf={(field) => field === "email"} />
+      <WriteFeedback status={write.status} working={working} serverNote={null} onReloadLatest={() => void reload().then((data) => data && write.reset())} onCheckServer={() => void reload().then(() => write.release())} fieldErrorOf={(field) => field === "email"} />
     </li>
   );
 }
@@ -205,7 +211,10 @@ function FallbackCard({ fallback, propertyId, reload }: { fallback: RecipientFal
       return;
     }
     const result = await write.run(() => saveFallbackEmail(propertyId, fallback.version, email));
-    if (result?.kind === "ok") await reload();
+    if (result?.kind === "ok") {
+      setDraft(result.data.email ?? "");
+      await reload();
+    }
   };
 
   return (
@@ -232,13 +241,14 @@ function FallbackCard({ fallback, propertyId, reload }: { fallback: RecipientFal
             className={`${FIELD} ${error ? FIELD_ERROR : ""}`}
           />
           {error && <p className="mt-1.5 text-xs text-error-500" data-testid="booking-notification-fallback-error">{error}</p>}
+          {dirty && fallback.email !== null && <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400" data-testid="booking-notification-fallback-server-value">Máy chủ đang lưu: {fallback.email}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <ActionButton testId="booking-notification-fallback-save" disabled={working || !dirty || draft.trim() === ""} onClick={() => void save(draft.trim())}>Lưu email dự phòng</ActionButton>
           <ActionButton testId="booking-notification-fallback-clear" variant="outline" disabled={working || fallback.email === null} onClick={() => void save(null)}>Xoá</ActionButton>
         </div>
       </div>
-      <WriteFeedback status={write.status} working={working} serverNote={null} onReloadLatest={() => void reload()} onCheckServer={() => void reload().then(() => write.release())} fieldErrorOf={(field) => field === "email"} />
+      <WriteFeedback status={write.status} working={working} serverNote={null} onReloadLatest={() => void reload().then((data) => data && write.reset())} onCheckServer={() => void reload().then(() => write.release())} fieldErrorOf={(field) => field === "email"} />
     </div>
   );
 }

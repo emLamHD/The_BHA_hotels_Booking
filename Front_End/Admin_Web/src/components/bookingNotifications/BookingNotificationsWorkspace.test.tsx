@@ -218,3 +218,93 @@ describe("BookingNotificationsScreen Property switch", () => {
     expect(screen.queryByTestId("write-refused")).toBeNull();
   });
 });
+
+describe("BookingNotificationsScreen conflict recovery keeps the draft", () => {
+  const staleOnce = () => vi.mocked(saveStaffEmail).mockResolvedValueOnce({ kind: "refused", status: 409, code: "stale-version", field: null, detail: "stale" });
+
+  it("a stale save, then Tải giá trị mới nhất: the draft survives, the version and the server's value refresh, and a retry quotes the NEW version", async () => {
+    staleOnce();
+    render(<BookingNotificationsScreen />);
+    const r = await row();
+    await userEvent.type(r.getByLabelText("Email nhận thông báo"), "mine@hotel.example");
+    await press(r, "booking-notification-save");
+    await r.findByTestId("write-refused");
+    expect(saveStaffEmail).toHaveBeenLastCalledWith("p1", "s1", 0, "mine@hotel.example");
+
+    // Meanwhile somebody else saved another address: the server is now at version 2.
+    vi.mocked(readRecipientRoster).mockImplementation(async (propertyId) => ok(roster(propertyId, [staff({ notificationEmail: "theirs@hotel.example", coverage: "Local", version: 2 })])));
+    await userEvent.click(r.getByTestId("reload-latest"));
+
+    await waitFor(() => expect(r.getByTestId("booking-notification-server-value")).toHaveTextContent("Máy chủ đang lưu: theirs@hotel.example"));
+    expect(r.getByLabelText("Email nhận thông báo")).toHaveValue("mine@hotel.example");      // the draft survived the reload...
+    expect(r.queryByTestId("write-refused")).toBeNull();                                      // ...the stale banner is gone...
+    expect(r.getByTestId("booking-notification-coverage")).toHaveTextContent("Nhận qua email riêng");   // ...and the base is the server's.
+    expect(saveStaffEmail).toHaveBeenCalledTimes(1);                                          // reloading sent nothing
+
+    // The draft is still editable, and an explicit retry is ONE write that quotes the refreshed version.
+    await userEvent.type(r.getByLabelText("Email nhận thông báo"), ".vn");
+    vi.mocked(saveStaffEmail).mockResolvedValueOnce(ok(staff({ notificationEmail: "mine@hotel.example.vn", coverage: "Local", version: 3 })));
+    vi.mocked(readRecipientRoster).mockImplementation(async (propertyId) => ok(roster(propertyId, [staff({ notificationEmail: "mine@hotel.example.vn", coverage: "Local", version: 3 })])));
+    await press(r, "booking-notification-save");
+
+    await waitFor(() => expect(saveStaffEmail).toHaveBeenCalledTimes(2));
+    expect(saveStaffEmail).toHaveBeenLastCalledWith("p1", "s1", 2, "mine@hotel.example.vn");
+    await waitFor(() => expect(r.queryByTestId("booking-notification-server-value")).toBeNull());   // draft and server agree again
+    expect(r.getByLabelText("Email nhận thông báo")).toHaveValue("mine@hotel.example.vn");
+  });
+
+  it("the same for the fallback: stale save, reload latest, the draft survives and the retry quotes the refreshed version", async () => {
+    vi.mocked(readRecipientRoster).mockImplementation(async (propertyId) => ok(roster(propertyId, [staff({ coverage: "Local", notificationEmail: "x@hotel.example", version: 1 })], { email: "desk@hotel.example", version: 4 })));
+    vi.mocked(saveFallbackEmail).mockResolvedValueOnce({ kind: "refused", status: 409, code: "stale-version", field: null, detail: "stale" });
+    render(<BookingNotificationsScreen />);
+    const card = within(await screen.findByTestId("booking-notification-fallback"));
+    const input = card.getByLabelText("Email dự phòng");
+    await userEvent.clear(input);
+    await userEvent.type(input, "mine@hotel.example");
+    await press(card, "booking-notification-fallback-save");
+    await card.findByTestId("write-refused");
+
+    vi.mocked(readRecipientRoster).mockImplementation(async (propertyId) => ok(roster(propertyId, [staff({ coverage: "Local", notificationEmail: "x@hotel.example", version: 1 })], { email: "theirs@hotel.example", version: 6 })));
+    await userEvent.click(card.getByTestId("reload-latest"));
+
+    await waitFor(() => expect(card.getByTestId("booking-notification-fallback-server-value")).toHaveTextContent("theirs@hotel.example"));
+    expect(card.getByLabelText("Email dự phòng")).toHaveValue("mine@hotel.example");
+    vi.mocked(saveFallbackEmail).mockResolvedValueOnce(ok({ email: "mine@hotel.example", version: 7 }));
+    await press(card, "booking-notification-fallback-save");
+
+    await waitFor(() => expect(saveFallbackEmail).toHaveBeenLastCalledWith("p1", 6, "mine@hotel.example"));
+    expect(saveFallbackEmail).toHaveBeenCalledTimes(2);
+  });
+
+  it("a lost answer: Kiểm tra máy chủ re-reads the server and keeps the draft; nothing is resent on its own", async () => {
+    vi.mocked(saveStaffEmail).mockResolvedValueOnce({ kind: "unverified", message: "no answer" });
+    render(<BookingNotificationsScreen />);
+    const r = await row();
+    await userEvent.type(r.getByLabelText("Email nhận thông báo"), "mine@hotel.example");
+    await press(r, "booking-notification-save");
+    await r.findByTestId("write-unverified");
+
+    vi.mocked(readRecipientRoster).mockImplementation(async (propertyId) => ok(roster(propertyId, [staff({ version: 1, notificationEmail: "other@hotel.example", coverage: "Local" })])));
+    await userEvent.click(r.getByTestId("check-server"));
+
+    await waitFor(() => expect(r.getByTestId("booking-notification-server-value")).toHaveTextContent("other@hotel.example"));
+    expect(r.getByLabelText("Email nhận thông báo")).toHaveValue("mine@hotel.example");
+    expect(saveStaffEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("a successful write shows the server's normalised value, and a refused address keeps the typed text for correction", async () => {
+    vi.mocked(saveStaffEmail).mockResolvedValueOnce({ kind: "refused", status: 400, code: "validation", field: "email", detail: "bad" });
+    render(<BookingNotificationsScreen />);
+    const r = await row();
+    await userEvent.type(r.getByLabelText("Email nhận thông báo"), "  Mixed@Hotel.Example ");
+    await press(r, "booking-notification-save");
+    await r.findByTestId("booking-notification-email-error");
+    expect(r.getByLabelText("Email nhận thông báo")).toHaveValue("  Mixed@Hotel.Example ");
+
+    vi.mocked(saveStaffEmail).mockResolvedValueOnce(ok(staff({ notificationEmail: "mixed@hotel.example", coverage: "Local", version: 1 })));
+    vi.mocked(readRecipientRoster).mockImplementation(async (propertyId) => ok(roster(propertyId, [staff({ notificationEmail: "mixed@hotel.example", coverage: "Local", version: 1 })])));
+    await press(r, "booking-notification-save");
+
+    await waitFor(() => expect(r.getByLabelText("Email nhận thông báo")).toHaveValue("mixed@hotel.example"));
+  });
+});
