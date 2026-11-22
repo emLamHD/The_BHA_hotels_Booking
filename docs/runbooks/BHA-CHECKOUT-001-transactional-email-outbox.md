@@ -50,7 +50,7 @@ A timeout, a dropped connection, a 5xx or an answer that cannot be read is **unk
 
 A changed `FromAddress` does not create a new send: retries keep the sender pinned at the first attempt.
 
-To reconcile, find the message in the provider's dashboard (search by the Idempotency-Key `bha-email-{DeliveryId}` or the recipient) and decide; there is no resend button and no HTTP route in PR03. A daily-quota 429 near the window edge also ends in `NeedsReconciliation` by design. `401/403/404/405` answers (key, domain or address wrong) give the attempt back and wait the longest backoff: fix the configuration; the delivery is still bounded by the window.
+To reconcile, find the message in the provider's dashboard (search by the Idempotency-Key `bha-email-{DeliveryId}` or the recipient) and decide; there is no resend button and no HTTP route in PR03. A daily-quota 429 near the window edge also ends in `NeedsReconciliation` by design. `401/403/404/405` answers (key, domain or address wrong) give the attempt back and wait the longest backoff. **Fixing the configuration does not always let those deliveries proceed:** the first attempt pins the account, so a new API key (the usual fix for "API key is invalid") is a different account and the waiting deliveries become `NeedsReconciliation` (`account-changed`) even though the provider refused them and nothing was sent; the same happens to any pinned delivery that crosses the 22-hour window. This is deliberately conservative (it never claims "not sent" without evidence); check them against the provider's dashboard and re-queue by hand if appropriate.
 
 ## Looking at the queue
 

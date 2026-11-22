@@ -117,10 +117,13 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
 
         foreach (var delivery in prepared!)
         {
+            // Outside the counted catch above: if the key ring cannot protect, this throws, the transaction is rolled back and the event stays Pending with no attempt counted.
+            var protectedRecipient = _protector.Protect(delivery.Recipient);
+            var protectedMessage = _protector.Protect(delivery.MessageJson);
             await _database.Database.ExecuteSqlInterpolatedAsync(
                 $"""
                 INSERT INTO "EmailOutboxDeliveries" ("Id", "EventId", "PropertyId", "Purpose", "RecipientKey", "TemplateKey", "Locale", "ProtectedRecipient", "ProtectedMessage", "Status", "Attempts", "NextAttemptAtUtc", "UncertainSend", "CreatedAtUtc")
-                VALUES ({delivery.Id}, {id}, {propertyId}, {delivery.Purpose}, {delivery.RecipientKey}, {delivery.TemplateKey}, {delivery.Locale}, {delivery.ProtectedRecipient}, {delivery.ProtectedMessage}, 'Pending', 0, {now}, false, {now})
+                VALUES ({delivery.Id}, {id}, {propertyId}, {delivery.Purpose}, {delivery.RecipientKey}, {delivery.TemplateKey}, {delivery.Locale}, {protectedRecipient}, {protectedMessage}, 'Pending', 0, {now}, false, {now})
                 ON CONFLICT ("EventId", "Purpose", "RecipientKey") DO NOTHING
                 """,
                 ct);
@@ -133,7 +136,8 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         return true;
     }
 
-    private sealed record PreparedDelivery(Guid Id, string Purpose, string RecipientKey, string TemplateKey, string Locale, string ProtectedRecipient, string ProtectedMessage);
+    /// <summary>A validated, rendered draft. Not yet protected: protecting needs the key ring, and a key-ring fault is the host's problem, never the handler's (it must not be counted against the event).</summary>
+    private sealed record PreparedDelivery(Guid Id, string Purpose, string RecipientKey, string TemplateKey, string Locale, string Recipient, string MessageJson);
 
     private List<PreparedDelivery> Prepare(Guid eventId, IReadOnlyList<EmailDeliveryDraft> drafts)
     {
@@ -153,8 +157,7 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
             if (!seen.Add((purpose, key))) throw new InvalidOperationException("Two delivery drafts share one purpose and recipient key.");
             var rendered = _renderer.Render(draft.TemplateKey, draft.Locale, draft.Model);
             var message = JsonSerializer.Serialize(new { subject = rendered.Subject, text = rendered.Text, html = rendered.Html });
-            result.Add(new PreparedDelivery(
-                EmailOutboxSql.DeliveryId(eventId, purpose, key), purpose, key, draft.TemplateKey, rendered.ResolvedLocale, _protector.Protect(draft.RecipientEmail), _protector.Protect(message)));
+            result.Add(new PreparedDelivery(EmailOutboxSql.DeliveryId(eventId, purpose, key), purpose, key, draft.TemplateKey, rendered.ResolvedLocale, draft.RecipientEmail, message));
         }
 
         return result;

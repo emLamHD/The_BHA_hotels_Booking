@@ -202,6 +202,40 @@ public sealed class EmailOutboxEnqueueTests(PostgreSqlWebApplicationFactory fact
     }
 
     [Fact]
+    public async Task E02_a_key_ring_that_cannot_protect_leaves_the_event_pending_uncounted_and_a_working_host_then_completes_it()
+    {
+        var seed = await FreshAsync(factory);
+        var keysPath = Path.GetTempFileName(); // a FILE where the key ring needs a directory: no key can ever be created
+        try
+        {
+            var handler = new SyntheticHandler();
+            using (var broken = Host(factory, new ResendStub(), settings: new() { ["Email:Outbox:Resend:ApiKey"] = null, ["DataProtection:KeysPath"] = keysPath }, handlers: handler))
+            {
+                await EnqueueAsync(broken.Services, seed.PropertyId);
+                var fault = await Assert.ThrowsAnyAsync<Exception>(() => RunAsync(broken.Services)); // a host fault, not a handler fault
+                Assert.Contains("EmailOutboxProtector.Protect", fault.ToString()); // it really is the key ring that failed
+            }
+
+            await using (var context = factory.CreateDbContext())
+            {
+                var pending = await context.EmailOutboxEvents.AsNoTracking().SingleAsync();
+                Assert.Equal((EmailOutboxEvent.StatusPending, 0, null), (pending.Status, pending.FanoutAttempts, pending.LastOutcome)); // nothing counted, nothing delayed
+                Assert.Equal(pending.CreatedAtUtc, pending.NextAttemptAtUtc);
+            }
+
+            Assert.Equal(0, await ScalarAsync<long>(factory, """SELECT count(*) FROM "EmailOutboxDeliveries" """));
+            var working = new SyntheticHandler();
+            using var ok = Host(factory, new ResendStub(), settings: new() { ["Email:Outbox:Resend:ApiKey"] = null }, handlers: working);
+            Assert.Equal(1, (await RunAsync(ok.Services)).EventsFannedOut);
+            Assert.Equal(1, await ScalarAsync<long>(factory, """SELECT count(*) FROM "EmailOutboxDeliveries" """));
+        }
+        finally
+        {
+            File.Delete(keysPath);
+        }
+    }
+
+    [Fact]
     public async Task E02_replaying_a_completed_event_adds_no_delivery_and_the_delivery_id_is_stable()
     {
         var seed = await FreshAsync(factory);

@@ -26,8 +26,9 @@ public sealed class EmailOutboxProtector(IDataProtectionProvider provider)
             plain = _protector.Unprotect(protectedValue);
             return true;
         }
-        catch (CryptographicException)
+        catch (Exception exception) when (exception is CryptographicException or IOException or UnauthorizedAccessException)
         {
+            // A key ring that cannot be read (lost, replaced, unreachable) is "cannot read", not a crash: the delivery waits.
             return false;
         }
     }
