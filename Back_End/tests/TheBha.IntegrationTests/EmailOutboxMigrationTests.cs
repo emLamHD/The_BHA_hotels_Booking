@@ -59,9 +59,9 @@ public sealed class EmailOutboxMigrationTests(ITestOutputHelper output) : IAsync
 
         Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "EmailOutboxEvents" """));
         Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "EmailOutboxDeliveries" """));
-        Assert.False(context.Database.HasPendingModelChanges()); // the migration and the model agree
+        // "the migration and the model agree" is asserted on the whole chain by StaffBookingNotificationMigrationTests: today's model already includes the later PR04 tables.
         Assert.Contains(PrMigration, await context.Database.GetAppliedMigrationsAsync());
-        Assert.Empty(await context.Database.GetPendingMigrationsAsync());
+        Assert.Equal(["20261122120541_AddStaffBookingNotificationRecipients"], await context.Database.GetPendingMigrationsAsync()); // only the migration PR04 added after this one
         Assert.Equal(1, await ScalarAsync<long>("SELECT count(*) FROM pg_proc WHERE proname = 'thebha_email_outbox_deliveries_frozen'"));
         Assert.Equal(1, await ScalarAsync<long>("""SELECT count(*) FROM pg_trigger WHERE tgrelid = '"EmailOutboxDeliveries"'::regclass AND NOT tgisinternal"""));
         foreach (var index in new[] { "IX_EmailOutboxEvents_Due", "IX_EmailOutboxEvents_Failed", "IX_EmailOutboxDeliveries_Pending", "IX_EmailOutboxDeliveries_Lease", "IX_EmailOutboxDeliveries_Failures", "IX_EmailOutboxDeliveries_EventId_Purpose_RecipientKey" })

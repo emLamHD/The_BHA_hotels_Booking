@@ -23,6 +23,9 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<FolioEntry> FolioEntries => Set<FolioEntry>();
     public DbSet<TheBha.Domain.Notifications.EmailOutboxEvent> EmailOutboxEvents => Set<TheBha.Domain.Notifications.EmailOutboxEvent>();
     public DbSet<TheBha.Domain.Notifications.EmailOutboxDelivery> EmailOutboxDeliveries => Set<TheBha.Domain.Notifications.EmailOutboxDelivery>();
+    public DbSet<TheBha.Domain.Notifications.StaffBookingNotificationPreference> StaffBookingNotificationPreferences => Set<TheBha.Domain.Notifications.StaffBookingNotificationPreference>();
+    public DbSet<TheBha.Domain.Notifications.BookingNotificationFallback> BookingNotificationFallbacks => Set<TheBha.Domain.Notifications.BookingNotificationFallback>();
+    public DbSet<TheBha.Domain.Notifications.BookingNotificationAudit> BookingNotificationAudits => Set<TheBha.Domain.Notifications.BookingNotificationAudit>();
     public DbSet<ReservationUnit> ReservationUnits => Set<ReservationUnit>();
     public DbSet<ReservationUnitNight> ReservationUnitNights => Set<ReservationUnitNight>();
     public DbSet<CatalogContentAudit> CatalogContentAudits => Set<CatalogContentAudit>();

@@ -57,9 +57,9 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
     {
         var all = Enum.GetValues<StaffPermission>();
         Assert.Equal(
-            [StaffPermission.BoardRead, StaffPermission.AssignmentWrite, StaffPermission.BlockWrite, StaffPermission.AssignmentCrossRoomType, StaffPermission.PromotionManage],
+            [StaffPermission.BoardRead, StaffPermission.AssignmentWrite, StaffPermission.BlockWrite, StaffPermission.AssignmentCrossRoomType, StaffPermission.PromotionManage, StaffPermission.BookingNotificationManage],
             all);
-        // ADR 0009: promotions are the Manager's alone; FrontDesk never gets PromotionManage (the next assertion is the whole FrontDesk set).
+        // ADR 0009: promotions and (PR04) booking-notification recipients are the Manager's alone; FrontDesk never gets PromotionManage or BookingNotificationManage (the next assertion is the whole FrontDesk set).
         Assert.Equal(
             [StaffPermission.BoardRead, StaffPermission.AssignmentWrite, StaffPermission.BlockWrite],
             all.Where(permission => StaffPermissions.RoleGrants(StaffRole.FrontDesk, permission)).ToArray());

@@ -15,7 +15,7 @@ export const BLOG_PAGES = ["/website/blog/posts", "/website/blog/posts/new", "/w
 /** BHA-ADMIN-BADGE-001-PR05-C2: the activity history, for any signed-in Staff member. Only the bare path: a link's menu and Property (the query) are not carried through a sign-in. */
 export const ACTIVITY_PAGE = "/activity";
 
-const ALLOWED: ReadonlySet<string> = new Set<string>([DEFAULT_RETURN_TO, "/products", "/promotions", ACTIVITY_PAGE, ...WEBSITE_PAGES, ...BLOG_PAGES]);
+const ALLOWED: ReadonlySet<string> = new Set<string>([DEFAULT_RETURN_TO, "/products", "/promotions", "/booking-notifications", ACTIVITY_PAGE, ...WEBSITE_PAGES, ...BLOG_PAGES]);
 
 /** The sign-in destination: the value itself when it is exactly one allowed path, else `/calendar`. */
 export function resolveReturnTo(value: string | string[] | null | undefined): string {

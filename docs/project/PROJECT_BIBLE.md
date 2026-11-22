@@ -230,8 +230,25 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   idempotency có đệm; quá cửa sổ/đổi tài khoản/xung đột payload là
   `NeedsReconciliation`, không bao giờ phát key mới. Mặc định TẮT; chưa có
   handler/template/luồng nào nối vào. Queue email này tách khỏi queue và
-  Gmail sender của Newsletter. TARGET: sự kiện xác nhận đơn (PR 05), người nhận
-  Staff (PR 04), template và handler đặt phòng (PR 07).
+  Gmail sender của Newsletter. TARGET: sự kiện xác nhận đơn (PR 05), template và
+  handler đặt phòng (PR 07).
+- Người nhận email đặt phòng theo từng cơ sở (CURRENT,
+  `BHA-CHECKOUT-001-PR04`): Manager của cơ sở cấu hình trong Admin ("Email nhận
+  đặt phòng"; quyền `StaffPermission.BookingNotificationManage`, chỉ Manager,
+  theo route Property, không suy ra từ `CanManageWebsite` hay Manager cơ sở
+  khác). Danh sách là nhân viên Active có membership FrontDesk/Manager tại cơ
+  sở; một người chỉ là người nhận khi có email nhận thông báo RIÊNG (không bao
+  giờ dùng email đăng nhập) và đang bật. Ba nguồn, một chính sách: email riêng
+  của cơ sở (thắng) → Manager chuỗi do operator khai báo trong
+  `BookingNotifications:ChainManagers` (mặc định rỗng; chỉ nhận ở cơ sở mà họ
+  đang là Manager; opt-out cục bộ chặn cả email chuỗi) → email dự phòng của cơ
+  sở, chỉ khi hai nguồn trên rỗng. Resolver nội bộ
+  `IBookingNotificationRecipients` đọc trạng thái hiện tại mỗi lần gọi; khóa
+  người nhận mờ (`staff:{id}` / `fallback:{propertyId}`) khớp
+  `EmailDeliveryDraft.RecipientKey`; PR 07 gọi nó trong handler và kiểm lại
+  (`IsStillRecipientAsync`) trước khi gửi. PR 04 không gửi email, không nối
+  worker/handler/template. Xem
+  `docs/runbooks/BHA-CHECKOUT-001-booking-notification-recipients.md`.
 - Admin PMS/Calendar UI thật, tức backend-integrated, server-authoritative
   **cho mutation** (Admin Web hiện có một interactive Reservation Board
   frontend từ `ADMIN-002.1`/PR #32; phần đọc chính đã backend-integrated
