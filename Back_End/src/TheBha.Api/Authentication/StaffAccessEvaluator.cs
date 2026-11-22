@@ -13,7 +13,10 @@ public enum StaffPermission
     AssignmentCrossRoomType,
 
     /// <summary>ADR 0009: manage the booking promotions of the Property (read and write). Manager only.</summary>
-    PromotionManage
+    PromotionManage,
+
+    /// <summary>BHA-CHECKOUT-001-PR04: read and change who receives the booking notifications of the Property (Staff addresses and the fallback). Manager only; never a chain-wide right.</summary>
+    BookingNotificationManage
 }
 
 /// <summary>
@@ -50,7 +53,8 @@ public static class StaffPermissions
             or StaffPermission.AssignmentWrite
             or StaffPermission.BlockWrite
             or StaffPermission.AssignmentCrossRoomType
-            or StaffPermission.PromotionManage,
+            or StaffPermission.PromotionManage
+            or StaffPermission.BookingNotificationManage,
         _ => false
     };
 

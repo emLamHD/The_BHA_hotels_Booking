@@ -229,6 +229,9 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
             TRUNCATE TABLE
                 "EmailOutboxDeliveries",
                 "EmailOutboxEvents",
+                "BookingNotificationAudits",
+                "BookingNotificationFallbacks",
+                "StaffBookingNotificationPreferences",
                 "FolioEntries",
                 "ReservationUnitNights",
                 "ReservationUnits",

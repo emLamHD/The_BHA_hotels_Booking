@@ -448,6 +448,14 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         "/api/admin/v1/properties/{propertyId}/promotions/media"
     ];
 
+    // BHA-CHECKOUT-001-PR04: the three booking-notification mutations (a Manager of the routed Property), asserted in full by AdminBookingNotificationRecipientsApiTests.
+    private static readonly string[] BookingNotificationMutationPaths =
+    [
+        "/api/admin/v1/properties/{propertyId}/booking-notification-recipients/staff/{staffAccountId}/email",
+        "/api/admin/v1/properties/{propertyId}/booking-notification-recipients/staff/{staffAccountId}/enabled",
+        "/api/admin/v1/properties/{propertyId}/booking-notification-recipients/fallback"
+    ];
+
     // BHA-BLOG-001-CP01 / ADR 0010: the site-wide Blog mutations (every one a POST under a global Blog permission), asserted in full by
     // BlogAdminApiTests; a new one must be added here on purpose.
     private static readonly string[] BlogMutationPaths =
@@ -571,6 +579,7 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
                 // BHA-ADMIN-BADGE-001-PR12: the Calendar per-object "seen" cursor write (asserted in full by CalendarActivityApiTests).
                 path.Name != "/api/admin/v1/menu-unseen/calendar/entities/seen" &&
                 !PromotionMutationPaths.Contains(path.Name) &&
+                !BookingNotificationMutationPaths.Contains(path.Name) &&
                 !BlogMutationPaths.Contains(path.Name) &&
                 !WebsiteMutationPaths.Contains(path.Name))
             {

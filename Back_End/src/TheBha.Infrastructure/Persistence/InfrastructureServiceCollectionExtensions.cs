@@ -116,6 +116,11 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<TheBha.Application.Notifications.IEmailOutboxFailures, TheBha.Infrastructure.Persistence.Notifications.EmailOutboxFailureReader>();
         services.AddScoped<TheBha.Application.Notifications.IEmailOutboxDispatcher, TheBha.Infrastructure.Persistence.Notifications.EmailOutboxDispatcher>();
         services.AddHostedService<TheBha.Infrastructure.Persistence.Notifications.EmailOutboxWorker>();
+        // BHA-CHECKOUT-001-PR04: who receives booking notifications. The chain Managers are declared by the operator (BookingNotifications:ChainManagers, empty by default) and validated here, at start-up.
+        var bookingNotifications = configuration.GetSection(TheBha.Application.Notifications.BookingNotificationOptions.SectionName).Get<TheBha.Application.Notifications.BookingNotificationOptions>() ?? new TheBha.Application.Notifications.BookingNotificationOptions();
+        services.AddSingleton(new TheBha.Infrastructure.Persistence.Notifications.BookingNotificationChain(bookingNotifications.Validate()));
+        services.AddScoped<TheBha.Application.Notifications.IBookingNotificationRecipients, TheBha.Infrastructure.Persistence.Notifications.BookingNotificationRecipientResolver>();
+        services.AddScoped<TheBha.Application.Notifications.IAdminBookingNotifications, TheBha.Infrastructure.Persistence.Notifications.AdminBookingNotificationService>();
         services.AddScoped<DevelopmentDataSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.RiversideDemoSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.PromotionDemoSeeder>();

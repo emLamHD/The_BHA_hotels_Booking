@@ -1285,6 +1285,66 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Notifications.BookingNotificationAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("ActorStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TargetStaffId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorStaffId");
+
+                    b.HasIndex("TargetStaffId");
+
+                    b.HasIndex("PropertyId", "AtUtc");
+
+                    b.ToTable("BookingNotificationAudits", (string)null);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Notifications.BookingNotificationFallback", b =>
+                {
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("PropertyId");
+
+                    b.ToTable("BookingNotificationFallbacks", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BookingNotificationFallbacks_Email", "\"Email\" IS NULL OR (btrim(\"Email\") <> '' AND \"Email\" !~ '[[:cntrl:]]')");
+
+                            t.HasCheckConstraint("CK_BookingNotificationFallbacks_Version", "\"Version\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Notifications.EmailOutboxDelivery", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1478,6 +1538,43 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_EmailOutboxEvents_Type", "btrim(\"EventType\") <> ''");
 
                             t.HasCheckConstraint("CK_EmailOutboxEvents_Version", "\"SchemaVersion\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Notifications.StaffBookingNotificationPreference", b =>
+                {
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("StaffAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("NotificationEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("PropertyId", "StaffAccountId");
+
+                    b.HasIndex("StaffAccountId");
+
+                    b.ToTable("StaffBookingNotificationPreferences", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_StaffBookingNotificationPreferences_Email", "\"NotificationEmail\" IS NULL OR (btrim(\"NotificationEmail\") <> '' AND \"NotificationEmail\" !~ '[[:cntrl:]]')");
+
+                            t.HasCheckConstraint("CK_StaffBookingNotificationPreferences_Version", "\"Version\" >= 1");
                         });
                 });
 
@@ -4323,6 +4420,35 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Notifications.BookingNotificationAudit", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("ActorStaffId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("TargetStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Notifications.BookingNotificationFallback", b =>
+                {
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("TheBha.Domain.Notifications.EmailOutboxDelivery", b =>
                 {
                     b.HasOne("TheBha.Domain.Notifications.EmailOutboxEvent", null)
@@ -4338,6 +4464,21 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.HasOne("TheBha.Domain.Properties.Property", null)
                         .WithMany()
                         .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Notifications.StaffBookingNotificationPreference", b =>
+                {
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("StaffAccountId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
