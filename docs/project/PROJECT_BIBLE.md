@@ -209,7 +209,13 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
 - Calendar/Reservation Board là projection, không phải aggregate riêng.
 - `FolioEntries` là financial posting authority riêng biệt với booking
   snapshot; Guest identity document và Stay Declaration là hai concept có
-  lifecycle riêng.
+  lifecycle riêng. CURRENT (`BHA-CHECKOUT-001-PR02`): bảng `FolioEntries`
+  append-only, VND nguyên, một đường ghi idempotent (`IFolioPosting`) và một
+  cách tính số dư (`ReservationBalance.From`, `IFolioReader`) dùng chung cho
+  đơn nguồn Hold và Direct; đơn không có `RoomCharge` là `NotRecorded`. Chưa có
+  luồng nào ghi vào sổ, chưa có route/UI. TARGET: `RoomCharge` khi tạo đơn
+  (PR 05), bút toán tự động cho hủy/hoàn tiền, `PaymentTransactions`, cổng
+  thanh toán.
 - Admin PMS/Calendar UI thật, tức backend-integrated, server-authoritative
   **cho mutation** (Admin Web hiện có một interactive Reservation Board
   frontend từ `ADMIN-002.1`/PR #32; phần đọc chính đã backend-integrated
