@@ -144,7 +144,7 @@ public sealed class StaffBookingNotificationMigrationTests(ITestOutputHelper out
             $"INSERT INTO \"StaffBookingNotificationPreferences\" {Columns} VALUES ('{property}','{staff}',{email},true,{version},now(),now())";
 
         Assert.Equal(("23503", "FK_StaffBookingNotificationPreferences_Properties_PropertyId"), await RawAsync(_connectionString, Pref(Guid.NewGuid(), seed.StaffId, "'a@b.example'")));
-        Assert.Equal(("23503", "FK_StaffBookingNotificationPreferences_StaffAccounts_StaffAccountId"), await RawAsync(_connectionString, Pref(seed.PropertyId, Guid.NewGuid(), "'a@b.example'")));
+        Assert.Equal(("23503", "FK_StaffBookingNotificationPreferences_StaffAccounts_StaffAcco~"), await RawAsync(_connectionString, Pref(seed.PropertyId, Guid.NewGuid(), "'a@b.example'")));
         Assert.Equal(("23514", "CK_StaffBookingNotificationPreferences_Email"), await RawAsync(_connectionString, Pref(seed.PropertyId, seed.StaffId, "'a@b.example' || chr(10)")));
         Assert.Equal(("23514", "CK_StaffBookingNotificationPreferences_Email"), await RawAsync(_connectionString, Pref(seed.PropertyId, seed.StaffId, "'   '")));
         Assert.Equal(("23514", "CK_StaffBookingNotificationPreferences_Version"), await RawAsync(_connectionString, Pref(seed.PropertyId, seed.StaffId, "'a@b.example'", version: 0)));

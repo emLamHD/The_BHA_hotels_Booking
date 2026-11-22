@@ -228,8 +228,12 @@ public sealed class AdminBookingNotificationRecipientsApiTests(PostgreSqlWebAppl
 
         var roster = await RosterAsync(f);
 
-        var emails = roster.GetProperty("staff").EnumerateArray().Select(x => x.GetProperty("loginEmail").GetString()).ToArray();
-        Assert.Equal(["chain.a.login@example.com", "chain.b.login@example.com", Desk, Manager, Site], emails);   // no OtherManager (Q only), no disabled Staff
+        var ids = roster.GetProperty("staff").EnumerateArray().Select(x => x.GetProperty("staffAccountId").GetGuid()).ToHashSet();
+        Assert.Equal(new HashSet<Guid> { ChainA, ChainB, await StaffIdAsync(Desk), await StaffIdAsync(Manager), await StaffIdAsync(Site) }, ids);   // no OtherManager (Q only), no disabled Staff
+        Assert.Equal($"d***@example.com · #{(await StaffIdAsync(Desk)).ToString("N")[..8]}", Row(roster, await StaffIdAsync(Desk)).GetProperty("accountLabel").GetString());
+        // The login address is never serialised: no loginEmail field and no full login address anywhere in the answer.
+        Assert.All(roster.GetProperty("staff").EnumerateArray(), x => Assert.False(x.TryGetProperty("loginEmail", out _)));
+        foreach (var login in new[] { Desk, Manager, Site, "chain.a.login@example.com", "chain.b.login@example.com", "gone@example.com" }) Assert.DoesNotContain(login, roster.GetRawText());
         foreach (var row in roster.GetProperty("staff").EnumerateArray())
         {
             Assert.Equal(JsonValueKind.Null, row.GetProperty("notificationEmail").ValueKind);   // never the login address
@@ -244,7 +248,10 @@ public sealed class AdminBookingNotificationRecipientsApiTests(PostgreSqlWebAppl
         Assert.Equal("NotConfigured", Row(roster, ChainB).GetProperty("coverage").GetString());
         Assert.DoesNotContain("chain.example", roster.GetRawText());
         Assert.Equal(0, roster.GetProperty("fallback").GetProperty("version").GetInt32());
-        Assert.True((await ResolveAsync(f)).Recipients.All(r => r.Kind == BookingRecipientKind.ChainManager));   // only the chain Manager; login addresses were never recipients
+        var recipients = (await ResolveAsync(f)).Recipients;
+        Assert.True(recipients.All(r => r.Kind == BookingRecipientKind.ChainManager));   // only the chain Manager
+        var logins = await Factory.CreateDbContext().StaffAccounts.AsNoTracking().Select(a => a.Email!.ToLower()).ToListAsync();
+        Assert.DoesNotContain(recipients, r => logins.Contains(r.Email.ToLowerInvariant()));   // a login address is never a recipient
     }
 
     [Fact]
@@ -259,7 +266,7 @@ public sealed class AdminBookingNotificationRecipientsApiTests(PostgreSqlWebAppl
         Assert.Equal("front.desk@hotel.example", saved.GetProperty("notificationEmail").GetString());
         Assert.Equal(1, saved.GetProperty("version").GetInt32());
         Assert.Equal("Local", saved.GetProperty("coverage").GetString());
-        Assert.Equal(Desk, saved.GetProperty("loginEmail").GetString());   // the login address is unchanged and separate
+        Assert.False(saved.TryGetProperty("loginEmail", out _));   // the login address is not part of the answer, and was not changed (state hash below)
         Assert.Equal(["front.desk@hotel.example"], (await ResolveAsync(f)).Recipients.Where(r => r.Kind == BookingRecipientKind.Staff).Select(r => r.Email));
 
         var changed = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, SetEmail(f, desk, "desk2@hotel.example", 1)));

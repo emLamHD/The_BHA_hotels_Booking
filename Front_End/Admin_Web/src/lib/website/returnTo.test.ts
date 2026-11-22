@@ -83,7 +83,7 @@ describe("the activity history (BHA-ADMIN-BADGE-001-PR05-C2)", () => {
     expect(resolveReturnTo(["/activity", "https://evil.example"])).toBe(DEFAULT_RETURN_TO);
   });
   it("leaves the pages that were already allowed exactly as they were", () => {
-    for (const page of ["/calendar", "/products", "/promotions", ...WEBSITE_PAGES]) expect(resolveReturnTo(page)).toBe(page);
+    for (const page of ["/calendar", "/products", "/promotions", "/booking-notifications", ...WEBSITE_PAGES]) expect(resolveReturnTo(page)).toBe(page);
     expect(resolveReturnTo("/profile")).toBe(DEFAULT_RETURN_TO);
   });
 });

@@ -125,7 +125,15 @@ internal sealed class AdminBookingNotificationService(TheBhaDbContext db, Bookin
             : row?.NotificationEmail is not null ? BookingNotificationCoverage.Local
             : chainConfigured ? BookingNotificationCoverage.Chain
             : BookingNotificationCoverage.NotConfigured;
-        return new BookingNotificationStaffDto(member.Id, member.LoginEmail, member.Role, row?.NotificationEmail, enabled, chainConfigured, coverage, row?.Version ?? 0);
+        return new BookingNotificationStaffDto(member.Id, AccountLabel(member.Id, member.LoginEmail), member.Role, row?.NotificationEmail, enabled, chainConfigured, coverage, row?.Version ?? 0);
+    }
+
+    /// <summary>Enough to tell colleagues apart, not enough to learn or use the login address: <c>d***@domain · #0f36aa6a</c>.</summary>
+    internal static string AccountLabel(Guid id, string loginEmail)
+    {
+        var at = loginEmail.LastIndexOf('@');
+        var first = loginEmail.Length > 0 && at != 0 ? loginEmail[0] : '?';
+        return $"{first}***@{(at >= 0 ? loginEmail[(at + 1)..] : "")} · #{id.ToString("N")[..8]}";
     }
 
     private static WebsiteMutationResult<T> InvalidEmail<T>() =>

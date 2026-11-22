@@ -12,6 +12,7 @@ import {
   GridIcon,
   HorizontaLDots,
   ListIcon,
+  MailIcon,
   PageIcon,
   PieChartIcon,
   PlugInIcon,
@@ -44,6 +45,8 @@ const navItems: NavItem[] = [
   { icon: <BoxCubeIcon />, ...menuEntry("catalog") },
   // BHA-BOOKING-PROMOTIONS-001: a link is not authorization; the page asks the server (a Manager of the Property).
   { icon: <DollarLineIcon />, ...menuEntry("promotions") },
+  // BHA-CHECKOUT-001-PR04: who receives booking e-mails, per Property. Not a badge menu (it is not in the registry); a link is not authorization, the page asks the server (a Manager of the Property).
+  { icon: <MailIcon />, name: "Email nhận đặt phòng", path: "/booking-notifications", staffOnly: true },
   {
     icon: <GridIcon />,
     name: "Dashboard",

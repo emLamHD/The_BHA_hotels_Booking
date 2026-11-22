@@ -170,11 +170,12 @@ public static class BookingNotificationCoverage
 }
 
 /// <summary>
-/// One roster row. <see cref="LoginEmail"/> is the Staff login identifier, shown only so a Manager can tell colleagues apart (Staff have no display name); it is never used as a recipient.
+/// One roster row. <see cref="AccountLabel"/> is the only identity sent for selection (Staff have no display name): the first character of the login name, a mask, the login domain and the first eight characters of the
+/// Staff id. The login address itself is never serialised and never a recipient.
 /// The chain address is never serialised, only <see cref="ChainConfigured"/>. <see cref="Version"/> is 0 until a row exists.
 /// </summary>
 public sealed record BookingNotificationStaffDto(
-    Guid StaffAccountId, string LoginEmail, string Role, string? NotificationEmail, bool IsEnabled, bool ChainConfigured, string Coverage, int Version);
+    Guid StaffAccountId, string AccountLabel, string Role, string? NotificationEmail, bool IsEnabled, bool ChainConfigured, string Coverage, int Version);
 
 public sealed record BookingNotificationFallbackDto(string? Email, int Version);
 
