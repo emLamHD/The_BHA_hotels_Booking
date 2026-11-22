@@ -216,6 +216,22 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   luồng nào ghi vào sổ, chưa có route/UI. TARGET: `RoomCharge` khi tạo đơn
   (PR 05), bút toán tự động cho hủy/hoàn tiền, `PaymentTransactions`, cổng
   thanh toán.
+- Email giao dịch đi qua một outbox PostgreSQL bền vững: sự kiện nghiệp vụ được
+  ghi trong CHÍNH transaction của nghiệp vụ, rồi mới được fan-out và gửi ở
+  tiến trình khác; gửi lỗi không làm hỏng hay hoàn tác nghiệp vụ. CURRENT
+  (`BHA-CHECKOUT-001-PR03`): bảng `EmailOutboxEvents`/`EmailOutboxDeliveries`,
+  `IEmailOutbox` (enqueue idempotent trong transaction của caller),
+  `IEmailOutboxEventHandler` (đăng ký theo loại + version), worker claim bằng
+  lease + claim token, và một adapter Resend (lựa chọn kỹ thuật, chưa khóa
+  provider production). Một lần gửi = một người nhận, `Idempotency-Key` cố
+  định từ `DeliveryId`, thông điệp và người gửi cố định xuyên các lần thử.
+  `Accepted` chỉ có nghĩa provider nhận xử lý, KHÔNG có nghĩa thư tới hộp thư.
+  Kết quả không rõ chỉ được thử lại cùng key, cùng tài khoản, trong cửa sổ
+  idempotency có đệm; quá cửa sổ/đổi tài khoản/xung đột payload là
+  `NeedsReconciliation`, không bao giờ phát key mới. Mặc định TẮT; chưa có
+  handler/template/luồng nào nối vào. Queue email này tách khỏi queue và
+  Gmail sender của Newsletter. TARGET: sự kiện xác nhận đơn (PR 05), người nhận
+  Staff (PR 04), template và handler đặt phòng (PR 07).
 - Admin PMS/Calendar UI thật, tức backend-integrated, server-authoritative
   **cho mutation** (Admin Web hiện có một interactive Reservation Board
   frontend từ `ADMIN-002.1`/PR #32; phần đọc chính đã backend-integrated
