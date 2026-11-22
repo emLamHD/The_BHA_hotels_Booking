@@ -815,6 +815,89 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Bookings.FolioEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActorKind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid?>("ActorStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Amount")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .IsFixedLength();
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PostingKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("RecordedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReferenceEntryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ReservationId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorStaffId");
+
+                    b.HasIndex("PropertyId", "ReservationId");
+
+                    b.HasIndex("ReservationId", "PostingKey")
+                        .IsUnique();
+
+                    b.HasIndex("ReservationId", "ReferenceEntryId");
+
+                    b.ToTable("FolioEntries", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_FolioEntries_Actor", "\"ActorKind\" IN ('System', 'Staff', 'Public', 'Gateway') AND (\"ActorKind\" = 'Staff') = (\"ActorStaffId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_FolioEntries_Amount", "\"Amount\" > 0");
+
+                            t.HasCheckConstraint("CK_FolioEntries_Currency", "\"CurrencyCode\" = 'VND'");
+
+                            t.HasCheckConstraint("CK_FolioEntries_Ids", "\"Id\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"PropertyId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"ReservationId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"ReferenceEntryId\" IS DISTINCT FROM \"Id\"");
+
+                            t.HasCheckConstraint("CK_FolioEntries_Kind", "\"Kind\" IN ('RoomCharge', 'RoomChargeReversal', 'Payment', 'Refund', 'GatewayFee')");
+
+                            t.HasCheckConstraint("CK_FolioEntries_PostingKey", "btrim(\"PostingKey\") <> ''");
+
+                            t.HasCheckConstraint("CK_FolioEntries_Reason", "(\"Reason\" IS NULL OR btrim(\"Reason\") <> '') AND (\"Kind\" NOT IN ('RoomChargeReversal', 'Refund') OR \"Reason\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_FolioEntries_Reference", "(\"Kind\" IN ('RoomChargeReversal', 'Refund', 'GatewayFee')) = (\"ReferenceEntryId\" IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Bookings.InventoryHold", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3912,6 +3995,27 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.HasOne("TheBha.Domain.Bookings.Reservation", null)
                         .WithOne("PromotionApplication")
                         .HasForeignKey("TheBha.Domain.Bookings.BookingPromotionApplication", "ReservationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Bookings.FolioEntry", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("ActorStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("TheBha.Domain.Bookings.Reservation", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId", "ReservationId")
+                        .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Bookings.FolioEntry", null)
+                        .WithMany()
+                        .HasForeignKey("ReservationId", "ReferenceEntryId")
+                        .HasPrincipalKey("ReservationId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
