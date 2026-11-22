@@ -110,13 +110,18 @@ Trình tự phát hành:
 Toàn bộ chỉ đọc (`SELECT`). Tên bảng và cột lấy từ `Configurations/*.cs` và snapshot; **chưa chạy trên schema thật** (không có DB cô lập chứa schema EF trong phiên này).
 
 ```sql
--- C1. Tổng quan và checksum của cột cũ. Trước và sau migration phải bằng nhau.
+-- C1. Tổng quan và checksum của các cột cũ. Trước và sau migration phải bằng nhau.
+-- Mỗi hàng được mã hóa bằng to_jsonb (khóa sắp xếp, NULL là null, chuỗi được thoát ký tự, số giữ nguyên scale)
+-- chỉ trên các cột cũ, nên cột Source mới không làm đổi kết quả; sau đó băm từng hàng và băm chuỗi các
+-- hash độ dài cố định. Không có dấu phân cách nào có thể trùng với dữ liệu.
+SET TIME ZONE 'UTC';  -- cố định cách in timestamptz, dùng cùng cài đặt cho lần chạy trước và sau
 SELECT count(*) AS reservations,
        sum("TotalAmount") AS total_amount,
-       md5(string_agg(concat_ws('|', "Id", "ConfirmationNumber", "SourceHoldId", "PropertyId",
-             "CustomerAccountId", "GuestAccessTokenHash", "TotalAmount", "Status",
-             "CurrencyCode", "ConfirmedAtUtc", "CancelledAtUtc"), ';' ORDER BY "Id")) AS legacy_checksum
-FROM "Reservations";
+       md5(string_agg(md5(to_jsonb(t)::text), '' ORDER BY t."Id")) AS legacy_checksum
+FROM (SELECT "Id", "ConfirmationNumber", "SourceHoldId", "PropertyId", "CustomerAccountId",
+             "GuestAccessTokenHash", "TotalAmount", "Status", "CurrencyCode",
+             "ConfirmedAtUtc", "CancelledAtUtc"
+      FROM "Reservations") t;
 
 -- C2. Hold mồ côi (kỳ vọng 0 hàng).
 SELECT r."Id" FROM "Reservations" r
@@ -161,7 +166,7 @@ PR 01 không thêm công tắc nào vì chưa có đường ghi trực tiếp. C
 3. Rollback binary, không xuống dưới bản PR 01 khi còn hàng `Direct` (§1.5, mục 4).
 4. Chỉ mở lại sau khi bản đang chạy đã xác nhận đọc/hủy đơn `Direct` đúng.
 
-Giữ nguyên mọi thứ của đơn cũ: PR 01 không sửa mã đơn, ID, liên kết hold, giá, trạng thái, `CustomerAccountId`, `GuestAccessTokenHash`. C1 là bằng chứng kiểm chứng điều này.
+Giữ nguyên mọi thứ của đơn cũ: PR 01 không sửa mã đơn, ID, liên kết hold, giá, trạng thái, `CustomerAccountId`, `GuestAccessTokenHash`. C1 là bằng chứng kiểm chứng điều này (checksum chỉ trên các cột cũ, mã hóa từng hàng không nhập nhằng; xem §1.6).
 
 ### 1.8 Chạy chung với luồng hold và test hai khách tranh suất cuối
 
@@ -440,5 +445,6 @@ Chạy ngày 2026-11-22 trên cụm Postgres 17.10 tạm (đã dừng, thư mụ
 | F3 | `numeric → bigint` với `1000000.5` | Làm tròn im lặng thành `1000001`, nên việc từ chối số lẻ phải ở mã ứng dụng |
 | F4, F5 | `UPDATE`, `DELETE` trên sổ | Cả hai bị trigger append-only từ chối |
 | F6, F7 | `Refund` thiếu lý do; `Refund` thiếu tham chiếu | Cả hai bị CHECK từ chối; tổng số hàng trong sổ còn đúng 1 |
+| C1 (sau correction) | Checksum `to_jsonb` theo hàng trên bảng `Reservations` tổng hợp 1 hàng, chạy ở một cụm PG 17.10 tạm khác (đã dừng và xóa) | Giá trị không đổi sau khi thêm cột `Source`; đổi khi dữ liệu đổi theo kiểu làm `concat_ws('|', ...)` cũ trùng (`'A|B', NULL, 'x'` so với `'A', 'B|x'` cho cùng chuỗi, đã quan sát). Chỉ trên bảng tổng hợp, không phải schema EF thật |
 
 Probe chưa kiểm tra unique index của `ReservationUnits.SourceInventoryHoldItemId` (cùng cơ chế với T1; không chạy riêng) và chưa kiểm tra bất kỳ hành vi nào của EF Core.
