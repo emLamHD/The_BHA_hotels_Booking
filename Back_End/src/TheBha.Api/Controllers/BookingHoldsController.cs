@@ -23,6 +23,7 @@ public sealed class BookingHoldsController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<BookingHoldDto>> Create(
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         CreateBookingHoldApiRequest request,
@@ -82,6 +83,10 @@ public sealed class BookingHoldsController(
             BookingHoldCreationStatus.Conflict => Problem(
                 statusCode: StatusCodes.Status409Conflict,
                 title: "Booking Hold conflict",
+                detail: result.Error),
+            BookingHoldCreationStatus.Closed => Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Booking closed",
                 detail: result.Error),
             _ => Problem(
                 statusCode: StatusCodes.Status400BadRequest,

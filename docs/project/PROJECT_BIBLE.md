@@ -212,9 +212,10 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   lifecycle riêng. CURRENT (`BHA-CHECKOUT-001-PR02`): bảng `FolioEntries`
   append-only, VND nguyên, một đường ghi idempotent (`IFolioPosting`) và một
   cách tính số dư (`ReservationBalance.From`, `IFolioReader`) dùng chung cho
-  đơn nguồn Hold và Direct; đơn không có `RoomCharge` là `NotRecorded`. Chưa có
-  luồng nào ghi vào sổ, chưa có route/UI. TARGET: `RoomCharge` khi tạo đơn
-  (PR 05), bút toán tự động cho hủy/hoàn tiền, `PaymentTransactions`, cổng
+  đơn nguồn Hold và Direct; đơn không có `RoomCharge` là `NotRecorded`. CURRENT
+  (`BHA-CHECKOUT-001-PR05`): luồng ghi duy nhất là tạo đơn Direct (một
+  `RoomCharge`, `charge:initial`, không Payment); confirm Hold không ghi gì.
+  TARGET: bút toán tự động cho hủy/hoàn tiền, `PaymentTransactions`, cổng
   thanh toán.
 - Email giao dịch đi qua một outbox PostgreSQL bền vững: sự kiện nghiệp vụ được
   ghi trong CHÍNH transaction của nghiệp vụ, rồi mới được fan-out và gửi ở
@@ -229,9 +230,12 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   Kết quả không rõ chỉ được thử lại cùng key, cùng tài khoản, trong cửa sổ
   idempotency có đệm; quá cửa sổ/đổi tài khoản/xung đột payload là
   `NeedsReconciliation`, không bao giờ phát key mới. Mặc định TẮT; chưa có
-  handler/template/luồng nào nối vào. Queue email này tách khỏi queue và
-  Gmail sender của Newsletter. TARGET: sự kiện xác nhận đơn (PR 05), template và
-  handler đặt phòng (PR 07).
+  handler/template nào nối vào. Queue email này tách khỏi queue và
+  Gmail sender của Newsletter. CURRENT (`BHA-CHECKOUT-001-PR05`): tạo đơn Direct
+  ghi một sự kiện `ReservationConfirmed` v1 (payload chỉ `reservationId`,
+  `EventId` tất định từ reservation) trong chính transaction đặt phòng; chưa có
+  handler nên sự kiện ở trạng thái `Pending`. TARGET: template và handler đặt
+  phòng (PR 07).
 - Người nhận email đặt phòng theo từng cơ sở (CURRENT,
   `BHA-CHECKOUT-001-PR04`): Manager của cơ sở cấu hình trong Admin ("Email nhận
   đặt phòng"; quyền `StaffPermission.BookingNotificationManage`, chỉ Manager,
@@ -398,9 +402,19 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
 - CURRENT (`BHA-CHECKOUT-001-PR01`): persistence/đọc/hủy cho reservation nguồn
   `Direct` (không có Hold) — `Reservations.Source` + `SourceHoldId` nullable
   (`CK_Reservations_Source`), `BookingPromotionApplications` khóa theo `Id`
-  (`HoldId` hoặc `ReservationId` hoặc cả hai) — xem ADR 0005 mục 3. Chưa có
-  route công khai nào tạo `Direct` (PR 05); sau khi có hàng `Direct`, binary cũ
-  hơn migration không nạp được hàng đó (mức sàn rollback).
+  (`HoldId` hoặc `ReservationId` hoặc cả hai) — xem ADR 0005 mục 3. Route công khai
+  tạo `Direct` là `POST /api/v1/reservations` (`BHA-CHECKOUT-001-PR05`, bên dưới);
+  sau khi có hàng `Direct`, binary cũ hơn migration không nạp được hàng đó
+  (mức sàn rollback).
+- CURRENT (`BHA-CHECKOUT-001-PR05`): đặt phòng trực tiếp, trả khi nhận phòng —
+  `POST /api/v1/reservations`, một transaction: idempotency theo Property + chủ
+  sở hữu (`ReservationCreationRequests`), tồn/giá dùng chung evaluator và thứ tự
+  khóa của Hold, `RoomCharge` ban đầu, sự kiện outbox `ReservationConfirmed`,
+  sự kiện Calendar mỗi unit. Chủ sở hữu khách vãng lai là token do client sinh
+  (server chỉ lưu hash, không cấp lại). Mặc định TẮT (`Booking:DirectCheckout:
+  PropertyIds`); `Booking:AcceptingNewReservations=false` chặn cả Hold mới và
+  Direct mới. Hợp đồng và vận hành:
+  `docs/runbooks/BHA-CHECKOUT-001-direct-booking-api.md`.
 - CURRENT (`PMS-BE-001.2`): `Effective OperationalBlock` (§9, ADR 0006) làm
   giảm usable physical capacity trước khi daily control
   (`SellableLimit`/`IsStopSell`, ADR 0004) và operational demand được áp

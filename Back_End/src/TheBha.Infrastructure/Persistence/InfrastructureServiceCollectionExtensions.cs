@@ -54,8 +54,12 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IDailyInventoryQueries, DailyInventoryQueries>();
         services.AddScoped<IAvailabilityDataSource, AvailabilityDataSource>();
         services.AddScoped<IAvailabilitySearch, AvailabilitySearch>();
+        // BHA-CHECKOUT-001-PR05: the intake switches, validated here so a bad value stops the host before it listens. Direct is off for every Property and new reservations are accepted unless configured otherwise.
+        services.AddSingleton((configuration.GetSection(BookingIntakeOptions.SectionName).Get<BookingIntakeOptions>() ?? new BookingIntakeOptions()).Build());
         services.AddScoped<IBookingHoldCreationStore, BookingHoldCreationStore>();
         services.AddScoped<IBookingHoldCreation, BookingHoldCreation>();
+        services.AddScoped<IDirectReservationCreationStore, DirectReservationCreationStore>();
+        services.AddScoped<IDirectReservationCreation, DirectReservationCreation>();
         services.AddScoped<IBookingHoldConfirmationStore, BookingHoldConfirmationStore>();
         services.AddScoped<IBookingHoldConfirmation, BookingHoldConfirmation>();
         services.AddSingleton<IReservationIdGenerator, CryptographicReservationIdGenerator>();

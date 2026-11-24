@@ -232,6 +232,7 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
                 "BookingNotificationAudits",
                 "BookingNotificationFallbacks",
                 "StaffBookingNotificationPreferences",
+                "ReservationCreationRequests",
                 "FolioEntries",
                 "ReservationUnitNights",
                 "ReservationUnits",

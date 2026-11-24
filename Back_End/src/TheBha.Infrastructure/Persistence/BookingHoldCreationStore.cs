@@ -16,7 +16,8 @@ namespace TheBha.Infrastructure.Persistence;
 internal sealed class BookingHoldCreationStore(
     TheBhaDbContext dbContext,
     TimeProvider timeProvider,
-    IGuestAccessTokenGenerator guestAccessTokenGenerator) : IBookingHoldCreationStore
+    IGuestAccessTokenGenerator guestAccessTokenGenerator,
+    BookingIntake intake) : IBookingHoldCreationStore
 {
     public async Task<BookingHoldCreationResult> CreateAsync(
         PreparedBookingHoldRequest request,
@@ -42,16 +43,19 @@ internal sealed class BookingHoldCreationStore(
                     cancellationToken);
             }
 
-            var stayDates = Enumerable
-                .Range(0, request.CheckOut.DayNumber - request.CheckIn.DayNumber)
-                .Select(request.CheckIn.AddDays)
-                .Order()
-                .ToArray();
-            var lockPlan = new LockPlanBuilder()
-                .WithRoomTypeScope(request.PropertyId, request.RoomTypeId)
-                .WithInventory(request.PropertyId, request.RoomTypeId, stayDates)
-                .Build();
-            await AdvisoryLockCoordinator.AcquireAsync(dbContext, lockPlan, cancellationToken);
+            // A replay above is still answered; only a NEW Hold is refused while intake is stopped. No inventory lock is taken for it.
+            if (!intake.AcceptingNewReservations)
+            {
+                return await RollbackResultAsync(
+                    transaction,
+                    BookingHoldCreationResult.Closed("New reservations are not being accepted right now."),
+                    cancellationToken);
+            }
+
+            await AdvisoryLockCoordinator.AcquireAsync(
+                dbContext,
+                BookingOfferEvaluator.BuildLockPlan(request.PropertyId, request.RoomTypeId, request.CheckIn, request.CheckOut),
+                cancellationToken);
 
             existing = await FindExistingAsync(
                 request.IdempotencyKeyHash,
@@ -66,216 +70,46 @@ internal sealed class BookingHoldCreationStore(
             }
 
             var utcNow = timeProvider.GetUtcNow().ToUniversalTime();
-            if (request.CustomerAccountId is { } customerAccountId &&
-                !await dbContext.CustomerAccounts
-                    .AsNoTracking()
-                    .AnyAsync(
-                        account => account.Id == customerAccountId,
-                        cancellationToken))
-            {
-                return await RollbackResultAsync(
-                    transaction,
-                    BookingHoldCreationResult.Unauthorized(
-                        "A valid customer session is required."),
-                    cancellationToken);
-            }
-
-            var property = await dbContext.Properties
-                .AsNoTracking()
-                .Where(item => item.Id == request.PropertyId && item.IsActive)
-                .Select(item => new { item.Id, item.TimeZone })
-                .SingleOrDefaultAsync(cancellationToken);
-            if (property is null)
-            {
-                return await RollbackResultAsync(
-                    transaction,
-                    BookingHoldCreationResult.NotFound(
-                        "The requested active property does not exist."),
-                    cancellationToken);
-            }
-
-            var roomType = await dbContext.RoomTypes
-                .AsNoTracking()
-                .Where(item =>
-                    item.Id == request.RoomTypeId &&
-                    item.PropertyId == request.PropertyId &&
-                    item.IsActive)
-                .Select(item => new { item.Id, item.MaxOccupancy })
-                .SingleOrDefaultAsync(cancellationToken);
-            if (roomType is null)
-            {
-                return await RollbackResultAsync(
-                    transaction,
-                    BookingHoldCreationResult.NotFound(
-                        "The requested active room type does not exist in this property."),
-                    cancellationToken);
-            }
-
-            var ratePlan = await dbContext.RatePlans
-                .AsNoTracking()
-                .Where(item =>
-                    item.Id == request.RatePlanId &&
-                    item.PropertyId == request.PropertyId &&
-                    item.IsActive)
-                .Select(item => new { item.Id, item.CurrencyCode })
-                .SingleOrDefaultAsync(cancellationToken);
-            if (ratePlan is null)
-            {
-                return await RollbackResultAsync(
-                    transaction,
-                    BookingHoldCreationResult.NotFound(
-                        "The requested active rate plan does not exist in this property."),
-                    cancellationToken);
-            }
-
-            var timeZone = TimeZoneInfo.FindSystemTimeZoneById(property.TimeZone);
-            var localToday = DateOnly.FromDateTime(
-                TimeZoneInfo.ConvertTime(utcNow, timeZone).DateTime);
-            if (request.CheckIn < localToday)
-            {
-                return await RollbackResultAsync(
-                    transaction,
-                    BookingHoldCreationResult.Invalid(
-                        "checkIn cannot be earlier than the Property local date."),
-                    cancellationToken);
-            }
-
-            var people = (long)request.Adults + request.Children;
-            if (people > (long)roomType.MaxOccupancy * request.Rooms)
-            {
-                return await RollbackResultAsync(
-                    transaction,
-                    BookingHoldCreationResult.Invalid(
-                        "The requested occupancy exceeds the room type capacity."),
-                    cancellationToken);
-            }
-
-            var rates = await dbContext.DailyRoomRates
-                .AsNoTracking()
-                .Where(item =>
-                    item.PropertyId == request.PropertyId &&
-                    item.RoomTypeId == request.RoomTypeId &&
-                    item.RatePlanId == request.RatePlanId &&
-                    item.StayDate >= request.CheckIn &&
-                    item.StayDate < request.CheckOut)
-                .OrderBy(item => item.StayDate)
-                .Select(item => new { item.StayDate, item.Amount })
-                .ToListAsync(cancellationToken);
-            if (rates.Count != stayDates.Length ||
-                !rates.Select(rate => rate.StayDate).SequenceEqual(stayDates))
-            {
-                return await RollbackResultAsync(
-                    transaction,
-                    BookingHoldCreationResult.Conflict(
-                        "Current pricing is unavailable for one or more stay dates."),
-                    cancellationToken);
-            }
-
-            var activeRooms = await dbContext.PhysicalRooms
-                .AsNoTracking()
-                .CountAsync(
-                    room =>
-                        room.PropertyId == request.PropertyId &&
-                        room.RoomTypeId == request.RoomTypeId &&
-                        room.OperationalStatus == OperationalStatus.Active,
-                    cancellationToken);
-            var controls = await dbContext.DailyInventoryControls
-                .AsNoTracking()
-                .Where(control =>
-                    control.PropertyId == request.PropertyId &&
-                    control.RoomTypeId == request.RoomTypeId &&
-                    control.StayDate >= request.CheckIn &&
-                    control.StayDate < request.CheckOut)
-                .Select(control => new
-                {
-                    control.StayDate,
-                    control.SellableLimit,
-                    control.IsStopSell
-                })
-                .ToDictionaryAsync(control => control.StayDate, cancellationToken);
-            var blockedRoomCounts = await PhysicalCapacityDataLoader.LoadBlockedRoomCountsAsync(
+            var evaluation = await BookingOfferEvaluator.EvaluateAsync(
                 dbContext,
-                request.PropertyId,
-                request.CheckIn,
-                request.CheckOut,
-                cancellationToken);
-            var committedDemand = await LoadCommittedDemandAsync(
-                request.PropertyId,
-                request.RoomTypeId,
-                request.CheckIn,
-                request.CheckOut,
+                new BookingOfferRequest(
+                    request.PropertyId,
+                    request.RoomTypeId,
+                    request.RatePlanId,
+                    request.CheckIn,
+                    request.CheckOut,
+                    request.Adults,
+                    request.Children,
+                    request.Rooms,
+                    request.CustomerAccountId),
                 utcNow,
                 cancellationToken);
-
-            foreach (var stayDate in stayDates)
-            {
-                controls.TryGetValue(stayDate, out var control);
-                var usablePhysicalCapacity = PhysicalCapacityFormula.UsablePhysicalCapacity(
-                    activeRooms,
-                    blockedRoomCounts.GetValueOrDefault((request.RoomTypeId, stayDate)));
-                var controlledInventory = PhysicalCapacityFormula.ControlledCapacity(
-                    usablePhysicalCapacity,
-                    control?.SellableLimit,
-                    control?.IsStopSell == true);
-                var remainingRooms = controlledInventory -
-                    committedDemand.GetValueOrDefault(stayDate);
-                if (remainingRooms < request.Rooms)
-                {
-                    return await RollbackResultAsync(
-                        transaction,
-                        BookingHoldCreationResult.Conflict(
-                            "The selected rooms are no longer available for the complete stay."),
-                        cancellationToken);
-                }
-            }
-
-            // The one pricing function the quote also uses: the list rate, then the best Active promotion, if any.
-            var promotionRules = await PromotionPricingRuleLoader.LoadActiveAsync(
-                dbContext,
-                request.PropertyId,
-                cancellationToken);
-            PricedStay priced;
-            NightlyCommitmentSnapshot[] itemNightPlan;
-            try
-            {
-                priced = PromotionPricing.Price(
-                    rates.Select(rate => new ListNight(rate.StayDate, rate.Amount)).ToList(),
-                    request.Rooms,
-                    ratePlan.CurrencyCode,
-                    request.RoomTypeId,
-                    localToday,
-                    promotionRules);
-                itemNightPlan = priced.Nights.Select(night => new NightlyCommitmentSnapshot(
-                        night.StayDate,
-                        request.RatePlanId,
-                        night.FinalAmount,
-                        night.ListAmount))
-                    .ToArray();
-            }
-            catch (OverflowException)
+            if (evaluation.Offer is not { } offer)
             {
                 return await RollbackResultAsync(
                     transaction,
-                    BookingHoldCreationResult.Conflict(
-                        "Current pricing exceeds the supported amount range."),
+                    evaluation.Failure switch
+                    {
+                        BookingOfferFailure.Unauthorized => BookingHoldCreationResult.Unauthorized(evaluation.Error!),
+                        BookingOfferFailure.NotFound => BookingHoldCreationResult.NotFound(evaluation.Error!),
+                        BookingOfferFailure.Invalid => BookingHoldCreationResult.Invalid(evaluation.Error!),
+                        _ => BookingHoldCreationResult.Conflict(evaluation.Error!)
+                    },
                     cancellationToken);
             }
+
+            var priced = offer.Priced;
+            var itemNightPlan = offer.NightPlan;
 
             // The guest confirmed a price. If it is not the price now, nothing is held: the new price is shown for a new decision.
             // Replays returned earlier, before pricing, so a Hold that already exists is never re-priced.
             if (request.ExpectedTotalAmount is { } expectedTotal &&
                 (expectedTotal != priced.FinalTotal ||
-                 !string.Equals(request.ExpectedCurrencyCode, ratePlan.CurrencyCode, StringComparison.Ordinal)))
+                 !string.Equals(request.ExpectedCurrencyCode, offer.CurrencyCode, StringComparison.Ordinal)))
             {
                 return await RollbackResultAsync(
                     transaction,
-                    BookingHoldCreationResult.PriceChanged(new PriceQuoteDto(
-                        ratePlan.CurrencyCode,
-                        priced.FinalTotal,
-                        priced.ListTotal,
-                        priced.DiscountTotal,
-                        priced.Nights.Select(night => new NightlyRateDto(night.StayDate, night.FinalAmount, night.ListAmount, night.DiscountAmount)).ToList(),
-                        priced.ToDto())),
+                    BookingHoldCreationResult.PriceChanged(offer.ToQuote()),
                     cancellationToken);
             }
 
@@ -304,7 +138,7 @@ internal sealed class BookingHoldCreationStore(
                     request.CheckOut,
                     request.Adults,
                     request.Children,
-                    ratePlan.CurrencyCode,
+                    offer.CurrencyCode,
                     utcNow,
                     request.IdempotencyKeyHash,
                     request.RequestFingerprint,
@@ -353,48 +187,6 @@ internal sealed class BookingHoldCreationStore(
                 : BookingHoldCreationResult.Conflict(
                     "The Idempotency-Key was already used for a different booking request.");
         }
-    }
-
-    private async Task<Dictionary<DateOnly, int>> LoadCommittedDemandAsync(
-        Guid propertyId,
-        Guid roomTypeId,
-        DateOnly checkIn,
-        DateOnly checkOut,
-        DateTimeOffset utcNow,
-        CancellationToken cancellationToken)
-    {
-        // Active, unexpired Hold demand, via the one shared query design also used by
-        // the public availability projection and, in Phase 4, by assignment/block
-        // mutation final-state validation (PMS-BE-001.2-C1).
-        var activeHoldDemand = await PhysicalCapacityDataLoader.LoadActiveHoldDemandAsync(
-            dbContext,
-            propertyId,
-            checkIn,
-            checkOut,
-            utcNow,
-            cancellationToken);
-        var holdDemand = activeHoldDemand
-            .Where(entry => entry.Key.RoomTypeId == roomTypeId)
-            .Select(entry => new { StayDate = entry.Key.StayDate, Rooms = entry.Value });
-
-        // Assignment-aware reservation demand (blueprint §7 rules 1-7), via the one
-        // shared query design also used by the public availability projection — a
-        // cross-RoomType assignment can move a night's attribution into this RoomType
-        // even though it was sold under a different one, or out of it even though it
-        // was sold under this one.
-        var attributedReservationDemand = await PhysicalCapacityDataLoader.LoadAttributedReservationDemandAsync(
-            dbContext,
-            propertyId,
-            checkIn,
-            checkOut,
-            cancellationToken);
-        var reservationDemand = attributedReservationDemand
-            .Where(entry => entry.Key.RoomTypeId == roomTypeId)
-            .Select(entry => new { StayDate = entry.Key.StayDate, Rooms = entry.Value });
-
-        return holdDemand.Concat(reservationDemand)
-            .GroupBy(row => row.StayDate)
-            .ToDictionary(group => group.Key, group => group.Sum(row => row.Rooms));
     }
 
     private Task<InventoryHold?> FindExistingAsync(
@@ -495,6 +287,7 @@ internal sealed class BookingHoldCreationStore(
 public static class BookingAdvisoryLockKeys
 {
     private const string IdempotencyNamespace = "thebha:booking:idempotency:v1:";
+    private const string DirectIdempotencyNamespace = "thebha:booking:direct-idempotency:v1:";
     private const string InventoryNamespace = "thebha:booking:inventory:v1:";
     private const string HoldTransitionNamespace = "thebha:booking:hold-transition:v1:";
     private const string ReservationTransitionNamespace = "thebha:booking:reservation-transition:v1:";
@@ -505,6 +298,13 @@ public static class BookingAdvisoryLockKeys
 
     public static long ForIdempotency(string idempotencyKeyHash) =>
         HashToInt64(IdempotencyNamespace + idempotencyKeyHash);
+
+    /// <summary>
+    /// BHA-CHECKOUT-001-PR05: class 1 for a Direct create request, from its scope (Property and owner) and key hashes. Its own namespace: a Hold's key and a Direct key never share a lock, and two owners
+    /// using the same key text never wait for each other.
+    /// </summary>
+    public static long ForDirectIdempotency(string scopeHash, string keyHash) =>
+        HashToInt64(DirectIdempotencyNamespace + scopeHash + ":" + keyHash);
 
     public static long ForHoldTransition(Guid holdId) =>
         HashToInt64(HoldTransitionNamespace + holdId.ToString("D"));

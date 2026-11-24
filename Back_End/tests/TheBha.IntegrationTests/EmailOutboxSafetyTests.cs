@@ -41,7 +41,7 @@ public sealed class EmailOutboxSafetyTests(PostgreSqlWebApplicationFactory facto
     }
 
     [Fact]
-    public void E06_no_business_code_enqueues_anything_yet_only_the_outbox_itself_takes_the_enqueue_contract()
+    public void E06_only_the_outbox_itself_and_the_Direct_reservation_create_take_the_enqueue_contract()
     {
         var assemblies = new[] { typeof(Program).Assembly, typeof(ResendEmailTransport).Assembly };
         var users = assemblies.SelectMany(a => a.GetTypes())
@@ -49,7 +49,8 @@ public sealed class EmailOutboxSafetyTests(PostgreSqlWebApplicationFactory facto
             .Where(t => t.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance).Any(c => c.GetParameters().Any(p => p.ParameterType == typeof(IEmailOutbox)))
                 || t.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance).Any(f => f.FieldType == typeof(IEmailOutbox)))
             .Select(t => t.FullName).ToList();
-        Assert.Empty(users);
+        // BHA-CHECKOUT-001-PR05: the Direct create writes ReservationConfirmed in its own transaction; any other business writer must be added here on purpose.
+        Assert.Equal(["TheBha.Infrastructure.Persistence.DirectReservationCreationStore"], users);
     }
 
     [Fact]
