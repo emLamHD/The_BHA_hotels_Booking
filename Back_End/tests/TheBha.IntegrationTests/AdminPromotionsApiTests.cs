@@ -295,13 +295,24 @@ public sealed class AdminPromotionsApiTests(PostgreSqlWebApplicationFactory fact
     {
         using var f = await StartFixtureAsync();
 
-        // The lowest rate of Room A is 1,000,000: a fixed 1,000,000 would leave 0; 999,999 leaves 1 (the smallest valid price).
-        var tooMuch = Body(f, b => { b["kind"] = "FixedAmount"; b["currencyCode"] = "VND"; b["value"] = 1_000_000; });
-        var refused = await AssertStatusAsync(HttpStatusCode.BadRequest, Send(f, Create(f, tooMuch, f.ManagerCookie)));
-        Assert.Equal("value", (await ProblemAsync(refused)).Field);
+        // The rate check reads rates from "today" onward and the fixture's rates end 40 days after Now, so a real clock past that
+        // makes it find none and accept anything. Pin the shared clock to the fixture's date for this case only, then put it back.
+        var before = Factory.Clock.UtcNow;
+        Factory.Clock.UtcNow = Now;
+        try
+        {
+            // The lowest rate of Room A is 1,000,000: a fixed 1,000,000 would leave 0; 999,999 leaves 1 (the smallest valid price).
+            var tooMuch = Body(f, b => { b["kind"] = "FixedAmount"; b["currencyCode"] = "VND"; b["value"] = 1_000_000; });
+            var refused = await AssertStatusAsync(HttpStatusCode.BadRequest, Send(f, Create(f, tooMuch, f.ManagerCookie)));
+            Assert.Equal("value", (await ProblemAsync(refused)).Field);
 
-        var justFits = Body(f, b => { b["kind"] = "FixedAmount"; b["currencyCode"] = "VND"; b["value"] = 999_999; });
-        await AssertStatusAsync(HttpStatusCode.OK, Send(f, Create(f, justFits, f.ManagerCookie)));
+            var justFits = Body(f, b => { b["kind"] = "FixedAmount"; b["currencyCode"] = "VND"; b["value"] = 999_999; });
+            await AssertStatusAsync(HttpStatusCode.OK, Send(f, Create(f, justFits, f.ManagerCookie)));
+        }
+        finally
+        {
+            Factory.Clock.UtcNow = before;
+        }
     }
 
     // ---- concurrency and status ----
