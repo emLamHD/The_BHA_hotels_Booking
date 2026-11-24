@@ -39,7 +39,7 @@ A GET never consumes a link; there is no GET that accepts a secret.
 | Attribute | Value |
 |---|---|
 | Name | `.TheBha.ReservationManagement` (value = the session secret, 43 characters; SHA-256 over `thebha:reservation-management:session:v1:` + secret is stored) |
-| Scope | **Host-only** (no `Domain`), `Path=/api/v1/reservations/{id}/manage` with the **lower-case** GUID (cookie paths are case-sensitive: a client must request exactly that spelling for the browser to send it), so it is never sent to another reservation, to `exchange`'s siblings of other reservations, or to any other route |
+| Scope | **Host-only** (no `Domain`), `Path=/api/v1/reservations/{id}/manage` **exactly as the exchange request spelled it** (the route accepts an upper-case or 32-digit id; browsers match cookie paths case-sensitively, so the server follows the spelling it was sent and the same URL sends the cookie back). It is never sent to another reservation or to any other route. Use the plain 36- or 32-character id: a braced or parenthesised id is percent-encoded by browsers and would not match the decoded path the server sees |
 | Flags | `HttpOnly`, `Secure` (always, even in Development: over plain http a browser or `HttpClient` drops it), `SameSite` = `Authentication:Cookie:SameSite` (the topology the customer and antiforgery cookies use) |
 | Lifetime | `Expires` and `Max-Age` = 24 hours from the exchange (the session row says the same instant; the server never trusts the cookie's own expiry, only the row) |
 
@@ -92,7 +92,7 @@ Migration `AddReservationManagementAccess` only adds three tables, **empty on de
 
 **PR 07 (e-mail).** Issue inside the transaction that writes the delivery; put the secret in the URL fragment only (never the path or query: they reach logs, proxies and `Referer`); send the page `Referrer-Policy: no-referrer`; never log, store in the outbox payload or render the secret anywhere except the one mail body. The outbox event contract is unchanged (`ReservationConfirmed` payload is `{"reservationId"}`); the handler decides when to issue (this release does not issue at creation).
 
-**PR 09 (page).** Read the fragment, call `exchange` once with `credentials: "include"`, clear the fragment, then use `GET /manage` and the arrival update with the cookie and a CSRF token. Treat any `401` on `/manage` as "this session ended" and ask for a new link; the page must not retry an `exchange` with the same secret.
+**PR 09 (page).** Spell the reservation id the same way in the exchange and in every later `/manage` call (the cookie path follows the exchange's spelling). Read the fragment, call `exchange` once with `credentials: "include"`, clear the fragment, then use `GET /manage` and the arrival update with the cookie and a CSRF token. Treat any `401` on `/manage` as "this session ended" and ask for a new link; the page must not retry an `exchange` with the same secret.
 
 **Known limitation — a lost exchange response.** If the exchange commits but the response never reaches the browser, the link is spent and the session secret was never stored in a recoverable form: nothing can reissue that session or revive that link. The guest needs a **new link** (a resend flow does not exist in this release). The same holds when a link expires unused.
 

@@ -88,6 +88,44 @@ public sealed class ReservationManagementExchangeTests(PostgreSqlWebApplicationF
     }
 
     [Fact]
+    public async Task The_cookie_path_follows_the_spelling_of_the_url_the_guest_used_so_the_same_url_sends_the_cookie_back()
+    {
+        await SeedAsync();
+        using var host = ManageHost();
+        var (reservationId, _) = await BookGuestAsync(host);
+        var link = await IssueLinkAsync(host, reservationId);
+        using var client = Https(host);
+        var upper = reservationId.ToString("D").ToUpperInvariant();
+        var manageUrl = $"/api/v1/reservations/{upper}/manage";
+
+        var exchange = await SendAsync(client, HttpMethod.Post, $"{manageUrl}/exchange", new { token = link });
+
+        Assert.Equal(HttpStatusCode.OK, exchange.StatusCode);
+        var setCookie = exchange.Headers.GetValues("Set-Cookie").Single(value => value.StartsWith(SessionCookie, StringComparison.Ordinal));
+        var path = setCookie.Split(';').Select(part => part.Trim()).Single(part => part.StartsWith("path=", StringComparison.OrdinalIgnoreCase))["path=".Length..];
+        Assert.Equal(manageUrl, path); // the spelling the client sent, not a re-formatted one
+
+        // What a browser does (RFC 6265 5.1.4): the cookie goes with a request whose path starts with the cookie path, compared exactly, at a "/" boundary.
+        Assert.True(PathMatches(manageUrl, path));
+        Assert.True(PathMatches($"{manageUrl}/estimated-arrival", path));
+        // It is still scoped to this reservation: another reservation's path never matches.
+        Assert.False(PathMatches($"/api/v1/reservations/{Guid.NewGuid().ToString("D").ToUpperInvariant()}/manage", path));
+
+        // The same URL, with the cookie, opens the reservation.
+        var read = await GetManageAsync(client, Guid.Parse(upper), CookieHeader(CookieValue(exchange)!));
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        using var request = new HttpRequestMessage(HttpMethod.Get, manageUrl);
+        request.Headers.Add("Cookie", CookieHeader(CookieValue(exchange)!));
+        var sameUrl = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, sameUrl.StatusCode);
+        AssertNoStore(sameUrl);
+    }
+
+    private static bool PathMatches(string requestPath, string cookiePath) =>
+        requestPath.StartsWith(cookiePath, StringComparison.Ordinal) &&
+        (requestPath.Length == cookiePath.Length || cookiePath.EndsWith('/') || requestPath[cookiePath.Length] == '/');
+
+    [Fact]
     public async Task Every_unusable_link_gets_the_same_401_and_a_wrong_reservation_does_not_spend_the_link()
     {
         await SeedAsync();

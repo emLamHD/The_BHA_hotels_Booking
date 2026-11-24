@@ -28,8 +28,22 @@ public sealed class ReservationManagementCookie(Microsoft.AspNetCore.Http.SameSi
     public const string Name = ".TheBha.ReservationManagement";
     public Microsoft.AspNetCore.Http.SameSiteMode SameSite { get; } = sameSite;
 
-    /// <summary>The lower-case GUID: cookie paths are case-sensitive, so a client must request this exact spelling for the browser to send the cookie.</summary>
-    public static string PathFor(Guid reservationId) => $"/api/v1/reservations/{reservationId:D}/manage";
+    /// <summary>
+    /// The cookie path: the request's own path up to and including the <c>manage</c> segment, exactly as the client wrote it. Browsers match cookie paths case-sensitively, so a path re-formatted by the server
+    /// (the route accepts an upper-case or 32-digit id) would not be sent back on the very URL the guest used. Sliced from the original text, never split and re-joined.
+    /// </summary>
+    public static string PathFor(PathString requestPath)
+    {
+        var text = requestPath.Value ?? string.Empty;
+        var end = 0;
+        for (var segment = 0; segment < 5; segment++)
+        {
+            var slash = text.IndexOf('/', end + 1);
+            end = slash < 0 ? text.Length : slash;
+        }
+
+        return text[..end];
+    }
 }
 
 public static class ReservationManagementRoutes

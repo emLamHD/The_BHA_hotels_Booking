@@ -51,7 +51,7 @@ public sealed class ReservationManagementController(
                 HttpOnly = true,
                 Secure = true,
                 SameSite = cookie.SameSite,
-                Path = Request.PathBase + ReservationManagementCookie.PathFor(reservationId),
+                Path = Request.PathBase + ReservationManagementCookie.PathFor(Request.Path),
                 Expires = expiresAt,
                 MaxAge = expiresAt - timeProvider.GetUtcNow(),
                 IsEssential = true
