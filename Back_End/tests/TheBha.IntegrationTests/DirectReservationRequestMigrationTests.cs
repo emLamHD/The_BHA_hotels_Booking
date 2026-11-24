@@ -64,7 +64,7 @@ public sealed class DirectReservationRequestMigrationTests(ITestOutputHelper out
         Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "ReservationCreationRequests" """)); // no request is invented for a reservation that already exists
         Assert.False(context.Database.HasPendingModelChanges()); // the whole chain and today's model agree
         Assert.Contains(PrMigration, await context.Database.GetAppliedMigrationsAsync());
-        Assert.Empty(await context.Database.GetPendingMigrationsAsync());
+        Assert.Equal(["20261124045303_AddReservationManagementAccess"], await context.Database.GetPendingMigrationsAsync()); // only the migration PR06 added after this one
     }
 
     [Fact]

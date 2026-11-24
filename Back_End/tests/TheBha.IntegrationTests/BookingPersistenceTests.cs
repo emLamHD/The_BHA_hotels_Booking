@@ -659,9 +659,16 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
                 // BHA-CHECKOUT-001-PR05: the one Direct (pay at the property) create route.
                 "/api/v1/reservations",
                 "/api/v1/reservations/{reservationId}",
-                "/api/v1/reservations/{reservationId}/cancel"
+                "/api/v1/reservations/{reservationId}/cancel",
+                // BHA-CHECKOUT-001-PR06: guest reservation management (exchange, private read, estimated arrival): exactly these three routes, no issuance/search/resend route.
+                "/api/v1/reservations/{reservationId}/manage",
+                "/api/v1/reservations/{reservationId}/manage/estimated-arrival",
+                "/api/v1/reservations/{reservationId}/manage/exchange"
             }.Order(),
             reservationRelatedPaths);
+        Assert.Equal(new[] { "get" }, paths.GetProperty("/api/v1/reservations/{reservationId}/manage").EnumerateObject().Select(method => method.Name).ToArray());
+        Assert.Equal(new[] { "post" }, paths.GetProperty("/api/v1/reservations/{reservationId}/manage/exchange").EnumerateObject().Select(method => method.Name).ToArray());
+        Assert.Equal(new[] { "post" }, paths.GetProperty("/api/v1/reservations/{reservationId}/manage/estimated-arrival").EnumerateObject().Select(method => method.Name).ToArray());
         var directCreate = paths.GetProperty("/api/v1/reservations");
         Assert.Equal(new[] { "post" }, directCreate.EnumerateObject().Select(method => method.Name).ToArray());
         Assert.True(paths.GetProperty("/api/v1/booking-holds/{holdId}")
