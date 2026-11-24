@@ -102,7 +102,16 @@ public static class PublicProblemCodes
         ("Reservation conflict", "Current pricing exceeds", "reservation.pricing-out-of-range"),
         ("Reservation conflict", "The Idempotency-Key was already used", "reservation.idempotency-conflict"),
         ("Reservation conflict", "The current price cannot be charged", "reservation.amount-unsupported"),
-        ("Reservation conflict", null, "reservation.offer-not-bookable")
+        ("Reservation conflict", null, "reservation.offer-not-bookable"),
+
+        // BHA-CHECKOUT-001-PR06: guest reservation management (the exchange, the private read, the estimated arrival).
+        ("Invalid reservation management link", null, "reservation.manage-link-invalid"),
+        ("Invalid reservation management session", null, "reservation.manage-session-invalid"),
+        ("Invalid estimated arrival", "arrivalDate must be a date", "validation.arrival-date-invalid"),
+        ("Invalid estimated arrival", "arrivalTime must be a time", "validation.arrival-time-invalid"),
+        ("Invalid estimated arrival", "arrivalDate must be the check-in date", "validation.arrival-out-of-window"),
+        ("Invalid estimated arrival", null, "validation.arrival-time-nonexistent"),
+        ("Reservation arrival cannot be changed", null, "reservation.arrival-not-changeable")
     ];
 
     public static string Resolve(int status, string? title, string? detail)

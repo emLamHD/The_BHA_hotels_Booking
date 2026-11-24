@@ -63,7 +63,7 @@ public sealed class FolioLedgerMigrationTests(ITestOutputHelper output) : IAsync
         Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "FolioEntries" """));
         Assert.False(context.Database.HasPendingModelChanges()); // the migration and the model agree
         Assert.Contains(PrMigration, await context.Database.GetAppliedMigrationsAsync());
-        Assert.Equal(["20261122104705_AddTransactionalEmailOutbox", "20261122120541_AddStaffBookingNotificationRecipients", "20261122134842_AddDirectReservationCreationRequests"], await context.Database.GetPendingMigrationsAsync()); // only the migrations PR03, PR04 and PR05 added after this one
+        Assert.Equal(["20261122104705_AddTransactionalEmailOutbox", "20261122120541_AddStaffBookingNotificationRecipients", "20261122134842_AddDirectReservationCreationRequests", "20261124045303_AddReservationManagementAccess"], await context.Database.GetPendingMigrationsAsync()); // only the migrations PR03, PR04 and PR05 added after this one
         Assert.Equal(1, await ScalarAsync<long>("SELECT count(*) FROM pg_proc WHERE proname = 'thebha_folio_entries_guard'"));
         Assert.Equal(2, await ScalarAsync<long>("""SELECT count(*) FROM pg_trigger WHERE tgrelid = '"FolioEntries"'::regclass AND NOT tgisinternal"""));
 

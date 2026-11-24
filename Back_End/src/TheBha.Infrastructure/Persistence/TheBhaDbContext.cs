@@ -22,6 +22,9 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<Reservation> Reservations => Set<Reservation>();
     public DbSet<FolioEntry> FolioEntries => Set<FolioEntry>();
     public DbSet<ReservationCreationRequest> ReservationCreationRequests => Set<ReservationCreationRequest>();
+    public DbSet<ReservationManagementLink> ReservationManagementLinks => Set<ReservationManagementLink>();
+    public DbSet<ReservationManagementSession> ReservationManagementSessions => Set<ReservationManagementSession>();
+    public DbSet<ReservationArrivalEstimate> ReservationArrivalEstimates => Set<ReservationArrivalEstimate>();
     public DbSet<TheBha.Domain.Notifications.EmailOutboxEvent> EmailOutboxEvents => Set<TheBha.Domain.Notifications.EmailOutboxEvent>();
     public DbSet<TheBha.Domain.Notifications.EmailOutboxDelivery> EmailOutboxDeliveries => Set<TheBha.Domain.Notifications.EmailOutboxDelivery>();
     public DbSet<TheBha.Domain.Notifications.StaffBookingNotificationPreference> StaffBookingNotificationPreferences => Set<TheBha.Domain.Notifications.StaffBookingNotificationPreference>();

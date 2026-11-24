@@ -415,6 +415,14 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
   PropertyIds`); `Booking:AcceptingNewReservations=false` chặn cả Hold mới và
   Direct mới. Hợp đồng và vận hành:
   `docs/runbooks/BHA-CHECKOUT-001-direct-booking-api.md`.
+- CURRENT (`BHA-CHECKOUT-001-PR06`): quản lý đặt phòng cho khách vãng lai đã
+  đặt Direct — link một lần (hash, TTL 72 giờ, cấp nội bộ trong transaction của
+  caller), `POST /api/v1/reservations/{id}/manage/exchange` đổi link lấy phiên
+  24 giờ (cookie host-only, HttpOnly, Secure, theo đường dẫn của đúng đơn), đọc
+  riêng tư và giờ đến dự kiến (giờ tường của cơ sở, thông tin thuần) dưới cùng
+  khóa chuyển trạng thái với việc hủy. Chỉ đơn Direct; chủ tài khoản đúng chủ
+  hoặc phiên khách của đúng đơn. Hợp đồng và bàn giao PR07/PR09:
+  `docs/runbooks/BHA-CHECKOUT-001-reservation-management.md`.
 - CURRENT (`PMS-BE-001.2`): `Effective OperationalBlock` (§9, ADR 0006) làm
   giảm usable physical capacity trước khi daily control
   (`SellableLimit`/`IsStopSell`, ADR 0004) và operational demand được áp

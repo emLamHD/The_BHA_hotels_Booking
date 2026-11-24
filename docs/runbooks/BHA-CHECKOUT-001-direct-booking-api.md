@@ -27,7 +27,7 @@ Body (exactly these fields; **any other property is `400 request.invalid`**, so 
 | Session cookie that does not validate | — | `401 auth.session-invalid`; **never** treated as a guest. |
 | No cookie | the guest holding the token | Missing or malformed token: `401 booking.credential-invalid`. |
 
-If the guest loses the token (and the key), PR 05 cannot give access back to that reservation: no token is reissued. A support flow for that is separate scope. **PR 08:** keep `{ idempotencyKey, token }` before the first request, and retry the *whole* request unchanged (same owner mode, token, key and body) after a timeout or a lost answer.
+If the guest loses the token (and the key), PR 05 cannot give access back to that reservation: no token is reissued. A support flow for that is separate scope. PR 06 adds a separate, e-mailed management link and session for a guest-owned Direct reservation (`BHA-CHECKOUT-001-reservation-management.md`); it does not replace this token, and the token contracts here are unchanged. **PR 08:** keep `{ idempotencyKey, token }` before the first request, and retry the *whole* request unchanged (same owner mode, token, key and body) after a timeout or a lost answer.
 
 ## Answer
 
@@ -90,4 +90,4 @@ Migration `AddDirectReservationCreationRequests` only adds the table; nothing is
 
 ## Not in this release
 
-eta/early/late check-in, cancellation policy or fees, e-mail handler/template/worker, Staff router, card/QR/deposit/online payment, any frontend, the manage-by-link read API (PR 06), the Customer_Web CTA (PR 08), a way to recover a lost guest token.
+eta/early/late check-in, cancellation policy or fees, e-mail handler/template/worker, Staff router, card/QR/deposit/online payment, any frontend, the manage-by-link access (done in PR 06: see `BHA-CHECKOUT-001-reservation-management.md`), the Customer_Web CTA (PR 08), a way to recover a lost guest token.
