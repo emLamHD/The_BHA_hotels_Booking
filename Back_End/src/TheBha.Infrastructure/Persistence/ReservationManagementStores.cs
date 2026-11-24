@@ -137,7 +137,8 @@ internal sealed class ReservationManagementStore(
 
         await AdvisoryLockCoordinator.AcquireKeyAsync(dbContext, BookingAdvisoryLockKeys.ForReservationTransition(reservationId), cancellationToken);
 
-        // Same bounded predicate again under the lock: a cancellation or an expired session that happened while this request waited is seen here.
+        // Same bounded predicate again under the lock, with the time read NOW (not when the request began): a cancellation, or a session that expired while this request waited, is seen here.
+        now = ReservationManagementRules.TruncateToMicroseconds(timeProvider.GetUtcNow());
         var reservation = await Accessible(reservationId, caller, now)
             .AsNoTracking()
             .Select(item => new { item.PropertyId, item.CheckIn, item.Status })

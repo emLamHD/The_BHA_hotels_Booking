@@ -333,4 +333,33 @@ public sealed class ReservationManagementAccessTests(PostgreSqlWebApplicationFac
         Assert.Equal(HttpStatusCode.Conflict, result.StatusCode); // re-read under the lock: the status that won, not the one seen before waiting
         Assert.Equal(0, await CountAsync("ReservationArrivalEstimates"));
     }
+
+    [Fact]
+    public async Task An_arrival_update_that_waited_for_the_lock_is_refused_when_the_session_expired_while_it_waited()
+    {
+        await SeedAsync();
+        using var host = ManageHost();
+        var (reservationId, _) = await BookGuestAsync(host);
+        var cookie = CookieHeader(await SessionAsync(host, reservationId));
+        using var client = Https(host);
+
+        await using var connection = new NpgsqlConnection(factory.ConnectionString);
+        await connection.OpenAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await using (var lockCommand = new NpgsqlCommand($"SELECT pg_advisory_xact_lock({BookingAdvisoryLockKeys.ForReservationTransition(reservationId)})", connection, transaction))
+        {
+            await lockCommand.ExecuteNonQueryAsync();
+        }
+
+        var pending = SetArrivalAsync(client, reservationId, new { arrivalDate = $"{CheckIn:yyyy-MM-dd}", arrivalTime = "20:00" }, cookie: cookie);
+        await Task.Delay(1500);
+        Assert.False(pending.IsCompleted);
+
+        factory.Clock.UtcNow = FixedUtc.AddHours(24); // the session's own expiry instant arrives while the request waits
+        await transaction.CommitAsync();
+
+        var result = await pending;
+        Assert.Equal(HttpStatusCode.Unauthorized, result.StatusCode); // authorization is re-read at the time the lock is won, not at the time the request began
+        Assert.Equal(0, await CountAsync("ReservationArrivalEstimates"));
+    }
 }
