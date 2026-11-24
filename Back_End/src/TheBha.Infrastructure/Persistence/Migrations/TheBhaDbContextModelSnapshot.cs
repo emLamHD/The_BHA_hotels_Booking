@@ -1200,6 +1200,40 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Bookings.ReservationArrivalEstimate", b =>
+                {
+                    b.Property<Guid>("ReservationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("ArrivalDate")
+                        .HasColumnType("date");
+
+                    b.Property<TimeOnly>("ArrivalTime")
+                        .HasColumnType("time without time zone");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TimeZoneId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ReservationId");
+
+                    b.HasIndex("PropertyId", "ReservationId");
+
+                    b.ToTable("ReservationArrivalEstimates", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ReservationArrivalEstimates_Ids", "\"PropertyId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"ReservationId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("CK_ReservationArrivalEstimates_TimeZone", "btrim(\"TimeZoneId\") <> ''");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Bookings.ReservationCreationRequest", b =>
                 {
                     b.Property<string>("ScopeHash")
@@ -1239,6 +1273,97 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_ReservationCreationRequests_Hashes", "\"ScopeHash\" ~ '^[0-9a-f]{64}$' AND \"KeyHash\" ~ '^[0-9a-f]{64}$' AND \"RequestFingerprint\" ~ '^[0-9a-f]{64}$'");
 
                             t.HasCheckConstraint("CK_ReservationCreationRequests_Ids", "\"PropertyId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"ReservationId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Bookings.ReservationManagementLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ConsumedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ReservationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("PropertyId", "ReservationId");
+
+                    b.ToTable("ReservationManagementLinks", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ReservationManagementLinks_Hash", "\"TokenHash\" ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("CK_ReservationManagementLinks_Ids", "\"Id\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"PropertyId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"ReservationId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("CK_ReservationManagementLinks_Times", "\"ExpiresAtUtc\" > \"CreatedAtUtc\" AND (\"ConsumedAtUtc\" IS NULL OR \"ConsumedAtUtc\" >= \"CreatedAtUtc\")");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Bookings.ReservationManagementSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("LinkId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ReservationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SessionHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LinkId")
+                        .IsUnique();
+
+                    b.HasIndex("SessionHash")
+                        .IsUnique();
+
+                    b.HasIndex("PropertyId", "ReservationId");
+
+                    b.ToTable("ReservationManagementSessions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ReservationManagementSessions_Hash", "\"SessionHash\" ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("CK_ReservationManagementSessions_Ids", "\"Id\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"PropertyId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"ReservationId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"LinkId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("CK_ReservationManagementSessions_Times", "\"ExpiresAtUtc\" > \"CreatedAtUtc\"");
                         });
                 });
 
@@ -4422,8 +4547,44 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Bookings.ReservationArrivalEstimate", b =>
+                {
+                    b.HasOne("TheBha.Domain.Bookings.Reservation", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId", "ReservationId")
+                        .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("TheBha.Domain.Bookings.ReservationCreationRequest", b =>
                 {
+                    b.HasOne("TheBha.Domain.Bookings.Reservation", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId", "ReservationId")
+                        .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Bookings.ReservationManagementLink", b =>
+                {
+                    b.HasOne("TheBha.Domain.Bookings.Reservation", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId", "ReservationId")
+                        .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Bookings.ReservationManagementSession", b =>
+                {
+                    b.HasOne("TheBha.Domain.Bookings.ReservationManagementLink", null)
+                        .WithMany()
+                        .HasForeignKey("LinkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("TheBha.Domain.Bookings.Reservation", null)
                         .WithMany()
                         .HasForeignKey("PropertyId", "ReservationId")

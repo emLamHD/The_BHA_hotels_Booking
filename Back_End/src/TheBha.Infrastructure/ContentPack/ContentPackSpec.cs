@@ -104,7 +104,7 @@ public static class ContentPackSpec
     public static readonly IReadOnlyList<string> Transactional =
     [
         "Reservations", "ReservationUnits", "ReservationUnitNights", "InventoryHolds", "InventoryHoldItems", "InventoryHoldItemNights", "RoomBlocks",
-        "RoomOccupancySegments", "RoomOccupancySegmentAudits", "BookingPromotionApplications", "FolioEntries", "ReservationCreationRequests", "AdminCatalogCreateOperations", "CatalogContentAudits", "CatalogUploads",
+        "RoomOccupancySegments", "RoomOccupancySegmentAudits", "BookingPromotionApplications", "FolioEntries", "ReservationCreationRequests", "ReservationManagementLinks", "ReservationManagementSessions", "ReservationArrivalEstimates", "AdminCatalogCreateOperations", "CatalogContentAudits", "CatalogUploads",
     ];
 
     /// <summary>

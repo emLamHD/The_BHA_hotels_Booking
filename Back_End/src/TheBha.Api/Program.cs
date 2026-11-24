@@ -59,6 +59,14 @@ if (directReservationRateLimit.PermitLimit <= 0 || directReservationRateLimit.Wi
     throw new InvalidOperationException("Booking:DirectCheckout:RateLimiting values must be positive.");
 }
 
+var reservationManagementRateLimit = builder.Configuration
+    .GetSection(ReservationManagementRateLimitOptions.SectionName)
+    .Get<ReservationManagementRateLimitOptions>() ?? new ReservationManagementRateLimitOptions();
+if (reservationManagementRateLimit.PermitLimit <= 0 || reservationManagementRateLimit.WindowSeconds <= 0)
+{
+    throw new InvalidOperationException("Booking:ReservationManagement:RateLimiting values must be positive.");
+}
+
 var cookieSession = builder.Configuration
     .GetSection(CookieSessionOptions.SectionName)
     .Get<CookieSessionOptions>() ?? new CookieSessionOptions();
@@ -251,6 +259,7 @@ builder.Services.AddSwaggerGen(options =>
     options.OperationFilter<BookingHoldOperationFilter>();
     options.OperationFilter<DirectReservationOperationFilter>();
     options.OperationFilter<ReservationLifecycleOperationFilter>();
+    options.OperationFilter<ReservationManagementOperationFilter>();
     options.OperationFilter<AdminReservationAssignmentOpenApiOperationFilter>();
     options.OperationFilter<AdminOperationalBlockOpenApiOperationFilter>();
 });
@@ -391,6 +400,7 @@ if (staffCalendarMode)
 }
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentCustomer, HttpCurrentCustomer>();
+builder.Services.AddSingleton(new ReservationManagementCookie(cookieSameSite));
 builder.Services.AddAntiforgery(options =>
 {
     options.HeaderName = "X-CSRF-TOKEN";
@@ -625,6 +635,11 @@ builder.Services.AddRateLimiter(options =>
             context,
             directReservationRateLimit.PermitLimit,
             directReservationRateLimit.WindowSeconds));
+    options.AddPolicy(ReservationManagementRateLimitOptions.PolicyName, context =>
+        CreateAuthenticationLimiter(
+            context,
+            reservationManagementRateLimit.PermitLimit,
+            reservationManagementRateLimit.WindowSeconds));
     options.AddPolicy(StaffAuthentication.LoginRateLimitPolicy, context =>
         CreateAuthenticationLimiter(
             context,
@@ -757,6 +772,21 @@ if (staffCalendarMode)
     app.UseStaffCalendarModeGuard();
     app.UseStaffNewsletterLiveOriginGuard(cors.AdminOrigins);
 }
+
+// BHA-CHECKOUT-001-PR06: every answer of the guest management resource is private: no-store, set as the response starts so it also covers a refusal made by antiforgery, CORS or the rate limiter before an action runs.
+app.Use(async (context, next) =>
+{
+    if (ReservationManagementRoutes.IsManagePath(context.Request.Path))
+    {
+        context.Response.OnStarting(() =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return Task.CompletedTask;
+        });
+    }
+
+    await next(context);
+});
 
 app.UseHttpsRedirection();
 app.UseCors("customer-web");
