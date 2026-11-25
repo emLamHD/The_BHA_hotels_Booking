@@ -286,3 +286,25 @@ describe("Direct — uncertain outcome", () => {
     expect(r.state.offer?.roomTypeId).toBe(OFFER.roomTypeId);
   });
 });
+
+describe("Direct — identity guard (login/logout are refused while a booking is unresolved or on its receipt)", () => {
+  it("uncertain -> booking-in-progress (and the draft cannot be scrubbed); receipt -> receipt-not-finished", async () => {
+    const r = rig(ANON);
+    // controllers expose the guard on the internal object
+    const controller = r.controller as unknown as { identityGuard: { identityChangeBlockReason: () => string | null; scrubForIdentityChange: () => boolean } };
+    r.open();
+    expect(controller.identityGuard.identityChangeBlockReason()).toBeNull(); // a draft may be scrubbed
+    createDirect.mockRejectedValueOnce(new ApiNetworkError());
+    r.controller.submitDirect();
+    await vi.waitFor(() => expect(r.state.phase).toBe("uncertain"));
+    expect(controller.identityGuard.identityChangeBlockReason()).toBe("booking-in-progress");
+    expect(controller.identityGuard.scrubForIdentityChange()).toBe(false);
+    createDirect.mockResolvedValueOnce({ reservation: RESERVATION, outcome: "replayed" });
+    r.controller.retryDirectExact();
+    await vi.waitFor(() => expect(r.state.phase).toBe("reservation-result"));
+    expect(controller.identityGuard.identityChangeBlockReason()).toBe("receipt-not-finished");
+    expect(r.controller.finishBooking(RESERVATION.reservationId)).toBe(true);
+    expect(r.state.direct.receiptOwnerKey).toBeNull();
+  });
+});
+
