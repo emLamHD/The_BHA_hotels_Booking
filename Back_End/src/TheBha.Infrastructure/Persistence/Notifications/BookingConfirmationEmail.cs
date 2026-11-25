@@ -108,7 +108,7 @@ internal sealed class BookingConfirmationEmailHandler(
         return drafts;
     }
 
-    private static Guid ReadReservationId(JsonElement payload)
+    internal static Guid ReadReservationId(JsonElement payload)
     {
         if (payload.ValueKind != JsonValueKind.Object) throw new EmailOutboxEventRejectedException("payload-invalid");
         var properties = payload.EnumerateObject().ToList();
@@ -122,23 +122,76 @@ internal sealed class BookingConfirmationEmailHandler(
     }
 }
 
-/// <summary>Right before the provider is called, a Property recipient must still be one: disabled, opted out, membership lost or the address changed after fan-out stops the delivery.</summary>
-internal sealed class StaffRecipientStillEligibleGuard(IBookingNotificationRecipients recipients) : IEmailDeliveryPreSendGuard
+/// <summary>
+/// Every booking mail says the reservation is confirmed, so it is true only while it is: right before the provider is called (retries included) the reservation named by the delivery's event is read again, scoped by
+/// Property. A reservation cancelled after fan-out stops the delivery (<c>reservation-cancelled</c>); one that cannot be found, or is not Confirmed for another reason, stops it as well. The check narrows the window, it
+/// cannot close it: a mail already handed to the provider before a cancellation commits was true when it was sent.
+/// </summary>
+internal static class BookingReservationStatusCheck
+{
+    public static async Task<EmailPreSendVerdict> StillConfirmedAsync(TheBhaDbContext db, EmailPreSendContext context, CancellationToken cancellationToken)
+    {
+        var payload = await db.EmailOutboxEvents.AsNoTracking()
+            .Where(item => item.Id == context.EventId && item.PropertyId == context.PropertyId)
+            .Select(item => item.PayloadJson)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (payload is null) return EmailPreSendVerdict.Stop("reservation-not-found");
+        Guid reservationId;
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            reservationId = BookingConfirmationEmailHandler.ReadReservationId(document.RootElement);
+        }
+        catch (EmailOutboxEventRejectedException)
+        {
+            return EmailPreSendVerdict.Stop("reservation-not-found");
+        }
+
+        var status = await db.Reservations.AsNoTracking()
+            .Where(item => item.Id == reservationId && item.PropertyId == context.PropertyId)
+            .Select(item => (ReservationStatus?)item.Status)
+            .SingleOrDefaultAsync(cancellationToken);
+        return status switch
+        {
+            ReservationStatus.Confirmed => EmailPreSendVerdict.Send,
+            ReservationStatus.Cancelled => EmailPreSendVerdict.Stop("reservation-cancelled"),
+            _ => EmailPreSendVerdict.Stop("reservation-not-found")
+        };
+    }
+}
+
+/// <summary>Right before the provider is called, the reservation must still be confirmed, and a Property recipient must still be one: disabled, opted out, membership lost or the address changed after fan-out stops the delivery.</summary>
+internal sealed class StaffRecipientStillEligibleGuard(TheBhaDbContext db, IBookingNotificationRecipients recipients) : IEmailDeliveryPreSendGuard
 {
     public string Purpose => BookingEmailPurposes.Staff;
 
-    public async Task<EmailPreSendVerdict> CheckAsync(EmailPreSendContext context, CancellationToken cancellationToken) =>
-        await recipients.IsStillRecipientAsync(context.PropertyId, context.Recipient, cancellationToken) ? EmailPreSendVerdict.Send : EmailPreSendVerdict.Stop("recipient-revoked");
+    public async Task<EmailPreSendVerdict> CheckAsync(EmailPreSendContext context, CancellationToken cancellationToken)
+    {
+        var reservation = await BookingReservationStatusCheck.StillConfirmedAsync(db, context, cancellationToken);
+        if (!reservation.Allow) return reservation;
+        return await recipients.IsStillRecipientAsync(context.PropertyId, context.Recipient, cancellationToken) ? EmailPreSendVerdict.Send : EmailPreSendVerdict.Stop("recipient-revoked");
+    }
 }
 
 /// <summary>
 /// A guest mail whose link would not live through the provider call is not sent. The link was issued after this delivery's fan-out instant (<c>CreatedAtUtc</c>) with the default lifetime, so
-/// <c>CreatedAtUtc + lifetime</c> is a bound the real expiry never undercuts: no lookup of the link, and the secret never has to be read back from the stored mail.
+/// <c>CreatedAtUtc + lifetime</c> is a bound the real expiry never undercuts: no lookup of the link, and the secret never has to be read back from the stored mail. Neither is a mail for a cancelled reservation.
 /// </summary>
-internal sealed class GuestLinkStillValidGuard : IEmailDeliveryPreSendGuard
+internal sealed class GuestLinkStillValidGuard(TheBhaDbContext db) : IEmailDeliveryPreSendGuard
 {
     public string Purpose => BookingEmailPurposes.GuestWithLink;
 
+    public async Task<EmailPreSendVerdict> CheckAsync(EmailPreSendContext context, CancellationToken cancellationToken) =>
+        context.NowUtc + context.CallTimeout >= context.CreatedAtUtc + ReservationManagementRules.DefaultLinkTtl
+            ? EmailPreSendVerdict.Stop("link-expired")
+            : await BookingReservationStatusCheck.StillConfirmedAsync(db, context, cancellationToken);
+}
+
+/// <summary>The owner account's mail: no link to expire, but the reservation must still be confirmed.</summary>
+internal sealed class AccountReservationStillConfirmedGuard(TheBhaDbContext db) : IEmailDeliveryPreSendGuard
+{
+    public string Purpose => BookingEmailPurposes.Account;
+
     public Task<EmailPreSendVerdict> CheckAsync(EmailPreSendContext context, CancellationToken cancellationToken) =>
-        Task.FromResult(context.NowUtc + context.CallTimeout >= context.CreatedAtUtc + ReservationManagementRules.DefaultLinkTtl ? EmailPreSendVerdict.Stop("link-expired") : EmailPreSendVerdict.Send);
+        BookingReservationStatusCheck.StillConfirmedAsync(db, context, cancellationToken);
 }

@@ -137,6 +137,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton(bookingConfirmation);
         services.AddScoped<TheBha.Application.Notifications.IEmailDeliveryPreSendGuard, TheBha.Infrastructure.Persistence.Notifications.StaffRecipientStillEligibleGuard>();
         services.AddScoped<TheBha.Application.Notifications.IEmailDeliveryPreSendGuard, TheBha.Infrastructure.Persistence.Notifications.GuestLinkStillValidGuard>();
+        services.AddScoped<TheBha.Application.Notifications.IEmailDeliveryPreSendGuard, TheBha.Infrastructure.Persistence.Notifications.AccountReservationStillConfirmedGuard>();
         if (bookingConfirmation.IsActive(emailOutbox))
         {
             services.AddSingleton<TheBha.Application.Notifications.IEmailTemplate, TheBha.Application.Notifications.BookingGuestEmailTemplate>();

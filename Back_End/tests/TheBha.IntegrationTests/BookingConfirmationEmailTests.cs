@@ -383,6 +383,100 @@ public sealed partial class BookingConfirmationEmailTests(PostgreSqlWebApplicati
         Assert.DoesNotContain("1.500.000 VND", Text(call));
     }
 
+    private static async Task CancelAsync(HttpClient client, Guid reservationId, string? guestToken)
+    {
+        var csrf = (await (await client.GetAsync("/api/v1/auth/csrf")).Content.ReadFromJsonAsync<Csrf>())!;
+        using var cancel = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/reservations/{reservationId}/cancel") { Content = JsonContent.Create(new { reason = "changed plans" }) };
+        if (guestToken is not null) cancel.Headers.Add("X-Booking-Access-Token", guestToken);
+        cancel.Headers.Add(csrf.HeaderName, csrf.Token);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(cancel)).StatusCode);
+    }
+
+    // A reservation cancelled AFTER fan-out and BEFORE the provider is called must not be mailed as confirmed. The provider's answer to the first attempt decides what "not sent" can mean:
+    // 429 = certainly not processed (Failed), 500 = unknown, the mail may have gone (NeedsReconciliation). Either way nothing more is sent.
+    [Theory]
+    [InlineData(429, EmailOutboxDelivery.StatusFailed)]
+    [InlineData(500, EmailOutboxDelivery.StatusNeedsReconciliation)]
+    public async Task M04_a_guest_reservation_cancelled_after_fan_out_is_not_mailed_again_and_a_possibly_sent_one_needs_reconciliation(int providerStatus, string expectedStatus)
+    {
+        await SeedAsync();
+        await SetFallbackAsync(FrontDesk);
+        var stub = new ResendStub { Script = _ => Task.FromResult<ResendStub.Act>(new ResendStub.Act.Respond(providerStatus)) };
+        using var host = Stack(stub);
+        using var client = Https(host);
+        var token = NewToken();
+        var id = (await JsonAsync(await PostAsync(client, "m04-cancel-" + providerStatus, Body(), token))).GetProperty("reservationId").GetGuid();
+        await RunAsync(host);
+        Assert.Equal(2, stub.CallList.Count); // the guest mail and the Property mail were each tried once
+
+        await CancelAsync(client, id, token);
+        Factory.Clock.UtcNow = FixedUtc.AddMinutes(10);
+        await RunAsync(host);
+
+        Assert.Equal(2, stub.CallList.Count); // nothing more went to the provider
+        var rows = await DeliveryRowsAsync();
+        Assert.Equal(2, rows.Length);
+        Assert.All(rows, row => Assert.Equal((expectedStatus, "reservation-cancelled"), (row.Status, row.LastOutcome)));
+        Assert.Equal([BookingEmailPurposes.GuestWithLink, BookingEmailPurposes.Staff], rows.Select(row => row.Purpose).Order().ToArray());
+    }
+
+    [Fact]
+    public async Task M04_an_account_reservation_cancelled_after_fan_out_is_not_mailed_again()
+    {
+        await SeedAsync();
+        await SetFallbackAsync(FrontDesk);
+        var stub = new ResendStub { Script = _ => Task.FromResult<ResendStub.Act>(new ResendStub.Act.Respond(429)) };
+        using var host = Stack(stub);
+        using var client = host.CreateClient();
+        await CreateCustomerAsync(host, client, "account-owner@example.com");
+        var id = (await JsonAsync(await PostAsync(client, "m04-cancel-account", Body()))).GetProperty("reservationId").GetGuid();
+        await RunAsync(host);
+        Assert.Equal(2, stub.CallList.Count);
+
+        await CancelAsync(client, id, null);
+        Factory.Clock.UtcNow = FixedUtc.AddMinutes(10);
+        await RunAsync(host);
+
+        Assert.Equal(2, stub.CallList.Count);
+        var rows = await DeliveryRowsAsync();
+        Assert.All(rows, row => Assert.Equal((EmailOutboxDelivery.StatusFailed, "reservation-cancelled"), (row.Status, row.LastOutcome)));
+        Assert.Equal([BookingEmailPurposes.Account, BookingEmailPurposes.Staff], rows.Select(row => row.Purpose).Order().ToArray());
+    }
+
+    // A delivery that was never attempted (a backlog) for a reservation cancelled meanwhile: no earlier attempt can have reached the provider, so it is a plain Failed, for every purpose.
+    [Theory]
+    [InlineData(BookingEmailPurposes.GuestWithLink, BookingEmailPurposes.GuestTemplate)]
+    [InlineData(BookingEmailPurposes.Account, BookingEmailPurposes.AccountTemplate)]
+    [InlineData(BookingEmailPurposes.Staff, BookingEmailPurposes.StaffTemplate)]
+    public async Task M04_a_queued_delivery_of_a_cancelled_reservation_is_never_sent_for_any_purpose(string purpose, string template)
+    {
+        await SeedAsync();
+        var stub = new ResendStub();
+        using var host = Stack(stub);
+        using var client = Https(host);
+        var token = NewToken();
+        var id = (await JsonAsync(await PostAsync(client, "m04-queued-" + purpose, Body(), token))).GetProperty("reservationId").GetGuid();
+        await CancelAsync(client, id, token); // cancelled before the dispatcher has done anything
+        var eventId = Guid.NewGuid();
+        var protector = host.Services.GetRequiredService<EmailOutboxProtector>();
+        await ExecuteAsync($"""INSERT INTO "EmailOutboxEvents" ("Id","EventType","SchemaVersion","PropertyId","Payload","Status","FanoutAttempts","NextAttemptAtUtc","CreatedAtUtc","CompletedAtUtc") VALUES ('{eventId}','ReservationConfirmed',1,'{PropertyId}',jsonb_build_object('reservationId','{id}'),'Completed',0,now(),now(),now())""");
+        var recipient = protector.Protect("queued@example.com");
+        var message = protector.Protect("{\"subject\":\"s\",\"text\":\"t\",\"html\":\"h\"}");
+        await using (var context = Factory.CreateDbContext())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "EmailOutboxDeliveries" ("Id","EventId","PropertyId","Purpose","RecipientKey","TemplateKey","Locale","ProtectedRecipient","ProtectedMessage","Status","Attempts","NextAttemptAtUtc","UncertainSend","CreatedAtUtc")
+                VALUES ({Guid.NewGuid()}, {eventId}, {PropertyId}, {purpose}, 'queued:x', {template}, 'vi', {recipient}, {message}, 'Pending', 0, {FixedUtc}, false, {FixedUtc})
+                """);
+        }
+
+        await RunAsync(host);
+
+        Assert.Empty(stub.CallList);
+        var row = (await DeliveryRowsAsync()).Single(delivery => delivery.EventId == eventId);
+        Assert.Equal((EmailOutboxDelivery.StatusFailed, "reservation-cancelled", 1), (row.Status, row.LastOutcome, row.Attempts));
+    }
+
     // ------------------------------------------------------------------ M-03
 
     [Fact]

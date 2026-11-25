@@ -49,6 +49,7 @@ Switching `Booking:ConfirmationEmail:Enabled` off only stops **new fan-out**: de
 
 A guard runs on every attempt (retries included), outside any transaction, before the provider is called:
 
+- **Every booking mail (guest, account, Property)** — the reservation named by the delivery's event is read again (scoped by Property). A reservation cancelled after fan-out stops the delivery with `reservation-cancelled` (`reservation-not-found` when it cannot be read), because every booking mail says the reservation is confirmed. This narrows the window, it cannot close it: a mail already handed to the provider before the cancellation commits was true when sent; no cancellation mail exists in PR07.
 - **Property recipient** — `IsStillRecipientAsync(propertyId, frozenAddress)`. If the person was disabled, opted out, lost the membership or changed the address after fan-out, the delivery is **stopped** with outcome `recipient-revoked`. The frozen destination is never changed.
 - **Guest with link** — stopped with `link-expired` when `now + HttpTimeout >= CreatedAtUtc + 72 h` (the link was issued after the delivery's fan-out instant, so this bound is never later than the real expiry). The guest needs a new link; there is no resend flow yet.
 

@@ -91,7 +91,7 @@ public sealed partial class BookingConfirmationEmailUnitTests
     [InlineData(1500000.50, "VND", "fr", "1\u202f500\u202f000,50 VND")]
     [InlineData(1500000.49, "VND", "vi", "1.500.000,49 VND")]
     [InlineData(0.5, "VND", "vi", "0,50 VND")]
-    [InlineData(1500000.00, "VND", "vi", "1.500.000 VND")]
+    [InlineData(2500000.00, "VND", "vi", "2.500.000 VND")] // scale 2 but whole: no decimals. (Never repeat a row under another spelling: 1500000 and 1500000.00 print the same test name, and the CI gate counts names.)
     public void Money_is_written_by_hand_so_every_host_prints_the_same(decimal amount, string currency, string locale, string expected) =>
         Assert.Equal(expected, BookingEmailFormat.Money(amount, currency, locale));
 
