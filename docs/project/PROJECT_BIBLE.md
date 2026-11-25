@@ -234,8 +234,15 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   Gmail sender của Newsletter. CURRENT (`BHA-CHECKOUT-001-PR05`): tạo đơn Direct
   ghi một sự kiện `ReservationConfirmed` v1 (payload chỉ `reservationId`,
   `EventId` tất định từ reservation) trong chính transaction đặt phòng; chưa có
-  handler nên sự kiện ở trạng thái `Pending`. TARGET: template và handler đặt
-  phòng (PR 07).
+  handler nên sự kiện ở trạng thái `Pending`. CURRENT
+  (`BHA-CHECKOUT-001-PR07`): handler `ReservationConfirmed` v1 fan-out một thư
+  cho email liên hệ của đơn (khách vãng lai kèm link quản lý một lần trong cùng
+  transaction fan-out; đơn tài khoản không có link) và một thư riêng cho từng
+  người nhận của ĐÚNG cơ sở (`IBookingNotificationRecipients`); guard gửi lại
+  kiểm người nhận Staff và hạn link ngay trước provider. Mặc định TẮT
+  (`Booking:ConfirmationEmail:Enabled`, cần origin Customer_Web https và provider
+  đã cấu hình; thiếu một thứ thì sự kiện vẫn `Pending`). Xem
+  `docs/runbooks/BHA-CHECKOUT-001-booking-confirmation-email.md`.
 - Người nhận email đặt phòng theo từng cơ sở (CURRENT,
   `BHA-CHECKOUT-001-PR04`): Manager của cơ sở cấu hình trong Admin ("Email nhận
   đặt phòng"; quyền `StaffPermission.BookingNotificationManage`, chỉ Manager,

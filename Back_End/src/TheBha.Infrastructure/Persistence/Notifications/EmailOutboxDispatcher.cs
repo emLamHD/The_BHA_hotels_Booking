@@ -32,11 +32,12 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
     private readonly EmailTemplateRenderer _renderer;
     private readonly EmailOutboxProtector _protector;
     private readonly IEmailTransport _transport;
+    private readonly IReadOnlyList<IEmailDeliveryPreSendGuard> _guards;
     private readonly ILogger<EmailOutboxDispatcher> _logger;
 
     public EmailOutboxDispatcher(
         TheBhaDbContext database, TimeProvider clock, EmailOutboxOptions options, IEnumerable<IEmailOutboxEventHandler> handlers, EmailTemplateRenderer renderer,
-        EmailOutboxProtector protector, IEmailTransport transport, ILogger<EmailOutboxDispatcher> logger)
+        EmailOutboxProtector protector, IEmailTransport transport, IEnumerable<IEmailDeliveryPreSendGuard> guards, ILogger<EmailOutboxDispatcher> logger)
     {
         _database = database;
         _clock = clock;
@@ -45,6 +46,7 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         _renderer = renderer;
         _protector = protector;
         _transport = transport;
+        _guards = guards.ToList();
         _logger = logger;
         var duplicate = _handlers.GroupBy(handler => (handler.EventType, handler.SchemaVersion)).FirstOrDefault(group => group.Count() > 1);
         if (duplicate is not null) throw new InvalidOperationException($"Two e-mail outbox handlers are registered for '{duplicate.Key.EventType}' v{duplicate.Key.SchemaVersion}.");
@@ -110,8 +112,10 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         {
             await transaction.RollbackAsync(ct);
             _database.ChangeTracker.Clear();
-            await CountFanoutFailureAsync(id, now, ct);
-            _logger.LogWarning("E-mail outbox event {EventId} could not be fanned out ({Reason}).", id, handlerFailure.GetType().Name);
+            // A handler's own refusal names a fixed safe code; anything else is the generic one and only its type is logged.
+            var outcome = handlerFailure is EmailOutboxEventRejectedException rejected ? rejected.Code : "handler-error";
+            await CountFanoutFailureAsync(id, now, outcome, ct);
+            _logger.LogWarning("E-mail outbox event {EventId} could not be fanned out ({Reason}).", id, handlerFailure is EmailOutboxEventRejectedException ? outcome : handlerFailure.GetType().Name);
             return true;
         }
 
@@ -163,7 +167,7 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         return result;
     }
 
-    private async Task CountFanoutFailureAsync(Guid id, DateTimeOffset now, CancellationToken ct)
+    private async Task CountFanoutFailureAsync(Guid id, DateTimeOffset now, string outcome, CancellationToken ct)
     {
         // The backoff is worked out here, not in SQL: the row is Pending and fenced by the attempt count it was read with.
         var attempts = await _database.EmailOutboxEvents.AsNoTracking().Where(e => e.Id == id && e.Status == EmailOutboxEvent.StatusPending).Select(e => (int?)e.FanoutAttempts).SingleOrDefaultAsync(ct);
@@ -171,7 +175,7 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         var status = before + 1 >= _options.FanoutMaxAttempts ? EmailOutboxEvent.StatusFailed : EmailOutboxEvent.StatusPending;
         var next = now + EmailRetryPolicy.Delay(before + 1, null, _options);
         await _database.EmailOutboxEvents.Where(e => e.Id == id && e.Status == EmailOutboxEvent.StatusPending && e.FanoutAttempts == before).ExecuteUpdateAsync(
-            set => set.SetProperty(e => e.FanoutAttempts, before + 1).SetProperty(e => e.Status, status).SetProperty(e => e.LastOutcome, "handler-error").SetProperty(e => e.NextAttemptAtUtc, next), ct);
+            set => set.SetProperty(e => e.FanoutAttempts, before + 1).SetProperty(e => e.Status, status).SetProperty(e => e.LastOutcome, outcome).SetProperty(e => e.NextAttemptAtUtc, next), ct);
     }
 
     // ---------------------------------------------------------------- send
@@ -216,6 +220,29 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
             // A lost key ring is the host's problem, not the delivery's: the queue keeps it, and the attempt is given back.
             await GiveBackAsync(claim, "payload-unreadable", ct);
             return true;
+        }
+
+        // The last check of this purpose's guard, on every attempt, before anything is pinned or sent. A stop is final: Failed when no earlier attempt can have reached the provider, otherwise NeedsReconciliation.
+        if (_guards.FirstOrDefault(guard => guard.Purpose == row.Purpose) is { } purposeGuard)
+        {
+            EmailPreSendVerdict verdict;
+            try
+            {
+                verdict = await purposeGuard.CheckAsync(new EmailPreSendContext(row.Id, row.EventId, row.PropertyId, row.Purpose, row.RecipientKey, recipient, row.CreatedAtUtc, now, timeout), ct);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The check could not be made (a database fault): nothing is sent, the attempt is given back.
+                _logger.LogWarning("E-mail delivery {DeliveryId} could not be checked before sending ({Reason}).", row.Id, exception.GetType().Name);
+                await GiveBackAsync(claim, "guard-unavailable", ct);
+                return true;
+            }
+
+            if (!verdict.Allow)
+            {
+                await FinishAsync(claim, row.UncertainSend ? EmailOutboxDelivery.StatusNeedsReconciliation : EmailOutboxDelivery.StatusFailed, verdict.Code, ct);
+                return true;
+            }
         }
 
         var from = row.PinnedFrom ?? identity.From;
@@ -327,12 +354,13 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
 }
 
 /// <summary>The host's timer for the dispatcher. Off unless <c>Email:Outbox:WorkerEnabled</c> is true (and the dispatcher itself is off unless <c>DispatchEnabled</c> is true): every test host starts with both off.</summary>
-internal sealed class EmailOutboxWorker(IServiceScopeFactory scopes, EmailOutboxOptions options, ILogger<EmailOutboxWorker> logger) : BackgroundService
+internal sealed class EmailOutboxWorker(IServiceScopeFactory scopes, EmailOutboxOptions options, BookingConfirmationEmailOptions booking, ILogger<EmailOutboxWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!options.WorkerEnabled) return;
         if (!options.DispatchEnabled || !options.Resend.IsConfigured) logger.LogWarning("The e-mail outbox timer is on but dispatch is off or the provider is not configured: queued mail waits.");
+        if (booking.Enabled && !booking.IsActive(options)) logger.LogWarning("Booking confirmation e-mails are enabled but need a Customer_Web https origin and a configured provider: booking events stay queued.");
         var delay = TimeSpan.FromSeconds(options.WorkerPollSeconds);
         while (!stoppingToken.IsCancellationRequested)
         {

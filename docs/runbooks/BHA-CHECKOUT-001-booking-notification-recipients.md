@@ -1,6 +1,6 @@
 # Runbook — Booking notification recipients (BHA-CHECKOUT-001-PR04)
 
-Who receives the booking e-mails of a Property, how a Manager changes it, and how an operator declares chain Managers. **Nothing here sends mail**: PR05 writes the confirmation event, PR07 owns the handler, template and sending; PR04 only stores the preference and supplies the recipient list.
+Who receives the booking e-mails of a Property, how a Manager changes it, and how an operator declares chain Managers. **PR04 itself sends nothing**: it only stores the preference and supplies the recipient list; PR07's handler and pre-send guard use it (`BHA-CHECKOUT-001-booking-confirmation-email.md`).
 
 ## Who can do what
 

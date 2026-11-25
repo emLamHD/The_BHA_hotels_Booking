@@ -1,6 +1,6 @@
 # Runbook — Guest reservation management link, session and estimated arrival (BHA-CHECKOUT-001-PR06)
 
-A guest who booked **directly** (`POST /api/v1/reservations`, no account) can be given a link that opens a private management page for that one reservation. PR 06 is the backend of it: an internal way to issue the link (for the e-mail work item, PR 07), one route that turns the link into a 24-hour session, one private read and one estimated-arrival update. This page is the contract for PR 07 (the e-mail that carries the link), PR 09 (the management page) and the operator. No e-mail, template, worker or screen exists in this release.
+A guest who booked **directly** (`POST /api/v1/reservations`, no account) can be given a link that opens a private management page for that one reservation. PR 06 is the backend of it: an internal way to issue the link (for the e-mail work item, PR 07), one route that turns the link into a 24-hour session, one private read and one estimated-arrival update. This page is the contract for PR 07 (the e-mail that carries the link), PR 09 (the management page) and the operator. The e-mail that carries the link is PR 07 (`BHA-CHECKOUT-001-booking-confirmation-email.md`); the management page (PR 09) does not exist yet.
 
 ## The flow
 
