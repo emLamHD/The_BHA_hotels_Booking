@@ -1,6 +1,6 @@
 # Runbook — Direct booking, pay at the property (BHA-CHECKOUT-001-PR05)
 
-`POST /api/v1/reservations` confirms **one** reservation in one step: no Hold, nothing collected now, the whole room charge becomes the balance due at the property. This page is the contract for PR 06 (manage link), PR 07 (e-mail handler) and PR 08 (Customer_Web), plus what an operator needs: the two switches, the lock order, the migration and how to roll back. It is a contract, not a screen guide: no frontend exists yet.
+`POST /api/v1/reservations` confirms **one** reservation in one step: no Hold, nothing collected now, the whole room charge becomes the balance due at the property. This page is the contract for PR 06 (manage link), PR 07 (e-mail handler) and PR 08 (Customer_Web), plus what an operator needs: the two switches, the lock order, the migration and how to roll back. It is a contract, not a screen guide; the Customer_Web screen (PR 08) is described in `BHA-CHECKOUT-001-customer-pay-at-property.md`.
 
 ## Request
 
