@@ -259,9 +259,14 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         }
 
         var from = row.PinnedFrom ?? identity.From;
-        // The lease must outlast the whole provider call, not merely still be alive: otherwise another worker could reclaim the delivery while the call is in flight and this worker's result would be fenced out.
-        var pinned = await PinAsync(claim, identity.Fingerprint, from, now, now + timeout, ct);
-        if (!pinned) return true; // The claim is no longer ours, or too little of its lease is left for a call (it is reclaimed when the lease runs out): nothing is sent.
+        // Pinning renews the lease to a full LeaseSeconds (the host validates it exceeds the call timeout by 15 s) while this claim token still owns an unexpired lease, so a slow guard cannot leave less lease than the call needs and
+        // cannot make another worker reclaim mid-call. If the lease is already lost, nothing is sent and the attempt (spent by the claim) is returned, but only if this claim still owns the row: a worker that reclaimed it keeps its own attempt.
+        var pinned = await PinAsync(claim, identity.Fingerprint, from, now, ct);
+        if (!pinned)
+        {
+            await GiveBackAsync(claim, "lease-lost", ct, TimeSpan.FromSeconds(_options.RetryBaseSeconds));
+            return true;
+        }
 
         // A deadline the guard set (a guest link's life) is enforced on a fresh clock right before the provider call: a slow guard or a slow pin cannot spend its margin. Nothing was sent by this attempt, so the stop maps like a guard stop.
         if (approved?.MustFinishBefore is { } mustFinishBefore && _clock.GetUtcNow() + timeout >= mustFinishBefore)
@@ -320,11 +325,17 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         return rows.Count == 0 ? null : new Held(rows[0].Item1, claimId, rows[0].Item2);
     }
 
-    /// <summary>The first-attempt time, the pinned account and the pinned sender, written together, only while the claim is ours and its lease outlasts <c>leaseMustOutlast</c> (now plus the provider call's timeout), and before the provider is called.</summary>
-    private async Task<bool> PinAsync(Held held, string fingerprint, string from, DateTimeOffset now, DateTimeOffset leaseMustOutlast, CancellationToken ct) =>
-        await Owned(held).Where(d => d.LeaseUntilUtc > leaseMustOutlast).ExecuteUpdateAsync(
+    /// <summary>
+    /// The first-attempt time, the pinned account and the pinned sender, written together, and the lease renewed to a full <c>LeaseSeconds</c> from <paramref name="now"/>, only while the claim is ours and its lease has not
+    /// expired, and before the provider is called.
+    /// </summary>
+    private async Task<bool> PinAsync(Held held, string fingerprint, string from, DateTimeOffset now, CancellationToken ct)
+    {
+        var renewedLease = now.AddSeconds(_options.LeaseSeconds);
+        return await Owned(held).Where(d => d.LeaseUntilUtc > now).ExecuteUpdateAsync(
             set => set.SetProperty(d => d.FirstAttemptAtUtc, d => d.FirstAttemptAtUtc ?? now).SetProperty(d => d.PinnedFingerprint, d => d.PinnedFingerprint ?? fingerprint)
-                .SetProperty(d => d.PinnedFrom, d => d.PinnedFrom ?? from).SetProperty(d => d.LastAttemptAtUtc, (DateTimeOffset?)now), ct) == 1;
+                .SetProperty(d => d.PinnedFrom, d => d.PinnedFrom ?? from).SetProperty(d => d.LastAttemptAtUtc, (DateTimeOffset?)now).SetProperty(d => d.LeaseUntilUtc, (DateTimeOffset?)renewedLease), ct) == 1;
+    }
 
     private async Task AcceptAsync(Held held, string providerMessageId, CancellationToken ct)
     {
@@ -349,9 +360,9 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         uncertain ? FinishAsync(held, EmailOutboxDelivery.StatusNeedsReconciliation, "uncertain", ct) : FinishAsync(held, EmailOutboxDelivery.StatusFailed, "gave-up", ct);
 
     /// <summary>Nothing was processed by the provider and the fault is not the message's: the attempt is returned and the delivery waits the longest backoff.</summary>
-    private async Task GiveBackAsync(Held held, string outcome, CancellationToken ct)
+    private async Task GiveBackAsync(Held held, string outcome, CancellationToken ct, TimeSpan? delay = null)
     {
-        var next = _clock.GetUtcNow().AddSeconds(_options.RetryMaxSeconds);
+        var next = _clock.GetUtcNow() + (delay ?? TimeSpan.FromSeconds(_options.RetryMaxSeconds));
         await Owned(held).ExecuteUpdateAsync(
             set => set.SetProperty(d => d.Status, EmailOutboxDelivery.StatusPending).SetProperty(d => d.Attempts, d => d.Attempts - 1).SetProperty(d => d.LastOutcome, outcome)
                 .SetProperty(d => d.NextAttemptAtUtc, next).SetProperty(d => d.LeaseUntilUtc, (DateTimeOffset?)null).SetProperty(d => d.ClaimId, (Guid?)null), ct);

@@ -59,23 +59,66 @@ public sealed class EmailOutboxGuardTests(PostgreSqlWebApplicationFactory factor
         }
     }
 
+    // The lease was lost inside the guard (it took 5 minutes; the lease is 90 s) and nobody reclaimed the delivery: nothing is pinned or sent, and the attempt the claim spent is RETURNED, not burned.
     [Fact]
-    public async Task A_guard_that_runs_past_the_lease_cannot_pin_or_send_and_the_next_claim_sends_once()
+    public async Task A_guard_that_runs_past_the_lease_returns_the_attempt_and_the_next_claim_sends_once()
     {
         var seed = await FreshAsync(factory);
         var delivery = (await PendingDeliveriesAsync(factory, seed, new SyntheticHandler())).Single();
         var stub = new ResendStub();
-        var guard = new SlowGuard(factory, TimeSpan.FromMinutes(5)); // the lease is 90 s
+        var guard = new SlowGuard(factory, TimeSpan.FromMinutes(5));
         using var host = Host(factory, stub).WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddScoped<IEmailDeliveryPreSendGuard>(_ => guard)));
 
-        var result = await RunAsync(host.Services);
+        await RunAsync(host.Services);
 
-        // Attempt 1 lost its lease inside the guard: nothing was pinned or sent under it. Attempt 2 (a fresh claim) sent the one mail.
-        Assert.Equal(2, result.DeliveriesProcessed);
-        Assert.Equal(2, guard.Calls);
+        Assert.Empty(stub.CallList);
+        var returned = await OnlyDeliveryAsync(factory);
+        Assert.Equal((EmailOutboxDelivery.StatusPending, 0, "lease-lost", false), (returned.Status, returned.Attempts, returned.LastOutcome, returned.FirstAttemptAtUtc is not null));
+        Assert.Equal(T0.AddMinutes(5).AddSeconds(30), returned.NextAttemptAtUtc); // the retry base, not the longest backoff
+
+        factory.Clock.UtcNow = T0.AddMinutes(6);
+        await RunAsync(host.Services);
+
         var row = await OnlyDeliveryAsync(factory);
-        Assert.Equal((EmailOutboxDelivery.StatusAccepted, 2, false), (row.Status, row.Attempts, row.UncertainSend));
-        Assert.Equal(delivery.Id, row.Id);
+        Assert.Equal((EmailOutboxDelivery.StatusAccepted, 1, false), (row.Status, row.Attempts, row.UncertainSend));
+        var call = Assert.Single(stub.CallList);
+        Assert.Equal(EmailOutboxSqlKey(delivery.Id), call.IdempotencyKey);
+    }
+
+    /// <summary>A first check that "takes" past the lease, during which ANOTHER worker reclaims and sends the delivery.</summary>
+    private sealed class ReclaimedMeanwhileGuard(PostgreSqlWebApplicationFactory factory, TimeSpan takes, Func<Task> otherWorker) : IEmailDeliveryPreSendGuard
+    {
+        private int _calls;
+
+        public string Purpose => "notice";
+
+        public async Task<EmailPreSendVerdict> CheckAsync(EmailPreSendContext context, CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _calls) == 1)
+            {
+                factory.Clock.UtcNow += takes;
+                await otherWorker();
+            }
+
+            return EmailPreSendVerdict.Send;
+        }
+    }
+
+    // Fencing: if another worker reclaimed the delivery while the guard ran, the first worker neither sends nor touches the row, and it does not return an attempt that is no longer its own.
+    [Fact]
+    public async Task A_worker_whose_lease_was_reclaimed_during_the_guard_sends_nothing_and_leaves_the_other_workers_row_alone()
+    {
+        var seed = await FreshAsync(factory);
+        var delivery = (await PendingDeliveriesAsync(factory, seed, new SyntheticHandler())).Single();
+        var stub = new ResendStub();
+        using var other = Host(factory, stub);
+        var guard = new ReclaimedMeanwhileGuard(factory, TimeSpan.FromMinutes(5), () => RunAsync(other.Services));
+        using var host = Host(factory, stub).WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddScoped<IEmailDeliveryPreSendGuard>(_ => guard)));
+
+        await RunAsync(host.Services);
+
+        var row = await OnlyDeliveryAsync(factory);
+        Assert.Equal((EmailOutboxDelivery.StatusAccepted, 2, "accepted"), (row.Status, row.Attempts, row.LastOutcome)); // the other worker's attempt, untouched
         var call = Assert.Single(stub.CallList);
         Assert.Equal(EmailOutboxSqlKey(delivery.Id), call.IdempotencyKey);
         Assert.Equal(1, stub.DistinctSends);
@@ -119,28 +162,34 @@ public sealed class EmailOutboxGuardTests(PostgreSqlWebApplicationFactory factor
     }
 
     // Finding 1: after the guard the lease must outlast the whole provider call (HttpTimeout 20 s), not merely be alive. Lease 90 s; a guard that takes 80 s leaves 10 s.
+    // A slow guard (80 s of a 90 s lease) must not make a worker call the provider on a nearly spent lease, nor spend another attempt: pinning renews the lease to a full LeaseSeconds while the claim still owns it.
     [Fact]
-    public async Task A_guard_that_leaves_less_lease_than_a_provider_call_needs_cannot_pin_or_send_until_the_lease_is_reclaimed()
+    public async Task A_slow_guard_that_leaves_little_lease_gets_the_lease_renewed_and_the_mail_is_sent_once_in_the_same_attempt()
     {
         var seed = await FreshAsync(factory);
         var delivery = (await PendingDeliveriesAsync(factory, seed, new SyntheticHandler())).Single();
-        var stub = new ResendStub();
+        DateTimeOffset? leaseDuringCall = null;
+        DateTimeOffset clockDuringCall = default;
+        var stub = new ResendStub
+        {
+            Observe = async _ =>
+            {
+                leaseDuringCall = (await OnlyDeliveryAsync(factory)).LeaseUntilUtc;
+                clockDuringCall = factory.Clock.UtcNow;
+            }
+        };
         var guard = new SlowGuard(factory, TimeSpan.FromSeconds(80));
         using var host = Host(factory, stub).WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddScoped<IEmailDeliveryPreSendGuard>(_ => guard)));
 
         await RunAsync(host.Services);
 
-        Assert.Empty(stub.CallList); // the lease was alive (10 s left) but could not cover a 20 s call: nothing is pinned, nothing is sent
-        var held = await OnlyDeliveryAsync(factory);
-        Assert.Equal((EmailOutboxDelivery.StatusSending, 1, false), (held.Status, held.Attempts, held.FirstAttemptAtUtc is not null));
-
-        factory.Clock.UtcNow = T0.AddMinutes(5); // the lease has run out: a fresh claim takes it over
-        await RunAsync(host.Services);
-
         var row = await OnlyDeliveryAsync(factory);
-        Assert.Equal((EmailOutboxDelivery.StatusAccepted, 2, false), (row.Status, row.Attempts, row.UncertainSend));
+        Assert.Equal((EmailOutboxDelivery.StatusAccepted, 1, false), (row.Status, row.Attempts, row.UncertainSend)); // one attempt, no reclaim
         var call = Assert.Single(stub.CallList);
         Assert.Equal(EmailOutboxSqlKey(delivery.Id), call.IdempotencyKey);
+        Assert.NotNull(leaseDuringCall);
+        Assert.Equal(T0.AddSeconds(80 + 90), leaseDuringCall); // renewed to a full 90 s from the moment of pinning
+        Assert.True(leaseDuringCall > clockDuringCall.AddSeconds(20), "the lease covers the whole provider call");
     }
 
     /// <summary>Allows with a deadline, after "taking" <paramref name="takes"/> on the shared clock (a slow check).</summary>
