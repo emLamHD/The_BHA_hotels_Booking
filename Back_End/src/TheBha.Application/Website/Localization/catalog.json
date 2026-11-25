@@ -4781,6 +4781,197 @@
    "placeholders": []
   },
   {
+   "key": "customer.manage.cancelledNotice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.contact",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.error.exchangeUncertain",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.error.invalidId",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.error.linkInvalid",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.error.linkNotSent",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.error.linkRateLimited",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.error.noAccess",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.error.rateLimited",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.error.server",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.cancelled",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.checkAgain",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.current",
+   "scope": "customer",
+   "placeholders": [
+    "date",
+    "time",
+    "zone"
+   ]
+  },
+  {
+   "key": "customer.manage.eta.date",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.error.date",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.error.time",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.help",
+   "scope": "customer",
+   "placeholders": [
+    "zone"
+   ]
+  },
+  {
+   "key": "customer.manage.eta.none",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.notSaved",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.save",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.saved",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.saving",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.time",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.unverified",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.eta.verifying",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.identity.unknown",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.intro",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.ledger.notRecorded",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.loading.link",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.loading.reservation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.money.payAtProperty",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.money.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.property",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.retry",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.signIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.media.changesNote",
    "scope": "customer",
    "placeholders": []
@@ -4881,6 +5072,11 @@
   },
   {
    "key": "customer.meta.login",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.manage",
    "scope": "customer",
    "placeholders": []
   },
@@ -5512,6 +5708,11 @@
   },
   {
    "key": "customer.receipt.keepReceipt",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.manageBooking",
    "scope": "customer",
    "placeholders": []
   },
@@ -7479,6 +7680,11 @@
    "placeholders": []
   },
   {
+   "key": "shared.apiError.reservation.arrival-not-changeable",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
    "key": "shared.apiError.reservation.idempotency-conflict",
    "scope": "shared",
    "placeholders": []
@@ -7515,6 +7721,26 @@
   },
   {
    "key": "shared.apiError.validation.adults-required",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.arrival-date-invalid",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.arrival-out-of-window",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.arrival-time-invalid",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.arrival-time-nonexistent",
    "scope": "shared",
    "placeholders": []
   },
