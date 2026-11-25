@@ -3202,6 +3202,145 @@
    "placeholders": []
   },
   {
+   "key": "customer.direct.confirm",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.confirming",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.credentialUnavailable",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.dialog.description",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.dialog.online.body",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.dialog.online.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.dialog.online.unavailable",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.dialog.payAtProperty.body",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.dialog.payAtProperty.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.dialog.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.heading",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.identityUnverified",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.note",
+   "scope": "customer",
+   "placeholders": [
+    "total"
+   ]
+  },
+  {
+   "key": "customer.direct.owner.account",
+   "scope": "customer",
+   "placeholders": [
+    "email"
+   ]
+  },
+  {
+   "key": "customer.direct.owner.guest",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.owner.reverify",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.owner.verifying",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.ownerChanged",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.priceChanged.body",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.retry",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.retryRejected",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.sessionMismatchRetry",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.uncertain",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.unresolved.blocked",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.unresolved.body",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.unresolved.dismiss",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.direct.unresolved.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.experienceListings.layout.1599Experiences",
    "scope": "customer",
    "placeholders": []
@@ -5290,6 +5429,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.receipt.balanceDue",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.receipt.bookingCode",
    "scope": "customer",
    "placeholders": []
@@ -5320,6 +5464,11 @@
    "placeholders": [
     "code"
    ]
+  },
+  {
+   "key": "customer.receipt.collected",
+   "scope": "customer",
+   "placeholders": []
   },
   {
    "key": "customer.receipt.confirm",
@@ -5377,7 +5526,22 @@
    "placeholders": []
   },
   {
+   "key": "customer.receipt.owner.mismatch",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.owner.verifying",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.receipt.payment",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.paymentMethod.PayAtProperty",
    "scope": "customer",
    "placeholders": []
   },
@@ -5407,6 +5571,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.receipt.recovery.unresolved",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.receipt.resend",
    "scope": "customer",
    "placeholders": []
@@ -5427,12 +5596,27 @@
    "placeholders": []
   },
   {
+   "key": "customer.receipt.sub.cancelled",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.receipt.sub.confirmed",
    "scope": "customer",
    "placeholders": []
   },
   {
+   "key": "customer.receipt.sub.direct",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.receipt.sub.held",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.title.cancelled",
    "scope": "customer",
    "placeholders": []
   },
@@ -7170,6 +7354,11 @@
    "placeholders": []
   },
   {
+   "key": "shared.apiError.booking.closed",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
    "key": "shared.apiError.booking.credential-invalid",
    "scope": "shared",
    "placeholders": []
@@ -7180,7 +7369,17 @@
    "placeholders": []
   },
   {
+   "key": "shared.apiError.checkout.direct-unavailable",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
    "key": "shared.apiError.config",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.directGeneric",
    "scope": "shared",
    "placeholders": []
   },
@@ -7275,12 +7474,37 @@
    "placeholders": []
   },
   {
+   "key": "shared.apiError.reservation.amount-unsupported",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.reservation.idempotency-conflict",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
    "key": "shared.apiError.reservation.not-cancellable",
    "scope": "shared",
    "placeholders": []
   },
   {
    "key": "shared.apiError.reservation.not-found",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.reservation.offer-not-bookable",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.reservation.price-changed",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.reservation.pricing-out-of-range",
    "scope": "shared",
    "placeholders": []
   },
