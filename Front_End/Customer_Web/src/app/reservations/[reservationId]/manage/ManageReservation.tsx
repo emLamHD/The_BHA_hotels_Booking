@@ -125,7 +125,8 @@ const ArrivalForm: FC<{ reservation: ManagedReservation; save: SaveState; onSubm
   );
 };
 
-const Details: FC<{
+/** Exported for the money-block regression test (`reservationManagementMoney.test.ts`). */
+export const Details: FC<{
   reservation: ManagedReservation;
   save: SaveState;
   onSubmit: (date: string, time: string) => void;
