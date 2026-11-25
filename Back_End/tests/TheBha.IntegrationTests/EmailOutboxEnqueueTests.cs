@@ -1,4 +1,6 @@
 using System.Data.Common;
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -209,11 +211,12 @@ public sealed class EmailOutboxEnqueueTests(PostgreSqlWebApplicationFactory fact
         try
         {
             var handler = new SyntheticHandler();
-            using (var broken = Host(factory, new ResendStub(), settings: new() { ["Email:Outbox:Resend:ApiKey"] = null, ["DataProtection:KeysPath"] = keysPath }, handlers: handler))
+            var observed = new ProtectionLog();
+            using (var broken = Observe(Host(factory, new ResendStub(), settings: new() { ["Email:Outbox:Resend:ApiKey"] = null, ["DataProtection:KeysPath"] = keysPath }, handlers: handler), observed))
             {
                 await EnqueueAsync(broken.Services, seed.PropertyId);
                 var fault = await Assert.ThrowsAnyAsync<Exception>(() => RunAsync(broken.Services)); // a host fault, not a handler fault
-                Assert.Contains("EmailOutboxProtector.Protect", fault.ToString()); // it really is the key ring that failed
+                AssertKeyRingFailedInOutboxProtector(fault, observed); // it really is the key ring that failed, at the outbox's own protect call
             }
 
             await using (var context = factory.CreateDbContext())
@@ -225,8 +228,11 @@ public sealed class EmailOutboxEnqueueTests(PostgreSqlWebApplicationFactory fact
 
             Assert.Equal(0, await ScalarAsync<long>(factory, """SELECT count(*) FROM "EmailOutboxDeliveries" """));
             var working = new SyntheticHandler();
-            using var ok = Host(factory, new ResendStub(), settings: new() { ["Email:Outbox:Resend:ApiKey"] = null }, handlers: working);
+            var goodLog = new ProtectionLog();
+            using var ok = Observe(Host(factory, new ResendStub(), settings: new() { ["Email:Outbox:Resend:ApiKey"] = null }, handlers: working), goodLog);
             Assert.Equal(1, (await RunAsync(ok.Services)).EventsFannedOut);
+            Assert.Empty(goodLog.Failures); // the control: with a usable key ring the same protect calls are made and none fails
+            Assert.Equal(2, goodLog.Calls); // the recipient and the message
             Assert.Equal(1, await ScalarAsync<long>(factory, """SELECT count(*) FROM "EmailOutboxDeliveries" """));
         }
         finally
@@ -333,4 +339,85 @@ public sealed class EmailOutboxEnqueueTests(PostgreSqlWebApplicationFactory fact
 
     private static Property Demo(Guid id) =>
         new(id, "Demo Hotel", $"demo-{id:N}", null, "1 Demo Street", "Da Nang", "Vietnam", "Asia/Ho_Chi_Minh", new TimeOnly(14, 0), new TimeOnly(12, 0), true, T0);
+
+    // ---- E02 observation: which exception the outbox's own protector threw, instead of reading it off a stack frame (the JIT may inline the frame away) ----
+
+    private const string OutboxProtectionPurpose = "TheBha.EmailOutbox.Pii.v1";
+
+    /// <summary>What the outbox's protector was asked to do and what failed, recorded by the decorator below.</summary>
+    private sealed class ProtectionLog
+    {
+        private readonly List<Exception> _failures = [];
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public IReadOnlyList<Exception> Failures { get { lock (_failures) return _failures.ToList(); } }
+
+        public void Called() => Interlocked.Increment(ref _calls);
+
+        public void Failed(Exception exception) { lock (_failures) _failures.Add(exception); }
+    }
+
+    private sealed class ObservingProvider(IDataProtectionProvider inner, ProtectionLog log) : IDataProtectionProvider
+    {
+        public IDataProtector CreateProtector(string purpose) =>
+            purpose == OutboxProtectionPurpose ? new ObservingProtector(inner.CreateProtector(purpose), log) : inner.CreateProtector(purpose);
+    }
+
+    private sealed class ObservingProtector(IDataProtector inner, ProtectionLog log) : IDataProtector
+    {
+        public IDataProtector CreateProtector(string purpose) => new ObservingProtector(inner.CreateProtector(purpose), log);
+
+        public byte[] Protect(byte[] plaintext)
+        {
+            log.Called();
+            try { return inner.Protect(plaintext); }
+            catch (Exception exception) { log.Failed(exception); throw; }
+        }
+
+        public byte[] Unprotect(byte[] protectedData) => inner.Unprotect(protectedData);
+    }
+
+    /// <summary>The host's real <c>EmailOutboxProtector</c>, over a decorated provider that only watches the outbox's purpose; the key ring behind it is the host's own (here a path that is a file).</summary>
+    private static Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Observe(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> host, ProtectionLog log) =>
+        host.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+            services.AddSingleton(provider => new TheBha.Infrastructure.Persistence.Notifications.EmailOutboxProtector(new ObservingProvider(provider.GetRequiredService<IDataProtectionProvider>(), log)))));
+
+    /// <summary>
+    /// The fault that left the worker is, by identity, the exception Data Protection threw at the outbox protector's own Protect call, and it is a <see cref="CryptographicException"/> (Data Protection's
+    /// failure type for an unusable key ring). A database error, a handler error or an exception from anywhere else is none of these. No stack frame, framework message or OS text is read.
+    /// </summary>
+    private static void AssertKeyRingFailedInOutboxProtector(Exception fault, ProtectionLog observed)
+    {
+        Assert.True(observed.Calls >= 1, "the outbox protector was never asked to protect anything");
+        var thrown = Assert.Single(observed.Failures);
+        Assert.IsAssignableFrom<CryptographicException>(thrown);
+        Assert.Same(thrown, fault);
+    }
+
+    [Fact]
+    public void E02_the_key_ring_assertion_rejects_any_fault_that_did_not_come_from_the_outbox_protector()
+    {
+        var protectorFault = new CryptographicException("key ring unusable");
+
+        // A database fault (or any other exception) is not the protector's fault, even when the protector also failed.
+        var failed = new ProtectionLog();
+        failed.Called();
+        failed.Failed(protectorFault);
+        Assert.ThrowsAny<Exception>(() => AssertKeyRingFailedInOutboxProtector(new InvalidOperationException("database fault"), failed));
+
+        // An exception that escaped while the protector was never asked to protect anything (a handler or SQL fault), whatever its type.
+        Assert.ThrowsAny<Exception>(() => AssertKeyRingFailedInOutboxProtector(protectorFault, new ProtectionLog()));
+
+        // The protector was asked and its failure was not a Data Protection one.
+        var other = new ProtectionLog();
+        other.Called();
+        var notCrypto = new IOException("disk");
+        other.Failed(notCrypto);
+        Assert.ThrowsAny<Exception>(() => AssertKeyRingFailedInOutboxProtector(notCrypto, other));
+
+        // The real case passes.
+        AssertKeyRingFailedInOutboxProtector(protectorFault, failed);
+    }
 }
