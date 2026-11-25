@@ -86,6 +86,12 @@ public sealed partial class BookingConfirmationEmailUnitTests
     [InlineData(1500000, "VND", "fr", "1 500 000 VND")]
     [InlineData(999, "VND", "vi", "999 VND")]
     [InlineData(1234.5, "USD", "en", "1,234.50 USD")]
+    [InlineData(1500000.50, "VND", "vi", "1.500.000,50 VND")] // a confirmed amount with decimals is shown as it is, never rounded to whole dong
+    [InlineData(1500000.50, "VND", "en", "1,500,000.50 VND")]
+    [InlineData(1500000.50, "VND", "fr", "1\u202f500\u202f000,50 VND")]
+    [InlineData(1500000.49, "VND", "vi", "1.500.000,49 VND")]
+    [InlineData(0.5, "VND", "vi", "0,50 VND")]
+    [InlineData(1500000.00, "VND", "vi", "1.500.000 VND")]
     public void Money_is_written_by_hand_so_every_host_prints_the_same(decimal amount, string currency, string locale, string expected) =>
         Assert.Equal(expected, BookingEmailFormat.Money(amount, currency, locale));
 

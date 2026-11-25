@@ -309,6 +309,80 @@ public sealed partial class BookingConfirmationEmailTests(PostgreSqlWebApplicati
         Assert.Equal((EmailOutboxDelivery.StatusFailed, "recipient-revoked"), (delivery.Status, delivery.LastOutcome)); // certainly not sent
     }
 
+    private async Task AddManyStaffAsync(int count)
+    {
+        await using var context = Factory.CreateDbContext();
+        for (var i = 0; i < count; i++)
+        {
+            var id = Guid.NewGuid();
+            var login = $"bulk{i}@login.example";
+            context.StaffAccounts.Add(new StaffAccount
+            {
+                Id = id, Email = login, UserName = login, NormalizedEmail = login.ToUpperInvariant(), NormalizedUserName = login.ToUpperInvariant(),
+                SecurityStamp = Guid.NewGuid().ToString(), ConcurrencyStamp = Guid.NewGuid().ToString(), CreatedAtUtc = FixedUtc
+            });
+            context.StaffPropertyMemberships.Add(new StaffPropertyMembership { StaffAccountId = id, PropertyId = PropertyId, Role = StaffRole.FrontDesk, CreatedAtUtc = FixedUtc });
+        }
+
+        await context.SaveChangesAsync();
+        await ExecuteAsync($"""INSERT INTO "StaffBookingNotificationPreferences" ("PropertyId","StaffAccountId","NotificationEmail","IsEnabled","Version","CreatedAtUtc","UpdatedAtUtc") SELECT '{PropertyId}', s."Id", split_part(s."Email",'@',1) || '@hotel.example', true, 1, now(), now() FROM "StaffAccounts" s WHERE s."Email" LIKE 'bulk%@login.example'""");
+    }
+
+    [Fact]
+    public async Task M01_every_property_recipient_gets_a_delivery_even_beyond_nineteen()
+    {
+        await SeedAsync();
+        await AddManyStaffAsync(25);
+        var stub = new ResendStub();
+        using var host = Stack(stub, null, ("Email:Outbox:BatchSize", "100"));
+        await BookAsync(host, "m01-many");
+
+        await RunAsync(host);
+
+        var staffTo = stub.CallList.Where(call => call.To != GuestAddress).Select(call => call.To).ToList();
+        Assert.Equal(25, staffTo.Count);
+        Assert.Equal(25, staffTo.Distinct().Count());
+        Assert.Single(stub.CallList, call => call.To == GuestAddress);
+        Assert.Equal(26, await Deliveries());
+        Assert.Equal(1, await Links());
+        Assert.All(await DeliveryRowsAsync(), row => Assert.Equal(EmailOutboxDelivery.StatusAccepted, row.Status));
+    }
+
+    [Fact]
+    public async Task M01_a_fan_out_that_cannot_hold_every_recipient_is_refused_whole_and_rolls_back_the_link()
+    {
+        await SeedAsync();
+        await AddManyStaffAsync(EmailOutboxLimits.DeliveriesPerEvent); // with the guest that is one delivery too many
+        var stub = new ResendStub();
+        using var host = Stack(stub);
+        await BookAsync(host, "m01-too-many");
+
+        await RunAsync(host);
+
+        Assert.Empty(stub.CallList); // nobody is mailed a partial list
+        Assert.Equal(0, await Deliveries());
+        Assert.Equal(0, await Links());
+        Assert.Equal("Pending:1:recipients-exceed-limit", await ScalarAsync<string>("""SELECT "Status" || ':' || "FanoutAttempts" || ':' || "LastOutcome" AS "Value" FROM "EmailOutboxEvents" """));
+    }
+
+    [Fact]
+    public async Task M06_the_confirmed_amount_is_shown_exactly_even_with_decimals()
+    {
+        await SeedAsync();
+        var stub = new ResendStub();
+        using var host = Stack(stub);
+        var id = await BookAsync(host, "m06-amount");
+        // A confirmed total that is not a whole number of dong (the column is numeric(18,2); the nights keep their own snapshot).
+        await ExecuteAsync($"""ALTER TABLE "Reservations" DISABLE TRIGGER USER; UPDATE "Reservations" SET "TotalAmount" = 1500000.50 WHERE "Id" = '{id}'; ALTER TABLE "Reservations" ENABLE TRIGGER USER;""");
+
+        await RunAsync(host);
+
+        var call = Assert.Single(stub.CallList);
+        Assert.Contains("1.500.000,50 VND", Text(call));
+        Assert.DoesNotContain("1.500.001", Text(call));
+        Assert.DoesNotContain("1.500.000 VND", Text(call));
+    }
+
     // ------------------------------------------------------------------ M-03
 
     [Fact]

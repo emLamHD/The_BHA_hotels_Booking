@@ -91,14 +91,17 @@ public static class BookingEmailFormat
 
     public static string Time(TimeOnly time) => time.ToString("HH:mm", CultureInfo.InvariantCulture);
 
-    /// <summary>VND has no minor unit; any other currency is shown to two decimals. The group separator follows the locale.</summary>
+    /// <summary>
+    /// The amount exactly as it was confirmed: never rounded. VND is written without decimals when it is a whole number and with its decimals (at least two) when it is not; any other currency always shows at least two.
+    /// The group and decimal separators follow the locale (vi <c>1.500.000,50</c>, en <c>1,500,000.50</c>, fr <c>1 500 000,50</c> with a narrow no-break space).
+    /// </summary>
     public static string Money(decimal amount, string currencyCode, string locale)
     {
-        var separator = locale switch { "en" => ",", "fr" => " ", _ => "." };
-        var number = currencyCode == "VND"
-            ? decimal.Round(amount, 0, MidpointRounding.AwayFromZero).ToString("#,##0", CultureInfo.InvariantCulture)
-            : amount.ToString("#,##0.00", CultureInfo.InvariantCulture);
-        return $"{(separator == "," ? number : number.Replace(",", separator))} {currencyCode}";
+        var (group, point) = locale switch { "en" => (",", "."), "fr" => ("\u202f", ","), _ => (".", ",") };
+        var whole = currencyCode == "VND" && amount == decimal.Truncate(amount);
+        var number = amount.ToString(whole ? "#,##0" : "#,##0.00############", CultureInfo.InvariantCulture)
+            .Replace(",", "\u0001").Replace(".", point).Replace("\u0001", group);
+        return $"{number} {currencyCode}";
     }
 }
 

@@ -245,6 +245,8 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
             }
         }
 
+        // The guard may have taken a while (a database read): the lease and the first-attempt time are judged on the clock NOW, not on the instant before the guard. If the lease ran out meanwhile the pin below fails and nothing is sent.
+        now = _clock.GetUtcNow();
         var from = row.PinnedFrom ?? identity.From;
         var pinned = await PinAsync(claim, identity.Fingerprint, from, now, ct);
         if (!pinned) return true; // The claim is no longer ours (the lease ran out): nothing is sent.

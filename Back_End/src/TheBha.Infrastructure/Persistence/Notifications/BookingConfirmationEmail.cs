@@ -97,14 +97,10 @@ internal sealed class BookingConfirmationEmailHandler(
         }
 
         var staff = (await recipients.ResolveAsync(context.PropertyId, cancellationToken)).Recipients;
-        var room = EmailOutboxLimits.DeliveriesPerEvent - drafts.Count;
-        if (staff.Count > room)
-        {
-            // Resolver order is deterministic (local before chain, address, Staff id): the tail is dropped, never the guest mail.
-            logger.LogWarning("Booking e-mail for event {EventId}: {Count} Property recipients exceed the {Room} deliveries one event may carry (recipients-truncated).", context.EventId, staff.Count, room);
-        }
+        // Every eligible recipient gets a delivery. If they cannot all fit in one fan-out the event is refused (counted, then Failed, visible by Property): a recipient is never silently dropped.
+        if (staff.Count > EmailOutboxLimits.DeliveriesPerEvent - drafts.Count) throw new EmailOutboxEventRejectedException("recipients-exceed-limit");
 
-        foreach (var recipient in staff.Take(room))
+        foreach (var recipient in staff)
         {
             drafts.Add(new EmailDeliveryDraft(BookingEmailPurposes.Staff, recipient.Key, recipient.Email, Locale, BookingEmailPurposes.StaffTemplate, common));
         }

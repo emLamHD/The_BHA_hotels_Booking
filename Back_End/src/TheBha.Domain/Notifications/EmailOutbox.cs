@@ -15,7 +15,8 @@ public static class EmailOutboxLimits
     public const int ProviderMessageId = 128;
     public const int From = 320;
     public const int Fingerprint = 64;
-    public const int DeliveriesPerEvent = 20;
+    /// <summary>A sanity bound on one fan-out, not a business rule: a handler that needs more must refuse the event (fail loudly) rather than drop a recipient.</summary>
+    public const int DeliveriesPerEvent = 200;
 }
 
 /// <summary>
