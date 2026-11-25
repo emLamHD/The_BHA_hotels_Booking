@@ -307,4 +307,3 @@ describe("Direct — identity guard (login/logout are refused while a booking is
     expect(r.state.direct.receiptOwnerKey).toBeNull();
   });
 });
-

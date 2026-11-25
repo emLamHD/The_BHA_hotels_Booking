@@ -84,4 +84,3 @@ describe("request and owner", () => {
     expect(directApiErrorKey(new Error("x"))).toBe("shared.apiError.directGeneric");
   });
 });
-
