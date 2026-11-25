@@ -8,6 +8,8 @@ import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import AvailabilityOfferCard from "@/components/AvailabilityOfferCard";
 import BookingHoldPanel from "@/components/BookingHoldPanel";
+import BookingMethodDialog from "@/components/BookingMethodDialog";
+import { isDirectBookingEnabled } from "@/lib/api/directBookingRollout";
 import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
 import { runIfAvailabilitySearchAllowed } from "@/lib/api/bookingHoldFlowController";
 import { runAvailabilityFormSubmit } from "@/lib/api/availabilityFormSubmit";
@@ -223,8 +225,16 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
     runSearch(pid, query, propertyName);
   };
 
-  const handleSelectOffer = (offer: AvailabilityOfferDto) => {
+  // BHA-CHECKOUT-001-PR08: for a pilot property "Book" first asks how to pay; the offer waits here, selecting nothing.
+  const [choiceOffer, setChoiceOffer] = useState<AvailabilityOfferDto | null>(null);
+  const chosenDirectOffer = useRef<AvailabilityOfferDto | null>(null);
+
+  const handleSelectOffer = (offer: AvailabilityOfferDto, channel?: "direct") => {
     if (flowLocked || !submittedQuery) {
+      return;
+    }
+    if (!channel && isDirectBookingEnabled(submittedQuery.propertyId)) {
+      setChoiceOffer(offer);
       return;
     }
     selectOffer(
@@ -243,7 +253,8 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
         room: content("roomType", offer.roomTypeId, "name", offer.roomTypeName ?? t("customer.booking.offer.roomTypeFallback")),
         rate: content("ratePlan", offer.ratePlanId, "name", offer.ratePlanName ?? t("customer.booking.offer.ratePlanFallback")),
         property: content("property", submittedQuery.propertyId, "name", submittedQuery.propertyName),
-      })
+      }),
+      channel ? { channel } : undefined
     );
   };
 
@@ -588,6 +599,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
                   key={`${offer.roomTypeId}:${offer.ratePlanId}`}
                   data={offer}
                   onHold={() => handleSelectOffer(offer)}
+                  bookLabel={isDirectBookingEnabled(submittedQuery.propertyId)}
                   holdDisabled={flowLocked}
                   hideMedia={compact}
                 />
@@ -595,6 +607,22 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
             </div>
           </>
         )}
+
+        <BookingMethodDialog
+          open={choiceOffer !== null}
+          onClose={() => setChoiceOffer(null)}
+          onChooseDirect={() => {
+            chosenDirectOffer.current = choiceOffer;
+            setChoiceOffer(null);
+          }}
+          // The selection is made once the dialog has left and focus is back, so the form's heading can take focus last.
+          onClosed={() => {
+            const offer = chosenDirectOffer.current;
+            chosenDirectOffer.current = null;
+            // Headless UI hands focus back to the "Book" button a frame after it unmounts; selecting after that lets the form's heading keep focus.
+            if (offer) requestAnimationFrame(() => requestAnimationFrame(() => handleSelectOffer(offer, "direct")));
+          }}
+        />
 
         {holdPhase !== "idle" &&
           (!lockedRoomType || sameId(bookingFlowRoomTypeId(holdFlowState), lockedRoomType.id)) && (

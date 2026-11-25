@@ -13,8 +13,9 @@ import { RECEIPT_PAGE } from "@/lib/routePolicy";
  * returns the existing hold arrives through the same transition and is shown as such. The flow state
  * stays in the provider; nothing about it goes through the URL or any storage.
  */
-export function shouldRedirectToReceipt(was: string, now: string, hasSession: boolean): boolean {
-  return was === "submitting" && now === "active-session" && hasSession;
+export function shouldRedirectToReceipt(was: string, now: string, hasSession: boolean, hasReceipt = false): boolean {
+  // BHA-CHECKOUT-001-PR08: a "pay at the property" booking goes from submitting straight to its receipt (a Hold never does).
+  return was === "submitting" && ((now === "active-session" && hasSession) || (now === "reservation-result" && hasReceipt));
 }
 
 export default function HoldReceiptRedirector() {
@@ -25,10 +26,10 @@ export default function HoldReceiptRedirector() {
   useEffect(() => {
     const was = previous.current;
     previous.current = state.phase;
-    if (shouldRedirectToReceipt(was, state.phase, !!state.session)) {
+    if (shouldRedirectToReceipt(was, state.phase, !!state.session, !!state.reservationResult)) {
       router.push(RECEIPT_PAGE as never);
     }
-  }, [state.phase, state.session, router]);
+  }, [state.phase, state.session, state.reservationResult, router]);
 
   return null;
 }

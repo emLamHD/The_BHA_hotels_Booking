@@ -22,3 +22,20 @@ export function apiErrorKey(error: unknown, fallback: string = UNKNOWN): string 
   if (error instanceof ApiConfigError) return "shared.apiError.config";
   return fallback;
 }
+
+/**
+ * The Direct reservation API's codes whose text already exists under another key with the same meaning; every other
+ * code reads `shared.apiError.<code>` like everywhere else.
+ */
+const DIRECT_CODE_ALIASES: Readonly<Record<string, string>> = {
+  "reservation.rooms-unavailable": "shared.apiError.hold.rooms-unavailable",
+  "reservation.pricing-unavailable": "shared.apiError.hold.pricing-unavailable",
+  "booking.rate-limited": "shared.apiError.auth.rate-limited",
+};
+
+export function directApiErrorKey(error: unknown): string {
+  if (error instanceof ApiHttpError && error.problem.code && DIRECT_CODE_ALIASES[error.problem.code]) {
+    return DIRECT_CODE_ALIASES[error.problem.code];
+  }
+  return apiErrorKey(error, "shared.apiError.directGeneric");
+}

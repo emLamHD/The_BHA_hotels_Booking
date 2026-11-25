@@ -9,6 +9,8 @@ import {
 } from "./bookingHoldAttempt";
 import { ConfirmBookingHoldResult, CreateBookingHoldResult } from "./bookingHoldService";
 import type { PriceQuote } from "./availabilityTypes";
+import { DirectAttemptSnapshot, ownerKeyOf } from "./directBookingAttempt";
+import type { DirectReservationResult } from "./directReservationService";
 
 /**
  * The authoritative Booking Hold mutation phases. Equivalent to
@@ -30,6 +32,38 @@ export type BookingHoldFlowPhase =
   | "confirm-uncertain"
   | "reservation-result";
 
+/**
+ * BHA-CHECKOUT-001-PR08: the "pay at the property" side of the one booking flow. Direct reuses the phases selected /
+ * submitting / known-error / uncertain / reservation-result; this only says which kind of booking the selection is and
+ * keeps what the Hold flow has no use for. Credentials live here, in tab memory, and are dropped on every resolution.
+ */
+export interface DirectFlowState {
+  /** The current selection is a Direct booking (never a Hold). */
+  active: boolean;
+  /** Owner verified when the form opened (`customer:<id>` / `guest`); null if the session was not verified yet. */
+  ownerKey: string | null;
+  /** The immutable in-flight/retryable attempt: exact owner, key and body. */
+  attempt: DirectAttemptSnapshot | null;
+  /**
+   * Some attempt of this flow went uncertain and no success has resolved it. From then on only an exact resend of
+   * `attempt` is possible: a rejection of the retry never turns it into a clean failure and no new key is ever used.
+   */
+  unresolved: boolean;
+  /** Pack key of what a rejected retry (or blocked retry) said while `unresolved`; shown beside the retry button. */
+  retryErrorMessage: string | null;
+  /** The owner of the receipt in `reservation-result`; the receipt is shown only to that same verified owner. */
+  receiptOwnerKey: string | null;
+}
+
+export const initialDirectFlowState: DirectFlowState = {
+  active: false,
+  ownerKey: null,
+  attempt: null,
+  unresolved: false,
+  retryErrorMessage: null,
+  receiptOwnerKey: null,
+};
+
 export interface BookingHoldFlowState {
   phase: BookingHoldFlowPhase;
   offer: SelectedOfferSnapshot | null;
@@ -50,6 +84,7 @@ export interface BookingHoldFlowState {
   /** The immutable in-flight/retryable confirmation attempt: exact Hold ID plus exact guest credential. */
   confirmationAttempt: BookingHoldConfirmationAttemptSnapshot | null;
   reservationResult: ConfirmBookingHoldResult | null;
+  direct: DirectFlowState;
 }
 
 export const initialContact: ContactInput = { fullName: "", email: "", phone: "" };
@@ -67,10 +102,22 @@ export const initialBookingHoldFlowState: BookingHoldFlowState = {
   operationId: 0,
   confirmationAttempt: null,
   reservationResult: null,
+  direct: initialDirectFlowState,
 };
 
 export type BookingHoldFlowAction =
-  | { type: "offer-selected"; offer: SelectedOfferSnapshot; label: string }
+  /** `direct` present: the guest chose "pay at the property"; `ownerKey` is the verified owner at that moment. */
+  | { type: "offer-selected"; offer: SelectedOfferSnapshot; label: string; direct?: { ownerKey: string | null } }
+  | { type: "direct-submit-requested"; attempt: DirectAttemptSnapshot; operationId: number }
+  | { type: "direct-retry-requested"; operationId: number }
+  | { type: "direct-succeeded"; operationId: number; result: DirectReservationResult }
+  | { type: "direct-known-error"; operationId: number; message: string }
+  | { type: "direct-price-changed"; operationId: number; quote: PriceQuote; message: string }
+  | { type: "direct-uncertain"; operationId: number }
+  /** Nothing was sent: the submit was refused before the network (identity not verified, owner changed, marker…). */
+  | { type: "direct-blocked"; message: string; ownerKey?: string }
+  /** Nothing was sent: the exact retry was refused (the session no longer matches the original owner). */
+  | { type: "direct-retry-blocked"; message: string }
   | { type: "contact-changed"; contact: ContactInput }
   | { type: "validation-failed"; errors: ContactFieldErrors }
   | { type: "submit-requested"; attempt: BookingHoldAttemptSnapshot; operationId: number }
@@ -130,6 +177,7 @@ export function bookingHoldFlowReducer(
         fieldErrors: null,
         errorMessage: null,
         priceChange: null,
+        direct: action.direct ? { ...initialDirectFlowState, active: true, ownerKey: action.direct.ownerKey } : initialDirectFlowState,
       };
     }
 
@@ -148,7 +196,7 @@ export function bookingHoldFlowReducer(
     }
 
     case "submit-requested": {
-      if (!EDITABLE_PHASES.has(state.phase)) {
+      if (!EDITABLE_PHASES.has(state.phase) || state.direct.active) {
         return state;
       }
       return {
@@ -193,6 +241,7 @@ export function bookingHoldFlowReducer(
         operationId: state.operationId,
         confirmationAttempt: null,
         reservationResult: null,
+        direct: initialDirectFlowState,
       };
     }
 
@@ -241,6 +290,7 @@ export function bookingHoldFlowReducer(
         fieldErrors: null,
         errorMessage: null,
         priceChange: null,
+        direct: initialDirectFlowState,
       };
     }
 
@@ -297,6 +347,7 @@ export function bookingHoldFlowReducer(
         operationId: state.operationId,
         confirmationAttempt: null,
         reservationResult: action.result,
+        direct: initialDirectFlowState,
       };
     }
 
@@ -312,6 +363,92 @@ export function bookingHoldFlowReducer(
         return state;
       }
       return { ...state, phase: "confirm-uncertain", errorMessage: null };
+    }
+
+    case "direct-submit-requested": {
+      if (!EDITABLE_PHASES.has(state.phase) || !state.direct.active) {
+        return state;
+      }
+      return {
+        ...state,
+        phase: "submitting",
+        operationId: action.operationId,
+        fieldErrors: null,
+        errorMessage: null,
+        direct: { ...state.direct, attempt: action.attempt, retryErrorMessage: null },
+      };
+    }
+
+    case "direct-retry-requested": {
+      if (state.phase !== "uncertain" || !state.direct.attempt) {
+        return state;
+      }
+      return { ...state, phase: "submitting", operationId: action.operationId, direct: { ...state.direct, retryErrorMessage: null } };
+    }
+
+    case "direct-succeeded": {
+      if (state.phase !== "submitting" || action.operationId !== state.operationId || !state.direct.attempt) {
+        return state;
+      }
+      // Definitive: the credential, the body and the contact are scrubbed; only the returned reservation (and whose it is) stays.
+      return {
+        ...initialBookingHoldFlowState,
+        phase: "reservation-result",
+        operationId: state.operationId,
+        reservationResult: {
+          reservation: action.result.reservation,
+          outcome: action.result.outcome === "created" ? "confirmed" : "replayed",
+        },
+        direct: { ...initialDirectFlowState, receiptOwnerKey: ownerKeyOf(state.direct.attempt.owner) },
+      };
+    }
+
+    case "direct-known-error": {
+      if (state.phase !== "submitting" || action.operationId !== state.operationId || !state.direct.attempt) {
+        return state;
+      }
+      if (state.direct.unresolved) {
+        // A rejected retry says nothing about the first attempt: it stays unresolved, same attempt, same key.
+        return { ...state, phase: "uncertain", direct: { ...state.direct, retryErrorMessage: action.message } };
+      }
+      return { ...state, phase: "known-error", errorMessage: action.message, direct: { ...state.direct, attempt: null } };
+    }
+
+    case "direct-price-changed": {
+      if (state.phase !== "submitting" || action.operationId !== state.operationId || !state.direct.attempt) {
+        return state;
+      }
+      if (state.direct.unresolved) {
+        return { ...state, phase: "uncertain", direct: { ...state.direct, retryErrorMessage: action.message } };
+      }
+      // A known refusal: nothing was written, the form stays and the guest decides on the new price.
+      return { ...state, phase: "known-error", errorMessage: null, priceChange: action.quote, direct: { ...state.direct, attempt: null } };
+    }
+
+    case "direct-uncertain": {
+      if (state.phase !== "submitting" || action.operationId !== state.operationId || !state.direct.attempt) {
+        return state;
+      }
+      return { ...state, phase: "uncertain", errorMessage: null, direct: { ...state.direct, unresolved: true, retryErrorMessage: null } };
+    }
+
+    case "direct-blocked": {
+      if (!EDITABLE_PHASES.has(state.phase) || !state.direct.active) {
+        return state;
+      }
+      return {
+        ...state,
+        phase: "known-error",
+        errorMessage: action.message,
+        direct: action.ownerKey === undefined ? state.direct : { ...state.direct, ownerKey: action.ownerKey },
+      };
+    }
+
+    case "direct-retry-blocked": {
+      if (state.phase !== "uncertain" || !state.direct.attempt) {
+        return state;
+      }
+      return { ...state, direct: { ...state.direct, retryErrorMessage: action.message } };
     }
 
     case "identity-change-scrub": {
