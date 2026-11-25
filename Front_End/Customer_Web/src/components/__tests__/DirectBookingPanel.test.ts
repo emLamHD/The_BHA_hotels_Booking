@@ -92,7 +92,7 @@ describe("receipt redirect", () => {
 });
 
 describe("language packs carry every Direct text with the same placeholders", () => {
-  const KEYS = Object.keys(loadPack("vi")).filter((key) => key.startsWith("customer.direct.") || /^customer\.receipt\.(collected|balanceDue|owner\.|paymentMethod\.|recovery\.unresolved|sub\.direct|sub\.cancelled|title\.cancelled)/.test(key) || /^shared\.apiError\.(directGeneric|checkout\.|booking\.closed|reservation\.(?!not-))/.test(key));
+  const KEYS = Object.keys(loadPack("vi")).filter((key) => key.startsWith("customer.direct.") || /^customer\.receipt\.(collected|balanceDue|owner\.|paymentMethod\.|recovery\.unresolved|sub\.direct|sub\.cancelled|title\.cancelled)/.test(key) || /^shared\.apiError\.(directGeneric|checkout\.|booking\.closed|reservation\.(?!not-|arrival-))/.test(key));
   const placeholders = (text: string) => Array.from(text.matchAll(/\{(\w+)[,}]/g)).map((m) => m[1]).sort();
   it("has the expected number of keys", () => expect(KEYS.length).toBe(44));
   it.each(KEYS)("%s in vi/en/fr", (key) => {

@@ -44,6 +44,21 @@ const nextConfig = {
       },
     ],
   },
+  // BHA-CHECKOUT-001-PR09: the guest's management page (the e-mail link `/reservations/{id}/manage#<secret>`) and nothing else. The secret lives in
+  // the fragment, which a browser does not send, but the page must still never be cached, indexed or named as a referrer to another site.
+  // Cache-Control is deliberately NOT set here: for a page Next replaces it with its own value, and the page is `force-dynamic`, which makes that value
+  // `private, no-cache, no-store, max-age=0, must-revalidate` (checked on `next start`; see the PR09 runbook).
+  async headers() {
+    return [
+      {
+        source: "/reservations/:reservationId/manage",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     if (!apiProxyOrigin) {
       return [];

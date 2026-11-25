@@ -15,6 +15,7 @@ import { useStaySearch } from "@/components/StaySearchProvider";
 import { useUnresolvedDirectAttempt } from "@/components/UnresolvedDirectAttemptNotice";
 import { verifiedOwnerKey } from "@/lib/api/directBookingAttempt";
 import { formatAsGiven } from "@/lib/i18n/display";
+import { MANAGE, manageHref, receiptManageId } from "@/lib/reservationManagement";
 import PriceBreakdown from "@/components/PriceBreakdown";
 import { useApiMessage } from "@/lib/i18n/apiMessage";
 import { useDateFormat } from "@/lib/i18n/dates";
@@ -115,6 +116,14 @@ const PayDoneReceipt: FC = () => {
         ? "verifying"
         : "mismatch";
   const isDirect = reservation?.paymentMethod === "PayAtProperty";
+  // BHA-CHECKOUT-001-PR09: the management page for a Direct reservation that belongs to the signed-in account that booked it. The session must be
+  // that verified account right now; a guest has no link here (theirs is in the confirmation e-mail), and a Hold receipt has none.
+  const manageId = receiptManageId({
+    isDirect,
+    receiptOwnerKey: ownerCheck === "ok" ? receiptOwnerKey : null,
+    sessionOwnerKey,
+    reservationId: reservation?.reservationId,
+  });
   const cancelled = reservation?.status === "Cancelled";
   const target = inProgressBookingTarget(state);
   const receiptId = receiptCloseTarget(state);
@@ -346,6 +355,7 @@ const PayDoneReceipt: FC = () => {
           {target && !confirmed && (
             <ButtonSecondary href={buildRoomDetailsHref(target) as Route}>{t("customer.receipt.backToRoom")}</ButtonSecondary>
           )}
+          {manageId && <ButtonPrimary href={manageHref(manageId) as Route}>{t(MANAGE.cta)}</ButtonPrimary>}
           <ButtonPrimary href="/">{t("customer.receipt.moreProperties")}</ButtonPrimary>
           {receiptId && (
             <ButtonSecondary

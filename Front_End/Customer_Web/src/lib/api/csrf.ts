@@ -130,6 +130,54 @@ export function resetCsrfStateForTests(): void {
   invalidateCsrfToken();
 }
 
+/** The CSRF token could not be read, so the mutation was never handed to the transport: nothing was sent. */
+export class CsrfTokenUnavailableError extends Error {
+  constructor() {
+    super("The CSRF token could not be read; nothing was sent.");
+    this.name = "CsrfTokenUnavailableError";
+  }
+}
+
+/**
+ * BHA-CHECKOUT-001-PR09: the same CSRF-protected mutation, handed to the transport exactly ONCE. Nothing is ever replayed, not even
+ * after the exact antiforgery failure (for a one-shot link exchange or an arrival update the caller alone decides about a resend).
+ * A failure to read the token throws {@link CsrfTokenUnavailableError} (nothing was sent); on the exact antiforgery failure the cached
+ * token is dropped so the caller's next, deliberate attempt reads a fresh one. Every other error is the transport's own.
+ */
+export async function submitCsrfProtectedRequestOnce<T>(
+  path: string,
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
+  body: unknown,
+  options: ApiRequestOptions = {}
+): Promise<ApiUnsafeResponse<T>> {
+  let outcome: Awaited<ReturnType<typeof dispatchWithCurrentToken<ApiUnsafeResponse<T>>>>;
+  try {
+    outcome = await dispatchWithCurrentToken((csrf) => sendWithToken<T>(path, method, body, options, csrf));
+  } catch {
+    throw new CsrfTokenUnavailableError();
+  }
+  if (outcome.ok) {
+    return outcome.value;
+  }
+  if (isAntiforgeryFailure(outcome.error)) {
+    invalidateCsrfToken();
+  }
+  throw outcome.error;
+}
+
+function sendWithToken<T>(
+  path: string,
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
+  body: unknown,
+  options: ApiRequestOptions,
+  csrf: CsrfMemory
+): Promise<ApiUnsafeResponse<T>> {
+  return apiUnsafeRequest<T>(path, method, body, {
+    ...options,
+    headers: mergeHeaders({ ...options.headers, [csrf.headerName]: csrf.token }),
+  });
+}
+
 /**
  * Submits an unsafe JSON request with a lazily-acquired, memory-only CSRF
  * header. The acquired header always overrides a conflicting caller-supplied
@@ -143,11 +191,7 @@ export async function submitCsrfProtectedRequest<T>(
   body: unknown,
   options: ApiRequestOptions = {}
 ): Promise<ApiUnsafeResponse<T>> {
-  const send = (csrf: CsrfMemory) =>
-    apiUnsafeRequest<T>(path, method, body, {
-      ...options,
-      headers: mergeHeaders({ ...options.headers, [csrf.headerName]: csrf.token }),
-    });
+  const send = (csrf: CsrfMemory) => sendWithToken<T>(path, method, body, options, csrf);
 
   const first = await dispatchWithCurrentToken(send);
   if (first.ok) {

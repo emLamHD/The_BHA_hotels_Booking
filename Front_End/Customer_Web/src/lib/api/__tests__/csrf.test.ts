@@ -556,3 +556,40 @@ describe("the CSRF token at dispatch time", () => {
     expect(apiUnsafeRequestMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("submitCsrfProtectedRequestOnce (BHA-CHECKOUT-001-PR09)", () => {
+  it("sends the mutation exactly once, even after the exact antiforgery failure, and drops the cached token", async () => {
+    const { submitCsrfProtectedRequestOnce } = await import("../csrf");
+    apiGetMock.mockResolvedValueOnce(CSRF_RESPONSE).mockResolvedValueOnce({ token: "csrf-token-2", headerName: "X-CSRF-TOKEN" });
+    apiUnsafeRequestMock.mockRejectedValueOnce(ANTIFORGERY_ERROR);
+
+    await expect(submitCsrfProtectedRequestOnce("/x", "POST", { token: "t" })).rejects.toBe(ANTIFORGERY_ERROR);
+    expect(apiUnsafeRequestMock).toHaveBeenCalledTimes(1);
+
+    // the next, deliberate call reads a fresh token (a GET) and sends once more
+    apiUnsafeRequestMock.mockResolvedValueOnce({ status: 200, data: {} });
+    await submitCsrfProtectedRequestOnce("/x", "POST", { token: "t" });
+    expect(apiGetMock).toHaveBeenCalledTimes(2);
+    expect(apiUnsafeRequestMock.mock.calls[1][3].headers["X-CSRF-TOKEN"]).toBe("csrf-token-2");
+  });
+
+  it("does not replay on a network failure or a 5xx, and passes the transport error through", async () => {
+    const { submitCsrfProtectedRequestOnce } = await import("../csrf");
+    apiGetMock.mockResolvedValue(CSRF_RESPONSE);
+    apiUnsafeRequestMock.mockRejectedValueOnce(new ApiNetworkError());
+    await expect(submitCsrfProtectedRequestOnce("/x", "POST", {})).rejects.toBeInstanceOf(ApiNetworkError);
+    const serverError = new ApiHttpError(503, { title: "x", status: 503 });
+    apiUnsafeRequestMock.mockRejectedValueOnce(serverError);
+    await expect(submitCsrfProtectedRequestOnce("/x", "POST", {})).rejects.toBe(serverError);
+    expect(apiUnsafeRequestMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends nothing and says so when the CSRF token cannot be read", async () => {
+    const { submitCsrfProtectedRequestOnce, CsrfTokenUnavailableError } = await import("../csrf");
+    apiGetMock.mockRejectedValueOnce(new ApiNetworkError());
+    await expect(submitCsrfProtectedRequestOnce("/x", "POST", {})).rejects.toBeInstanceOf(CsrfTokenUnavailableError);
+    apiGetMock.mockResolvedValueOnce({ token: "", headerName: "X-CSRF-TOKEN" });
+    await expect(submitCsrfProtectedRequestOnce("/x", "POST", {})).rejects.toBeInstanceOf(CsrfTokenUnavailableError);
+    expect(apiUnsafeRequestMock).not.toHaveBeenCalled();
+  });
+});
