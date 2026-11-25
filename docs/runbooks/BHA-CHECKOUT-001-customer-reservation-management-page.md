@@ -60,13 +60,21 @@ Estimated arrival: the date list is the check-in day and the next day (UTC arith
 1. Deploy this build at the origin that will be `Booking:ConfirmationEmail:CustomerWebOrigin` (HTTPS only).
 2. From outside, with that origin and a real reservation id: `curl -sI https://<origin>/reservations/<guid>/manage` must answer `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex, nofollow` and a `Cache-Control` containing `private` and `no-store`. A CDN, proxy or hosting rule in front must not drop or rewrite them, and must not cache the page.
 3. The API must be reachable from the browser over HTTPS (`NEXT_PUBLIC_API_BASE_URL` https, or the same-origin proxy `API_PROXY_ORIGIN`). If Customer_Web and the API are different **sites**, `Authentication:Cookie:SameSite` must be `None` (PR06); with the same-origin proxy the cookie is first-party and `Lax` is enough.
-4. API `Cors:AllowedOrigins` includes that origin (credentialed). The exchange limit (`Booking:ReservationManagement:RateLimiting`, default 10 / 60 s per connection address) is per address: an office NAT or a shared proxy address shares one bucket.
+4. API `Cors:AllowedOrigins` includes that origin (credentialed). The exchange limit (`Booking:ReservationManagement:RateLimiting`, default 10 / 60 s per connection address) is per address: an office NAT or a shared proxy address shares one bucket. **With the same-origin proxy every guest's exchange reaches the API from the Next server's address**: unless that address is the configured trusted proxy (forwarded headers, `TrustedProxy` settings), all guests share one bucket of 10 exchanges per 60 s and the 429 text appears under moderate load. Configure that before enabling the proxy for this page (the 429 path through the proxy was NOT RUN in PR09).
 5. Click tracking is off at the mail provider (PR07 list) and the mailbox/scanner policy is understood (see the automatic-exchange note above).
 6. The three switches of PR07 stay off until 1–5 are done.
 
 ## Texts
 
 44 keys, additions only, to exactly `Back_End/src/TheBha.Application/Website/Localization/{catalog.json,packs/vi.json,packs/en.json,packs/fr.json}`: 39 `customer.manage.*` / `customer.meta.manage` / `customer.receipt.manageBooking` plus 5 `shared.apiError.*` for the arrival codes (`validation.arrival-date-invalid`, `…-time-invalid`, `…-out-of-window`, `…-time-nonexistent`, `reservation.arrival-not-changeable`). Existing keys reused where the meaning matches. Same layering as PR08: the built-in pack sits under stored rows, so a database with older installed packs serves the new keys once the new API build runs; no pack refresh is required (the coverage report counts them as missing until the built-in packs are applied again).
+
+## Known limitations
+
+- A guest who opens the **same e-mail link a second time** in a browser that already holds the session sees the "link is not valid / already used — reload to check" text first; **reload** (the fragment is already gone) then shows the booking. The page does not try a read after a 401 exchange.
+- The automatic exchange can be spent by a mail scanner that runs JavaScript.
+- A change of reservation id while a request is in flight is covered by unit tests only (the browser covers logout and an account change in flight).
+- Daylight-saving behaviour is the API's (PR06 tests); not exercised in the browser (Asia/Ho_Chi_Minh has none).
+- `Cache-Control` is Next's dynamic-page value, not the literal `private, no-store`.
 
 ## Not in PR09
 
