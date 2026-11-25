@@ -1,7 +1,7 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ManagedReservation } from "@/lib/api/reservationManagementService";
-import { renderWithI18n } from "@/lib/i18n/testkit";
+import { loadPack, renderWithI18n } from "@/lib/i18n/testkit";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }));
 vi.mock("@/app/CustomerSessionProvider", () => ({ useCustomerSession: () => ({ state: { status: "anonymous" }, refreshSession: vi.fn() }) }));
@@ -41,7 +41,11 @@ describe("the management page's money block (PR09-C1)", () => {
   it("Cancelled + Recorded with a positive balance: status, total and collected are shown; the balance line and the pay-at-property note are not", () => {
     for (const locale of ["vi", "en", "fr"]) {
       const html = render({ ...base, status: "Cancelled" }, locale);
-      expect(html, locale).toContain('role="status"'); // cancelled notice
+      const pack = loadPack(locale);
+      const decode = (value: string) => value.replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      const page = decode(html);
+      expect(page, locale).toContain(decode(pack["customer.manage.cancelledNotice"])); // the cancelled notice, not just any status region
+      expect(page, locale).toContain(decode(pack["customer.booking.reservation.status.Cancelled"]));
       expect(digits(text(html, "manage-total")), locale).toBe("2000000");
       expect(digits(text(html, "manage-collected")), locale).toBe("500000");
       expect(html, locale).not.toContain('data-testid="manage-balance"');
