@@ -223,6 +223,7 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         }
 
         // The last check of this purpose's guard, on every attempt, before anything is pinned or sent. A stop is final: Failed when no earlier attempt can have reached the provider, otherwise NeedsReconciliation.
+        EmailPreSendVerdict? approved = null;
         if (_guards.FirstOrDefault(guard => guard.Purpose == row.Purpose) is { } purposeGuard)
         {
             EmailPreSendVerdict verdict;
@@ -243,6 +244,8 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
                 await FinishAsync(claim, row.UncertainSend ? EmailOutboxDelivery.StatusNeedsReconciliation : EmailOutboxDelivery.StatusFailed, verdict.Code, ct);
                 return true;
             }
+
+            approved = verdict;
         }
 
         // The guard may have taken a while (a database read): the lease and the first-attempt time are judged on the clock NOW, not on the instant before the guard. If the lease ran out meanwhile the pin below fails and nothing is sent.
@@ -256,8 +259,16 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         }
 
         var from = row.PinnedFrom ?? identity.From;
-        var pinned = await PinAsync(claim, identity.Fingerprint, from, now, ct);
-        if (!pinned) return true; // The claim is no longer ours (the lease ran out): nothing is sent.
+        // The lease must outlast the whole provider call, not merely still be alive: otherwise another worker could reclaim the delivery while the call is in flight and this worker's result would be fenced out.
+        var pinned = await PinAsync(claim, identity.Fingerprint, from, now, now + timeout, ct);
+        if (!pinned) return true; // The claim is no longer ours, or too little of its lease is left for a call (it is reclaimed when the lease runs out): nothing is sent.
+
+        // A deadline the guard set (a guest link's life) is enforced on a fresh clock right before the provider call: a slow guard or a slow pin cannot spend its margin. Nothing was sent by this attempt, so the stop maps like a guard stop.
+        if (approved?.MustFinishBefore is { } mustFinishBefore && _clock.GetUtcNow() + timeout >= mustFinishBefore)
+        {
+            await FinishAsync(claim, row.UncertainSend ? EmailOutboxDelivery.StatusNeedsReconciliation : EmailOutboxDelivery.StatusFailed, approved.LateCode ?? "deadline-passed", ct);
+            return true;
+        }
 
         var message = JsonDocument.Parse(messageJson).RootElement;
         // No transaction is open here: the claim was committed before this call and nothing is held while the provider answers.
@@ -309,9 +320,9 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         return rows.Count == 0 ? null : new Held(rows[0].Item1, claimId, rows[0].Item2);
     }
 
-    /// <summary>The first-attempt time, the pinned account and the pinned sender, written together, only while the claim is ours and its lease is alive, and before the provider is called.</summary>
-    private async Task<bool> PinAsync(Held held, string fingerprint, string from, DateTimeOffset now, CancellationToken ct) =>
-        await Owned(held).Where(d => d.LeaseUntilUtc > now).ExecuteUpdateAsync(
+    /// <summary>The first-attempt time, the pinned account and the pinned sender, written together, only while the claim is ours and its lease outlasts <c>leaseMustOutlast</c> (now plus the provider call's timeout), and before the provider is called.</summary>
+    private async Task<bool> PinAsync(Held held, string fingerprint, string from, DateTimeOffset now, DateTimeOffset leaseMustOutlast, CancellationToken ct) =>
+        await Owned(held).Where(d => d.LeaseUntilUtc > leaseMustOutlast).ExecuteUpdateAsync(
             set => set.SetProperty(d => d.FirstAttemptAtUtc, d => d.FirstAttemptAtUtc ?? now).SetProperty(d => d.PinnedFingerprint, d => d.PinnedFingerprint ?? fingerprint)
                 .SetProperty(d => d.PinnedFrom, d => d.PinnedFrom ?? from).SetProperty(d => d.LastAttemptAtUtc, (DateTimeOffset?)now), ct) == 1;
 

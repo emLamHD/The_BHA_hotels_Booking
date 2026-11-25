@@ -65,12 +65,17 @@ public sealed class EmailOutboxEventRejectedException(string code) : Exception(c
 /// <summary>What the dispatcher tells a guard about the delivery it is about to send. <see cref="Recipient"/> is the frozen, decrypted address.</summary>
 public sealed record EmailPreSendContext(Guid DeliveryId, Guid EventId, Guid PropertyId, string Purpose, string RecipientKey, string Recipient, DateTimeOffset CreatedAtUtc, DateTimeOffset NowUtc, TimeSpan CallTimeout);
 
-/// <summary><paramref name="Code"/> is a fixed safe word stored as the delivery's outcome; never an address, a name or a secret.</summary>
-public sealed record EmailPreSendVerdict(bool Allow, string Code)
+/// <summary>
+/// <paramref name="Code"/> is a fixed safe word stored as the delivery's outcome; never an address, a name or a secret. An allowing verdict may carry a deadline: <paramref name="MustFinishBefore"/> is the instant by which
+/// the provider call must be over, and the dispatcher itself checks it on a fresh clock immediately before calling the provider (a slow guard cannot spend the margin), stopping the delivery with <paramref name="LateCode"/>.
+/// </summary>
+public sealed record EmailPreSendVerdict(bool Allow, string Code, DateTimeOffset? MustFinishBefore = null, string? LateCode = null)
 {
     public static EmailPreSendVerdict Send { get; } = new(true, "ok");
 
     public static EmailPreSendVerdict Stop(string code) => new(false, code);
+
+    public static EmailPreSendVerdict SendUntil(DateTimeOffset mustFinishBefore, string lateCode) => new(true, "ok", mustFinishBefore, lateCode);
 }
 
 /// <summary>

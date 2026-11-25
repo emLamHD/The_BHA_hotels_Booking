@@ -118,6 +118,61 @@ public sealed class EmailOutboxGuardTests(PostgreSqlWebApplicationFactory factor
         Assert.Equal((EmailOutboxDelivery.StatusNeedsReconciliation, "window-expired", 2), (row.Status, row.LastOutcome, row.Attempts));
     }
 
+    // Finding 1: after the guard the lease must outlast the whole provider call (HttpTimeout 20 s), not merely be alive. Lease 90 s; a guard that takes 80 s leaves 10 s.
+    [Fact]
+    public async Task A_guard_that_leaves_less_lease_than_a_provider_call_needs_cannot_pin_or_send_until_the_lease_is_reclaimed()
+    {
+        var seed = await FreshAsync(factory);
+        var delivery = (await PendingDeliveriesAsync(factory, seed, new SyntheticHandler())).Single();
+        var stub = new ResendStub();
+        var guard = new SlowGuard(factory, TimeSpan.FromSeconds(80));
+        using var host = Host(factory, stub).WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddScoped<IEmailDeliveryPreSendGuard>(_ => guard)));
+
+        await RunAsync(host.Services);
+
+        Assert.Empty(stub.CallList); // the lease was alive (10 s left) but could not cover a 20 s call: nothing is pinned, nothing is sent
+        var held = await OnlyDeliveryAsync(factory);
+        Assert.Equal((EmailOutboxDelivery.StatusSending, 1, false), (held.Status, held.Attempts, held.FirstAttemptAtUtc is not null));
+
+        factory.Clock.UtcNow = T0.AddMinutes(5); // the lease has run out: a fresh claim takes it over
+        await RunAsync(host.Services);
+
+        var row = await OnlyDeliveryAsync(factory);
+        Assert.Equal((EmailOutboxDelivery.StatusAccepted, 2, false), (row.Status, row.Attempts, row.UncertainSend));
+        var call = Assert.Single(stub.CallList);
+        Assert.Equal(EmailOutboxSqlKey(delivery.Id), call.IdempotencyKey);
+    }
+
+    /// <summary>Allows with a deadline, after "taking" <paramref name="takes"/> on the shared clock (a slow check).</summary>
+    private sealed class DeadlineGuard(PostgreSqlWebApplicationFactory factory, DateTimeOffset deadline, TimeSpan takes) : IEmailDeliveryPreSendGuard
+    {
+        public string Purpose => "notice";
+
+        public Task<EmailPreSendVerdict> CheckAsync(EmailPreSendContext context, CancellationToken cancellationToken)
+        {
+            factory.Clock.UtcNow += takes;
+            return Task.FromResult(EmailPreSendVerdict.SendUntil(deadline, "too-late"));
+        }
+    }
+
+    // Finding 2 (the dispatcher half): a deadline the guard set is enforced on a fresh clock right before the provider call.
+    [Fact]
+    public async Task A_deadline_set_by_the_guard_is_enforced_on_a_fresh_clock_right_before_the_provider_call()
+    {
+        var seed = await FreshAsync(factory);
+        await PendingDeliveriesAsync(factory, seed, new SyntheticHandler());
+        var stub = new ResendStub();
+        // The call must be over by T0 + 60 s; the check takes 45 s, so with the 20 s call timeout it is too late (65 s) although the lease still has 45 s.
+        var guard = new DeadlineGuard(factory, T0.AddSeconds(60), TimeSpan.FromSeconds(45));
+        using var host = Host(factory, stub).WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddScoped<IEmailDeliveryPreSendGuard>(_ => guard)));
+
+        await RunAsync(host.Services);
+
+        Assert.Empty(stub.CallList);
+        var row = await OnlyDeliveryAsync(factory);
+        Assert.Equal((EmailOutboxDelivery.StatusFailed, "too-late", 1), (row.Status, row.LastOutcome, row.Attempts)); // nothing was sent, so a plain Failed
+    }
+
     private static string EmailOutboxSqlKey(Guid deliveryId) => "bha-email-" + deliveryId.ToString("N");
 
     [Fact]

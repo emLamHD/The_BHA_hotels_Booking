@@ -477,6 +477,65 @@ public sealed partial class BookingConfirmationEmailTests(PostgreSqlWebApplicati
         Assert.Equal((EmailOutboxDelivery.StatusFailed, "reservation-cancelled", 1), (row.Status, row.LastOutcome, row.Attempts));
     }
 
+    /// <summary>Makes the guard's reservation read "slow": the first query on the Reservations status moves the shared clock forward.</summary>
+    private sealed class SlowReservationRead(PostgreSqlWebApplicationFactory factory, TimeSpan takes) : Microsoft.EntityFrameworkCore.Diagnostics.DbCommandInterceptor
+    {
+        public volatile bool Armed;
+
+        public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<System.Data.Common.DbDataReader>> ReaderExecutingAsync(
+            System.Data.Common.DbCommand command, Microsoft.EntityFrameworkCore.Diagnostics.CommandEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<System.Data.Common.DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            if (Armed && command.CommandText.Contains("\"Reservations\"", StringComparison.Ordinal) && command.CommandText.Contains("\"Status\"", StringComparison.Ordinal))
+            {
+                Armed = false;
+                factory.Clock.UtcNow += takes;
+            }
+
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+    }
+
+    // A guest mail whose link is still alive when the guard starts but would not be by the time the provider is called, because the reservation read was slow: the deadline is rechecked right before the call.
+    [Fact]
+    public async Task M04_a_slow_reservation_read_cannot_carry_a_guest_mail_past_its_links_life()
+    {
+        await SeedAsync();
+        var slow = new SlowReservationRead(Factory, TimeSpan.FromSeconds(15));
+        var stub = new ResendStub();
+        using var host = Stack(stub).WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.RemoveAll<DbContextOptions<TheBhaDbContext>>(services);
+            Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.RemoveAll<DbContextOptions>(services);
+            services.AddDbContext<TheBhaDbContext>(options => Microsoft.EntityFrameworkCore.NpgsqlDbContextOptionsBuilderExtensions
+                .UseNpgsql(options, Factory.ConnectionString, npgsql => npgsql.MigrationsAssembly("TheBha.Infrastructure")).AddInterceptors(slow));
+        }));
+        var id = await BookAsync(host, "m04-slow-read");
+        // Only the queued delivery below takes part: the booking's own event is marked done.
+        await ExecuteAsync("""UPDATE "EmailOutboxEvents" SET "Status"='Completed', "CompletedAtUtc"=now()""");
+        var eventId = await ScalarAsync<Guid>("""SELECT "Id" AS "Value" FROM "EmailOutboxEvents" """);
+        var protector = host.Services.GetRequiredService<EmailOutboxProtector>();
+        var recipient = protector.Protect(GuestAddress);
+        var message = protector.Protect("{\"subject\":\"s\",\"text\":\"t\",\"html\":\"h\"}");
+        await using (var context = Factory.CreateDbContext())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "EmailOutboxDeliveries" ("Id","EventId","PropertyId","Purpose","RecipientKey","TemplateKey","Locale","ProtectedRecipient","ProtectedMessage","Status","Attempts","NextAttemptAtUtc","UncertainSend","CreatedAtUtc")
+                VALUES ({Guid.NewGuid()}, {eventId}, {PropertyId}, {BookingEmailPurposes.GuestWithLink}, {BookingEmailPurposes.GuestKey(id)}, {BookingEmailPurposes.GuestTemplate}, 'vi', {recipient}, {message}, 'Pending', 0, {FixedUtc}, false, {FixedUtc})
+                """);
+        }
+
+        // 30 s before the 72 h bound: the early check passes (30 - 20 s call timeout = 10 s to spare); the 15 s read then leaves 15 s, which no longer covers a 20 s call.
+        Factory.Clock.UtcNow = FixedUtc.AddHours(72).AddSeconds(-30);
+        slow.Armed = true;
+        await RunAsync(host);
+
+        Assert.False(slow.Armed); // the slow read really happened inside this run
+        Assert.Empty(stub.CallList);
+        var row = (await DeliveryRowsAsync()).Single();
+        Assert.Equal((EmailOutboxDelivery.StatusFailed, "link-expired", 1), (row.Status, row.LastOutcome, row.Attempts));
+    }
+
     // ------------------------------------------------------------------ M-03
 
     [Fact]

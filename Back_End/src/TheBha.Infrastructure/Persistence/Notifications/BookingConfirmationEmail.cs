@@ -181,10 +181,14 @@ internal sealed class GuestLinkStillValidGuard(TheBhaDbContext db) : IEmailDeliv
 {
     public string Purpose => BookingEmailPurposes.GuestWithLink;
 
-    public async Task<EmailPreSendVerdict> CheckAsync(EmailPreSendContext context, CancellationToken cancellationToken) =>
-        context.NowUtc + context.CallTimeout >= context.CreatedAtUtc + ReservationManagementRules.DefaultLinkTtl
-            ? EmailPreSendVerdict.Stop("link-expired")
-            : await BookingReservationStatusCheck.StillConfirmedAsync(db, context, cancellationToken);
+    public async Task<EmailPreSendVerdict> CheckAsync(EmailPreSendContext context, CancellationToken cancellationToken)
+    {
+        var expiry = context.CreatedAtUtc + ReservationManagementRules.DefaultLinkTtl;
+        if (context.NowUtc + context.CallTimeout >= expiry) return EmailPreSendVerdict.Stop("link-expired"); // already too late: no need to read anything
+        var reservation = await BookingReservationStatusCheck.StillConfirmedAsync(db, context, cancellationToken);
+        // The read above may have been slow, so the deadline travels with the verdict and the dispatcher enforces it on a fresh clock right before the provider call.
+        return reservation.Allow ? EmailPreSendVerdict.SendUntil(expiry, "link-expired") : reservation;
+    }
 }
 
 /// <summary>The owner account's mail: no link to expire, but the reservation must still be confirmed.</summary>
