@@ -112,4 +112,10 @@ export interface ReservationDto {
   listTotalAmount?: number | null;
   discountTotalAmount?: number | null;
   appliedPromotion?: AppliedPromotionDto | null;
+  /** Direct (pay at the property) reservations only; a Hold confirmation answer has none of these. */
+  paymentMethod?: "PayAtProperty" | null;
+  ledgerState?: string | null;
+  receivableAmount?: number | null;
+  collectedAmount?: number | null;
+  balanceDueAmount?: number | null;
 }

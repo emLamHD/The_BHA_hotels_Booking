@@ -40,6 +40,10 @@ export interface CustomerSessionApi {
 export interface CustomerIdentityBinding {
   isIdentityChangeLocked: () => boolean;
   bindBooking: (guard: BookingIdentityGuard) => () => void;
+  /** The session as the controller knows it right now (synchronous, not a React snapshot). */
+  getSession: () => CustomerSessionState;
+  /** Reads the session again (a Direct booking refused for an unverified or changed session asks for it). */
+  requestRefresh: () => void;
 }
 
 const CustomerSessionContext = createContext<CustomerSessionApi | null>(null);
@@ -90,8 +94,13 @@ export function CustomerSessionProvider({ children }: { children: React.ReactNod
     [state, identityChange, coordinator]
   );
   const binding = useMemo<CustomerIdentityBinding>(
-    () => ({ isIdentityChangeLocked: coordinator.isIdentityChangeLocked, bindBooking: coordinator.bindBooking }),
-    [coordinator]
+    () => ({
+      isIdentityChangeLocked: coordinator.isIdentityChangeLocked,
+      bindBooking: coordinator.bindBooking,
+      getSession: controller.getState,
+      requestRefresh: coordinator.requestRefresh,
+    }),
+    [coordinator, controller]
   );
 
   return (

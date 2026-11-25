@@ -12,6 +12,9 @@ import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
 import { useCustomerSession } from "@/app/CustomerSessionProvider";
 import { HOME_PAGE, receiptCloseFailureMessage, receiptCloseTarget } from "@/lib/customerAuthUi";
 import { useStaySearch } from "@/components/StaySearchProvider";
+import { useUnresolvedDirectAttempt } from "@/components/UnresolvedDirectAttemptNotice";
+import { verifiedOwnerKey } from "@/lib/api/directBookingAttempt";
+import { formatAsGiven } from "@/lib/i18n/display";
 import PriceBreakdown from "@/components/PriceBreakdown";
 import { useApiMessage } from "@/lib/i18n/apiMessage";
 import { useDateFormat } from "@/lib/i18n/dates";
@@ -79,10 +82,11 @@ const Row: FC<{ label: string; children: React.ReactNode }> = ({ label, children
  */
 const PayDoneReceipt: FC = () => {
   const { state, confirmHold, retryConfirmationExact, finishBooking } = useBookingHoldFlow();
-  const { t, has, content } = useI18n();
+  const { t, has, content, formatLocale } = useI18n();
   const dates = useDateFormat();
   const message = useApiMessage();
-  const { identityChange } = useCustomerSession();
+  const { identityChange, state: customerSession } = useCustomerSession();
+  const unresolvedDirect = useUnresolvedDirectAttempt();
   const router = useRouter();
   const stay = useStaySearch();
   // CUST-WEB-001-CP02: the reservation the open "close the receipt" dialog is about (null: closed), captured
@@ -100,6 +104,18 @@ const PayDoneReceipt: FC = () => {
     ? session.hold
     : null;
   const snapshot: Snapshot | null = reservation ?? hold;
+  // BHA-CHECKOUT-001-PR08: a Direct receipt belongs to the identity that booked it. It is shown only while the verified
+  // session is that identity; while the session is being (re)checked, or if it is someone else, nothing of it is shown.
+  const receiptOwnerKey = state.direct.receiptOwnerKey;
+  const sessionOwnerKey = verifiedOwnerKey(customerSession);
+  const ownerCheck: "ok" | "verifying" | "mismatch" =
+    !reservation || !receiptOwnerKey || sessionOwnerKey === receiptOwnerKey
+      ? "ok"
+      : sessionOwnerKey === null
+        ? "verifying"
+        : "mismatch";
+  const isDirect = reservation?.paymentMethod === "PayAtProperty";
+  const cancelled = reservation?.status === "Cancelled";
   const target = inProgressBookingTarget(state);
   const receiptId = receiptCloseTarget(state);
 
@@ -123,7 +139,9 @@ const PayDoneReceipt: FC = () => {
         ? t("customer.receipt.recovery.submitting")
         : phase === "uncertain"
           ? t("customer.receipt.recovery.uncertain")
-          : t("customer.receipt.recovery.none");
+          : unresolvedDirect
+            ? t("customer.receipt.recovery.unresolved")
+            : t("customer.receipt.recovery.none");
     return (
       <div role="status" aria-live="polite" className="w-full flex flex-col sm:rounded-2xl space-y-8 px-0 sm:p-6 xl:p-8">
         <h2 className="text-3xl lg:text-4xl font-semibold">{t("customer.receipt.recovery.title")}</h2>
@@ -136,6 +154,15 @@ const PayDoneReceipt: FC = () => {
     );
   };
 
+  const renderOwnerNotice = (check: "verifying" | "mismatch") => (
+    <div role="status" aria-live="polite" data-testid="receipt-owner-notice" className="w-full space-y-4 px-0 sm:p-6 xl:p-8">
+      <p className="text-neutral-6000 dark:text-neutral-300">
+        {check === "verifying" ? t("customer.receipt.owner.verifying") : t("customer.receipt.owner.mismatch")}
+      </p>
+      <ButtonSecondary href="/#rooms">{t("customer.room.viewRooms")}</ButtonSecondary>
+    </div>
+  );
+
   const renderReceipt = (data: Snapshot) => {
     const property = stay?.riverside ? resolveProperty([stay.riverside], data.propertyId) : undefined;
     const roomType = stay?.roomTypes ? resolveRoomType(stay.roomTypes, data) : undefined;
@@ -146,9 +173,17 @@ const PayDoneReceipt: FC = () => {
 
     return (
       <div className="w-full flex flex-col sm:rounded-2xl space-y-10 px-0 sm:p-6 xl:p-8">
-        <h2 className="text-3xl lg:text-4xl font-semibold">{confirmed ? t("customer.receipt.title.confirmed") : t("customer.receipt.title.held")}</h2>
+        <h2 className="text-3xl lg:text-4xl font-semibold">
+          {cancelled ? t("customer.receipt.title.cancelled") : confirmed ? t("customer.receipt.title.confirmed") : t("customer.receipt.title.held")}
+        </h2>
         <p className="-mt-6 text-neutral-6000 dark:text-neutral-300" role="status" aria-live="polite">
-          {confirmed ? t("customer.receipt.sub.confirmed") : t("customer.receipt.sub.held")}
+          {cancelled
+            ? t("customer.receipt.sub.cancelled")
+            : isDirect
+              ? t("customer.receipt.sub.direct")
+              : confirmed
+                ? t("customer.receipt.sub.confirmed")
+                : t("customer.receipt.sub.held")}
         </p>
 
         <div className="border-b border-neutral-200 dark:border-neutral-700"></div>
@@ -246,7 +281,19 @@ const PayDoneReceipt: FC = () => {
                 totalValueClassName="text-lg font-semibold text-neutral-900 dark:text-neutral-100"
               />
             </div>
-            <Row label={t("customer.receipt.payment")}>{t("customer.receipt.noOnlinePayment")}</Row>
+            {isDirect ? (
+              <>
+                <Row label={t("customer.receipt.payment")}>{t("customer.receipt.paymentMethod.PayAtProperty")}</Row>
+                <Row label={t("customer.receipt.collected")}>
+                  <span data-testid="receipt-collected">{formatAsGiven(reservation!.collectedAmount ?? 0, reservation!.currencyCode, formatLocale)}</span>
+                </Row>
+                <Row label={t("customer.receipt.balanceDue")}>
+                  <span data-testid="receipt-balance">{formatAsGiven(reservation!.balanceDueAmount ?? 0, reservation!.currencyCode, formatLocale)}</span>
+                </Row>
+              </>
+            ) : (
+              <Row label={t("customer.receipt.payment")}>{t("customer.receipt.noOnlinePayment")}</Row>
+            )}
           </div>
         </div>
 
@@ -368,7 +415,9 @@ const PayDoneReceipt: FC = () => {
   return (
     <div className="nc-PayPage">
       <main className="container mt-11 mb-24 lg:mb-32">
-        <div className="max-w-4xl mx-auto">{snapshot ? renderReceipt(snapshot) : renderRecovery()}</div>
+        <div className="max-w-4xl mx-auto">
+          {snapshot && ownerCheck !== "ok" ? renderOwnerNotice(ownerCheck) : snapshot ? renderReceipt(snapshot) : renderRecovery()}
+        </div>
       </main>
       {renderCloseDialog()}
     </div>

@@ -6,10 +6,11 @@ import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
 import PriceBreakdown from "@/components/PriceBreakdown";
+import ConfirmedPrice from "@/components/ConfirmedPrice";
+import DirectBookingPanel from "@/components/DirectBookingPanel";
 import { useApiMessage } from "@/lib/i18n/apiMessage";
 import { ActiveHoldSession } from "@/lib/api/bookingHoldAttempt";
 import { ReservationDto } from "@/lib/api/bookingHoldTypes";
-import type { PriceQuote } from "@/lib/api/availabilityTypes";
 import { useDateFormat } from "@/lib/i18n/dates";
 import { partyLine } from "@/lib/i18n/party";
 import { useI18n } from "@/lib/i18n/I18nProvider";
@@ -22,25 +23,6 @@ export interface BookingHoldPanelProps {
 /** The pack text of a status the API sent as a word (`Active`); a status this site has no text for is shown as sent. */
 function statusText(t: Translate, has: (key: string) => boolean, key: string, raw: string): string {
   return has(`${key}.${raw}`) ? t(`${key}.${raw}`) : raw;
-}
-
-/** The price the guest is about to confirm, with how a promotion changed it: exactly what is sent as the expected price. */
-function ConfirmedPrice({ quote, label }: { quote: PriceQuote; label: string }) {
-  const { t } = useI18n();
-  const dates = useDateFormat();
-  return (
-    <div data-testid="confirmed-price" className="space-y-1 text-sm">
-      <p className="font-medium text-neutral-700 dark:text-neutral-200">{label}</p>
-      <PriceBreakdown
-        rows={quote.nightlyRates.map((rate) => ({ key: rate.stayDate, label: dates.stayDate(rate.stayDate), amount: rate.amount, listAmount: rate.listAmount ?? undefined }))}
-        totalAmount={quote.totalAmount}
-        currencyCode={quote.currencyCode}
-        totalLabel={t("customer.booking.offer.total")}
-        discount={{ listTotal: quote.listTotalAmount, discountTotal: quote.discountTotalAmount, promotion: quote.appliedPromotion }}
-        totalClassName="mt-2 flex justify-between items-center border-t border-neutral-200/80 dark:border-neutral-700 pt-2"
-      />
-    </div>
-  );
 }
 
 /** Shared customer-safe Hold summary for every session-carrying lifecycle phase. */
@@ -157,6 +139,11 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
     submit();
   };
 
+  // "Pay at the property" selection (submitting / uncertain / known errors included): its own form, never the Hold's.
+  if (state.direct.active) {
+    return <DirectBookingPanel className={className} />;
+  }
+
   if (phase === "reservation-result" && reservationResult) {
     const { reservation, outcome } = reservationResult;
     return (
@@ -164,7 +151,7 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
         className={`nc-BookingHoldPanel rounded-3xl border border-neutral-200/80 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 space-y-4 ${className}`}
       >
         <h3 ref={headingRef} tabIndex={-1} className="text-lg font-semibold outline-none">
-          {t("customer.booking.hold.reservationConfirmed")}
+          {reservation.status === "Cancelled" ? t("customer.receipt.title.cancelled") : t("customer.booking.hold.reservationConfirmed")}
         </h3>
         <div role="status" aria-live="polite" className="space-y-3 text-sm">
           {outcome === "replayed" && (

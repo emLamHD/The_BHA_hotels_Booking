@@ -18,6 +18,8 @@ export interface AvailabilityOfferCardProps {
   holdDisabled?: boolean;
   /** Sidebar use: the room's own page already shows its photographs, so the card omits them. */
   hideMedia?: boolean;
+  /** The choice of how to pay follows ("Book"); the Hold-only label is kept when absent. */
+  bookLabel?: boolean;
 }
 
 const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
@@ -26,6 +28,7 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
   onHold,
   holdDisabled = false,
   hideMedia = false,
+  bookLabel = false,
 }) => {
   const { t, content } = useI18n();
   const dates = useDateFormat();
@@ -106,7 +109,7 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
             disabled={holdDisabled}
             onClick={onHold}
           >
-            {t("customer.booking.offer.holdThisRoom")}
+            {bookLabel ? t("customer.room.book") : t("customer.booking.offer.holdThisRoom")}
           </ButtonPrimary>
         )}
       </div>

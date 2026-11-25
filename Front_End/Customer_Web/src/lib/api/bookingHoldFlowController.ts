@@ -9,8 +9,13 @@ import {
 import { BookingHoldFlowAction, BookingHoldFlowState, bookingHoldFlowReducer } from "./bookingHoldFlow";
 import { confirmBookingHold, createBookingHold } from "./bookingHoldService";
 import { generateIdempotencyKey } from "./idempotencyKey";
+import { DirectAttemptSnapshot, buildDirectReservationRequest, ownerKeyOf, verifiedOwnerKey } from "./directBookingAttempt";
+import { generateDirectIdempotencyKey, generateGuestAccessToken } from "./directBookingCredentials";
+import { createDirectReservation } from "./directReservationService";
+import type { DirectAttemptMarker } from "./directAttemptMarker";
+import type { CustomerSessionState } from "@/lib/customerSession";
 import { ApiConfigError, ApiHttpError, ApiNetworkError, ApiValidationError } from "./errors";
-import { apiErrorKey } from "./errorMessages";
+import { apiErrorKey, directApiErrorKey } from "./errorMessages";
 import { isRequestCancelledError } from "./httpClient";
 
 /** The pack key of the message the visitor reads (see `errorMessages.ts`); the panel translates it when it renders. */
@@ -18,10 +23,21 @@ function describeError(error: unknown): string {
   return apiErrorKey(error, "shared.apiError.holdGeneric");
 }
 
+const describeDirectError = directApiErrorKey;
+
 export interface BookingHoldFlowController {
-  selectOffer: (offer: SelectedOfferSnapshot, label: string) => void;
+  /** `channel: "direct"` starts a "pay at the property" booking instead of a Hold; the Hold path is the default. */
+  selectOffer: (offer: SelectedOfferSnapshot, label: string, options?: { channel?: "direct" }) => void;
   updateContact: (contact: ContactInput) => void;
   submit: () => void;
+  /**
+   * BHA-CHECKOUT-001-PR08: sends the Direct reservation request. Refused with no request (and no fallback Hold) while
+   * the session is not verified, the owner changed since the form opened, an identity change is under way, or an
+   * earlier attempt of this tab is unacknowledged. A guest gets a fresh token and key before this first request.
+   */
+  submitDirect: () => void;
+  /** Resends EXACTLY the retained attempt (owner, token, key, body) from `uncertain`, only while the session still is that owner. */
+  retryDirectExact: () => void;
   /**
    * The guest has seen the new price after `hold.price-changed` and accepts it: the offer's confirmed price becomes the new one. It
    * sends nothing; the guest then asks for the hold again (a new attempt with a new Idempotency-Key and the new expected price).
@@ -100,6 +116,12 @@ export interface CreateBookingHoldFlowControllerOptions {
    * before every booking mutation/draft command, which are refused outright while it is true.
    */
   isIdentityChangeLocked?: () => boolean;
+  /** The current Customer session (`GET /me` result); absent means no identity can be verified, so Direct is refused. */
+  getSession?: () => CustomerSessionState;
+  /** Reads the session again; used when a Direct submit/retry is refused for an unverified or changed session. */
+  requestSessionRefresh?: () => void;
+  /** The tab's "an attempt may be unresolved" flag. Written before the first send, cleared only on a resolution. */
+  marker?: DirectAttemptMarker;
 }
 
 /**
@@ -114,7 +136,7 @@ export interface CreateBookingHoldFlowControllerOptions {
 export function createBookingHoldFlowController(
   options: CreateBookingHoldFlowControllerOptions
 ): BookingHoldFlowControllerInternal {
-  const { getState, dispatch: dispatchToReact, onAttemptStart, isIdentityChangeLocked } = options;
+  const { getState, dispatch: dispatchToReact, onAttemptStart, isIdentityChangeLocked, getSession, requestSessionRefresh, marker } = options;
   const identityLocked = () => isIdentityChangeLocked?.() === true;
 
   // CUST-WEB-001-CP01b: the controller's own synchronous view of the flow. `getState()` is a React
@@ -279,8 +301,69 @@ export function createBookingHoldFlowController(
       });
   }
 
+  /** True when the failure leaves the outcome unknown: the request may have been committed (never a rejection). */
+  function isDirectOutcomeUnknown(error: unknown): boolean {
+    if (error instanceof ApiNetworkError) return true;
+    // `booking.closed` is the one 5xx the API answers before anything is written; any other 5xx (or a gateway's) may follow a commit.
+    if (error instanceof ApiHttpError) return error.status >= 500 && error.problem.code !== "booking.closed";
+    return !(error instanceof ApiConfigError);
+  }
+
+  function runDirectAttempt(attempt: DirectAttemptSnapshot, kind: "submit" | "retry"): void {
+    const thisOperationId = ++operationId;
+    dispatch(
+      kind === "submit"
+        ? { type: "direct-submit-requested", attempt, operationId: thisOperationId }
+        : { type: "direct-retry-requested", operationId: thisOperationId }
+    );
+
+    const controller = new AbortController();
+    onAttemptStart?.(controller);
+
+    // Only a resolution clears the tab's marker: a success, or a rejection of an attempt that never went uncertain.
+    const settle = () => {
+      if (!live.direct.unresolved && live.phase !== "submitting" && live.phase !== "uncertain") marker?.clear();
+    };
+
+    createDirectReservation(attempt.request, attempt.idempotencyKey, attempt.owner, { signal: controller.signal })
+      .then((result) => {
+        if (operationId !== thisOperationId) {
+          return;
+        }
+        dispatch({ type: "direct-succeeded", operationId: thisOperationId, result });
+        settle();
+      })
+      .catch((error) => {
+        if (operationId !== thisOperationId) {
+          return;
+        }
+        if (isRequestCancelledError(error)) {
+          return;
+        }
+        if (isDirectOutcomeUnknown(error)) {
+          dispatch({ type: "direct-uncertain", operationId: thisOperationId });
+          return;
+        }
+        const message = describeDirectError(error);
+        if (error instanceof ApiHttpError && (error.problem.code === "auth.session-invalid" || (error.status === 401 && attempt.owner.kind === "account"))) {
+          requestSessionRefresh?.(); // never treated as a guest: the session is read again and the owner check blocks a change
+        }
+        if (error instanceof ApiHttpError && error.problem.code === "reservation.price-changed" && error.problem.quote) {
+          dispatch({ type: "direct-price-changed", operationId: thisOperationId, quote: error.problem.quote, message });
+        } else {
+          dispatch({ type: "direct-known-error", operationId: thisOperationId, message });
+        }
+        settle();
+      })
+      .finally(() => {
+        if (operationId === thisOperationId) {
+          inFlight = false;
+        }
+      });
+  }
+
   return {
-    selectOffer(offer, label) {
+    selectOffer(offer, label, options) {
       if (identityLocked()) {
         return;
       }
@@ -289,7 +372,84 @@ export function createBookingHoldFlowController(
         return;
       }
       offerSelectionActive = true;
-      dispatch({ type: "offer-selected", offer, label });
+      dispatch(
+        options?.channel === "direct"
+          ? { type: "offer-selected", offer, label, direct: { ownerKey: verifiedOwnerKey(getSession?.()) } }
+          : { type: "offer-selected", offer, label }
+      );
+    },
+
+    submitDirect() {
+      if (inFlight || identityLocked() || !offerSelectionActive) {
+        return;
+      }
+      const current = getState();
+      if ((current.phase !== "selected" && current.phase !== "known-error") || !current.offer || !current.direct.active) {
+        return;
+      }
+      if (current.priceChange) {
+        return;
+      }
+      const errors = validateContact(current.contact);
+      if (errors) {
+        dispatch({ type: "validation-failed", errors });
+        return;
+      }
+      // An earlier attempt of this tab may be unresolved: a new booking needs the guest's acknowledgement first.
+      if (marker?.isSet()) {
+        dispatch({ type: "direct-blocked", message: "customer.direct.unresolved.blocked" });
+        return;
+      }
+      const session = getSession?.();
+      const ownerKey = verifiedOwnerKey(session);
+      if (ownerKey === null || !session) {
+        dispatch({ type: "direct-blocked", message: "customer.direct.identityUnverified" });
+        requestSessionRefresh?.();
+        return;
+      }
+      if (current.direct.ownerKey !== ownerKey) {
+        // The session changed since the form opened (e.g. it expired): nothing is sent; the guest sees who they book as and confirms again.
+        dispatch({ type: "direct-blocked", message: "customer.direct.ownerChanged", ownerKey });
+        requestSessionRefresh?.();
+        return;
+      }
+
+      let attempt: DirectAttemptSnapshot;
+      try {
+        attempt = {
+          request: buildDirectReservationRequest(current.offer, current.contact),
+          idempotencyKey: generateDirectIdempotencyKey(),
+          owner:
+            session.status === "authenticated"
+              ? { kind: "account", customerAccountId: session.customer.customerAccountId }
+              : { kind: "guest", guestAccessToken: generateGuestAccessToken() },
+        };
+      } catch {
+        dispatch({ type: "direct-blocked", message: "customer.direct.credentialUnavailable" });
+        return;
+      }
+
+      inFlight = true;
+      marker?.set(); // before the first byte leaves: a reload from here on must know an attempt may be unresolved
+      runDirectAttempt(attempt, "submit");
+    },
+
+    retryDirectExact() {
+      if (inFlight || identityLocked()) {
+        return;
+      }
+      const current = getState();
+      const attempt = current.direct.attempt;
+      if (current.phase !== "uncertain" || !attempt || !current.direct.active) {
+        return;
+      }
+      if (verifiedOwnerKey(getSession?.()) !== ownerKeyOf(attempt.owner)) {
+        dispatch({ type: "direct-retry-blocked", message: "customer.direct.sessionMismatchRetry" });
+        requestSessionRefresh?.();
+        return;
+      }
+      inFlight = true;
+      runDirectAttempt(attempt, "retry");
     },
 
     updateContact(contact) {
@@ -314,7 +474,7 @@ export function createBookingHoldFlowController(
         return;
       }
       const current = getState();
-      if ((current.phase !== "selected" && current.phase !== "known-error") || !current.offer) {
+      if ((current.phase !== "selected" && current.phase !== "known-error") || !current.offer || current.direct.active) {
         return;
       }
       // A price the guest has not yet confirmed again: no hold can be asked for until they accept it.

@@ -10,6 +10,8 @@ import {
   BookingHoldFlowController,
   createBookingHoldFlowController,
 } from "@/lib/api/bookingHoldFlowController";
+import { getDirectAttemptMarker } from "@/lib/api/directAttemptMarker";
+import { LOADING_SESSION } from "@/lib/customerSession";
 import { useCustomerIdentityBinding } from "./CustomerSessionProvider";
 
 export interface BookingHoldFlowApi extends BookingHoldFlowController {
@@ -59,6 +61,10 @@ export function BookingHoldProvider({ children }: { children: React.ReactNode })
         abortControllerRef.current = controller;
       },
       isIdentityChangeLocked: () => identityBindingRef.current?.isIdentityChangeLocked() ?? false,
+      // Without a session provider nothing can be verified, so a Direct booking is refused (never sent as a guest).
+      getSession: () => identityBindingRef.current?.getSession() ?? LOADING_SESSION,
+      requestSessionRefresh: () => identityBindingRef.current?.requestRefresh(),
+      marker: getDirectAttemptMarker(),
     });
   }
   const { identityGuard, ...publicController } = controllerRef.current;
