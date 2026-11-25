@@ -52,7 +52,7 @@ A guard runs on every attempt (retries included), outside any transaction, befor
 - **Property recipient** — `IsStillRecipientAsync(propertyId, frozenAddress)`. If the person was disabled, opted out, lost the membership or changed the address after fan-out, the delivery is **stopped** with outcome `recipient-revoked`. The frozen destination is never changed.
 - **Guest with link** — stopped with `link-expired` when `now + HttpTimeout >= CreatedAtUtc + 72 h` (the link was issued after the delivery's fan-out instant, so this bound is never later than the real expiry). The guest needs a new link; there is no resend flow yet.
 
-A stop is `Failed` when no earlier attempt can have reached the provider, and `NeedsReconciliation` when one may have (`UncertainSend`). If the check itself cannot be made (database fault) the attempt is given back (`guard-unavailable`) and the delivery waits.
+A stop is `Failed` when no earlier attempt can have reached the provider, and `NeedsReconciliation` when one may have (`UncertainSend`). The idempotency-window rule (a retry must finish inside 22 h of the first attempt, call timeout included) is applied again on the clock **after** the guard, so a slow guard cannot carry a retry past the provider's window: that delivery becomes `NeedsReconciliation` (`window-expired`) and nothing is sent. If the check itself cannot be made (database fault) the attempt is given back (`guard-unavailable`) and the delivery waits.
 
 ## Operating it
 

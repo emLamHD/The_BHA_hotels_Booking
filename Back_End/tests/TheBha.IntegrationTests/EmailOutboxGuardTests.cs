@@ -81,6 +81,43 @@ public sealed class EmailOutboxGuardTests(PostgreSqlWebApplicationFactory factor
         Assert.Equal(1, stub.DistinctSends);
     }
 
+    /// <summary>Instant on every check except one, which "takes" <paramref name="takes"/> on the shared clock.</summary>
+    private sealed class SlowOnNthGuard(PostgreSqlWebApplicationFactory factory, int slowCall, TimeSpan takes) : IEmailDeliveryPreSendGuard
+    {
+        private int _calls;
+
+        public string Purpose => "notice";
+
+        public Task<EmailPreSendVerdict> CheckAsync(EmailPreSendContext context, CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _calls) == slowCall) factory.Clock.UtcNow += takes;
+            return Task.FromResult(EmailPreSendVerdict.Send);
+        }
+    }
+
+    [Fact]
+    public async Task A_guard_that_carries_a_retry_past_the_idempotency_window_stops_it_for_reconciliation_and_nothing_more_is_sent()
+    {
+        var seed = await FreshAsync(factory);
+        await PendingDeliveriesAsync(factory, seed, new SyntheticHandler());
+        var stub = new ResendStub { Script = call => Task.FromResult<ResendStub.Act>(call.Number == 1 ? new ResendStub.Act.Respond(500) : new ResendStub.Act.Normal()) }; // attempt 1: an unknown answer
+        var guard = new SlowOnNthGuard(factory, 2, TimeSpan.FromSeconds(15)); // short of the 90 s lease, long enough to cross the window edge
+        using var host = Host(factory, stub).WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddScoped<IEmailDeliveryPreSendGuard>(_ => guard)));
+
+        await RunAsync(host.Services);
+        Assert.Single(stub.CallList);
+        Assert.Equal(EmailOutboxDelivery.StatusPending, (await OnlyDeliveryAsync(factory)).Status);
+
+        // The retry is due 30 s after T0 and passes the window check with 10 s to spare (window 22 h, call timeout 20 s); the guard then takes 15 s: 5 s past the window.
+        factory.Clock.UtcNow = T0.AddHours(22).AddSeconds(-30);
+        await RunAsync(host.Services);
+
+        Assert.Single(stub.CallList); // the retry was never made
+        Assert.Equal(0, stub.DistinctSends); // and the provider holds nothing under that key from us
+        var row = await OnlyDeliveryAsync(factory);
+        Assert.Equal((EmailOutboxDelivery.StatusNeedsReconciliation, "window-expired", 2), (row.Status, row.LastOutcome, row.Attempts));
+    }
+
     private static string EmailOutboxSqlKey(Guid deliveryId) => "bha-email-" + deliveryId.ToString("N");
 
     [Fact]

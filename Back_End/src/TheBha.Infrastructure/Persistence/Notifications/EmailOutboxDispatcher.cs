@@ -247,6 +247,14 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
 
         // The guard may have taken a while (a database read): the lease and the first-attempt time are judged on the clock NOW, not on the instant before the guard. If the lease ran out meanwhile the pin below fails and nothing is sent.
         now = _clock.GetUtcNow();
+
+        // The same window rule as before the guard, on the clock NOW: a slow guard must not carry a retry past the provider's idempotency window (the provider could then treat the same key as new and send a second mail).
+        if (row.FirstAttemptAtUtc is { } firstAttempt && now + timeout > firstAttempt + window)
+        {
+            await FinishAsync(claim, EmailOutboxDelivery.StatusNeedsReconciliation, "window-expired", ct);
+            return true;
+        }
+
         var from = row.PinnedFrom ?? identity.From;
         var pinned = await PinAsync(claim, identity.Fingerprint, from, now, ct);
         if (!pinned) return true; // The claim is no longer ours (the lease ran out): nothing is sent.
