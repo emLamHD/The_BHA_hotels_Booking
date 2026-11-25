@@ -1,6 +1,6 @@
 # Runbook — Transactional e-mail outbox (BHA-CHECKOUT-001-PR03)
 
-What an operator needs to know. **Nothing here is switched on by this PR: no booking handler, no booking template and no code path that queues a booking e-mail exists yet** (PR05 writes the events, PR04 supplies the Staff list, PR07 owns the templates and handlers). The provider (Resend) is a technical choice of PR03, not a locked production provider.
+What an operator needs to know. **Nothing here is switched on by this PR** (PR05 writes the events, PR04 supplies the Staff list; PR07 added the booking handler and templates, off by default: see `BHA-CHECKOUT-001-booking-confirmation-email.md`, which also lists the per-purpose pre-send guard the dispatcher gained). The provider (Resend) is a technical choice of PR03, not a locked production provider.
 
 ## How a mail travels
 

@@ -130,6 +130,21 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton(new TheBha.Infrastructure.Persistence.Notifications.BookingNotificationChain(bookingNotifications.Validate()));
         services.AddScoped<TheBha.Application.Notifications.IBookingNotificationRecipients, TheBha.Infrastructure.Persistence.Notifications.BookingNotificationRecipientResolver>();
         services.AddScoped<TheBha.Application.Notifications.IAdminBookingNotifications, TheBha.Infrastructure.Persistence.Notifications.AdminBookingNotificationService>();
+        // BHA-CHECKOUT-001-PR07: the booking-confirmation mails. The pre-send guards are always registered (a delivery queued earlier is still re-checked after the feature is switched off). The handler and the templates exist
+        // only when the feature is on, the Customer_Web origin is valid AND the provider is configured: otherwise ReservationConfirmed has no handler, so it stays Pending, spends no attempt and issues no link.
+        var bookingConfirmation = configuration.GetSection(TheBha.Application.Notifications.BookingConfirmationEmailOptions.SectionName).Get<TheBha.Application.Notifications.BookingConfirmationEmailOptions>() ?? new TheBha.Application.Notifications.BookingConfirmationEmailOptions();
+        bookingConfirmation.CustomerWebOrigin = bookingConfirmation.NormalizedOrigin(); // throws on a malformed origin, at start-up
+        services.AddSingleton(bookingConfirmation);
+        services.AddScoped<TheBha.Application.Notifications.IEmailDeliveryPreSendGuard, TheBha.Infrastructure.Persistence.Notifications.StaffRecipientStillEligibleGuard>();
+        services.AddScoped<TheBha.Application.Notifications.IEmailDeliveryPreSendGuard, TheBha.Infrastructure.Persistence.Notifications.GuestLinkStillValidGuard>();
+        services.AddScoped<TheBha.Application.Notifications.IEmailDeliveryPreSendGuard, TheBha.Infrastructure.Persistence.Notifications.AccountReservationStillConfirmedGuard>();
+        if (bookingConfirmation.IsActive(emailOutbox))
+        {
+            services.AddSingleton<TheBha.Application.Notifications.IEmailTemplate, TheBha.Application.Notifications.BookingGuestEmailTemplate>();
+            services.AddSingleton<TheBha.Application.Notifications.IEmailTemplate, TheBha.Application.Notifications.BookingAccountEmailTemplate>();
+            services.AddSingleton<TheBha.Application.Notifications.IEmailTemplate, TheBha.Application.Notifications.BookingStaffEmailTemplate>();
+            services.AddScoped<TheBha.Application.Notifications.IEmailOutboxEventHandler, TheBha.Infrastructure.Persistence.Notifications.BookingConfirmationEmailHandler>();
+        }
         services.AddScoped<DevelopmentDataSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.RiversideDemoSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.PromotionDemoSeeder>();

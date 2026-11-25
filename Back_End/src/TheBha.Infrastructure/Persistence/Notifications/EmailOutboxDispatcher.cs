@@ -32,11 +32,12 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
     private readonly EmailTemplateRenderer _renderer;
     private readonly EmailOutboxProtector _protector;
     private readonly IEmailTransport _transport;
+    private readonly IReadOnlyList<IEmailDeliveryPreSendGuard> _guards;
     private readonly ILogger<EmailOutboxDispatcher> _logger;
 
     public EmailOutboxDispatcher(
         TheBhaDbContext database, TimeProvider clock, EmailOutboxOptions options, IEnumerable<IEmailOutboxEventHandler> handlers, EmailTemplateRenderer renderer,
-        EmailOutboxProtector protector, IEmailTransport transport, ILogger<EmailOutboxDispatcher> logger)
+        EmailOutboxProtector protector, IEmailTransport transport, IEnumerable<IEmailDeliveryPreSendGuard> guards, ILogger<EmailOutboxDispatcher> logger)
     {
         _database = database;
         _clock = clock;
@@ -45,6 +46,7 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         _renderer = renderer;
         _protector = protector;
         _transport = transport;
+        _guards = guards.ToList();
         _logger = logger;
         var duplicate = _handlers.GroupBy(handler => (handler.EventType, handler.SchemaVersion)).FirstOrDefault(group => group.Count() > 1);
         if (duplicate is not null) throw new InvalidOperationException($"Two e-mail outbox handlers are registered for '{duplicate.Key.EventType}' v{duplicate.Key.SchemaVersion}.");
@@ -110,8 +112,10 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         {
             await transaction.RollbackAsync(ct);
             _database.ChangeTracker.Clear();
-            await CountFanoutFailureAsync(id, now, ct);
-            _logger.LogWarning("E-mail outbox event {EventId} could not be fanned out ({Reason}).", id, handlerFailure.GetType().Name);
+            // A handler's own refusal names a fixed safe code; anything else is the generic one and only its type is logged.
+            var outcome = handlerFailure is EmailOutboxEventRejectedException rejected ? rejected.Code : "handler-error";
+            await CountFanoutFailureAsync(id, now, outcome, ct);
+            _logger.LogWarning("E-mail outbox event {EventId} could not be fanned out ({Reason}).", id, handlerFailure is EmailOutboxEventRejectedException ? outcome : handlerFailure.GetType().Name);
             return true;
         }
 
@@ -163,7 +167,7 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         return result;
     }
 
-    private async Task CountFanoutFailureAsync(Guid id, DateTimeOffset now, CancellationToken ct)
+    private async Task CountFanoutFailureAsync(Guid id, DateTimeOffset now, string outcome, CancellationToken ct)
     {
         // The backoff is worked out here, not in SQL: the row is Pending and fenced by the attempt count it was read with.
         var attempts = await _database.EmailOutboxEvents.AsNoTracking().Where(e => e.Id == id && e.Status == EmailOutboxEvent.StatusPending).Select(e => (int?)e.FanoutAttempts).SingleOrDefaultAsync(ct);
@@ -171,7 +175,7 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         var status = before + 1 >= _options.FanoutMaxAttempts ? EmailOutboxEvent.StatusFailed : EmailOutboxEvent.StatusPending;
         var next = now + EmailRetryPolicy.Delay(before + 1, null, _options);
         await _database.EmailOutboxEvents.Where(e => e.Id == id && e.Status == EmailOutboxEvent.StatusPending && e.FanoutAttempts == before).ExecuteUpdateAsync(
-            set => set.SetProperty(e => e.FanoutAttempts, before + 1).SetProperty(e => e.Status, status).SetProperty(e => e.LastOutcome, "handler-error").SetProperty(e => e.NextAttemptAtUtc, next), ct);
+            set => set.SetProperty(e => e.FanoutAttempts, before + 1).SetProperty(e => e.Status, status).SetProperty(e => e.LastOutcome, outcome).SetProperty(e => e.NextAttemptAtUtc, next), ct);
     }
 
     // ---------------------------------------------------------------- send
@@ -218,9 +222,58 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
             return true;
         }
 
+        // The last check of this purpose's guard, on every attempt, before anything is pinned or sent. A stop is final: Failed when no earlier attempt can have reached the provider, otherwise NeedsReconciliation.
+        EmailPreSendVerdict? approved = null;
+        if (_guards.FirstOrDefault(guard => guard.Purpose == row.Purpose) is { } purposeGuard)
+        {
+            EmailPreSendVerdict verdict;
+            try
+            {
+                verdict = await purposeGuard.CheckAsync(new EmailPreSendContext(row.Id, row.EventId, row.PropertyId, row.Purpose, row.RecipientKey, recipient, row.CreatedAtUtc, now, timeout), ct);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The check could not be made (a database fault): nothing is sent, the attempt is given back.
+                _logger.LogWarning("E-mail delivery {DeliveryId} could not be checked before sending ({Reason}).", row.Id, exception.GetType().Name);
+                await GiveBackAsync(claim, "guard-unavailable", ct);
+                return true;
+            }
+
+            if (!verdict.Allow)
+            {
+                await FinishAsync(claim, row.UncertainSend ? EmailOutboxDelivery.StatusNeedsReconciliation : EmailOutboxDelivery.StatusFailed, verdict.Code, ct);
+                return true;
+            }
+
+            approved = verdict;
+        }
+
+        // The guard may have taken a while (a database read): the lease and the first-attempt time are judged on the clock NOW, not on the instant before the guard. If the lease ran out meanwhile the pin below fails and nothing is sent.
+        now = _clock.GetUtcNow();
+
+        // The same window rule as before the guard, on the clock NOW: a slow guard must not carry a retry past the provider's idempotency window (the provider could then treat the same key as new and send a second mail).
+        if (row.FirstAttemptAtUtc is { } firstAttempt && now + timeout > firstAttempt + window)
+        {
+            await FinishAsync(claim, EmailOutboxDelivery.StatusNeedsReconciliation, "window-expired", ct);
+            return true;
+        }
+
         var from = row.PinnedFrom ?? identity.From;
+        // Pinning renews the lease to a full LeaseSeconds (the host validates it exceeds the call timeout by 15 s) while this claim token still owns an unexpired lease, so a slow guard cannot leave less lease than the call needs and
+        // cannot make another worker reclaim mid-call. If the lease is already lost, nothing is sent and the attempt (spent by the claim) is returned, but only if this claim still owns the row: a worker that reclaimed it keeps its own attempt.
         var pinned = await PinAsync(claim, identity.Fingerprint, from, now, ct);
-        if (!pinned) return true; // The claim is no longer ours (the lease ran out): nothing is sent.
+        if (!pinned)
+        {
+            await GiveBackAsync(claim, "lease-lost", ct, TimeSpan.FromSeconds(_options.RetryBaseSeconds));
+            return true;
+        }
+
+        // A deadline the guard set (a guest link's life) is enforced on a fresh clock right before the provider call: a slow guard or a slow pin cannot spend its margin. Nothing was sent by this attempt, so the stop maps like a guard stop.
+        if (approved?.MustFinishBefore is { } mustFinishBefore && _clock.GetUtcNow() + timeout >= mustFinishBefore)
+        {
+            await FinishAsync(claim, row.UncertainSend ? EmailOutboxDelivery.StatusNeedsReconciliation : EmailOutboxDelivery.StatusFailed, approved.LateCode ?? "deadline-passed", ct);
+            return true;
+        }
 
         var message = JsonDocument.Parse(messageJson).RootElement;
         // No transaction is open here: the claim was committed before this call and nothing is held while the provider answers.
@@ -272,11 +325,17 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         return rows.Count == 0 ? null : new Held(rows[0].Item1, claimId, rows[0].Item2);
     }
 
-    /// <summary>The first-attempt time, the pinned account and the pinned sender, written together, only while the claim is ours and its lease is alive, and before the provider is called.</summary>
-    private async Task<bool> PinAsync(Held held, string fingerprint, string from, DateTimeOffset now, CancellationToken ct) =>
-        await Owned(held).Where(d => d.LeaseUntilUtc > now).ExecuteUpdateAsync(
+    /// <summary>
+    /// The first-attempt time, the pinned account and the pinned sender, written together, and the lease renewed to a full <c>LeaseSeconds</c> from <paramref name="now"/>, only while the claim is ours and its lease has not
+    /// expired, and before the provider is called.
+    /// </summary>
+    private async Task<bool> PinAsync(Held held, string fingerprint, string from, DateTimeOffset now, CancellationToken ct)
+    {
+        var renewedLease = now.AddSeconds(_options.LeaseSeconds);
+        return await Owned(held).Where(d => d.LeaseUntilUtc > now).ExecuteUpdateAsync(
             set => set.SetProperty(d => d.FirstAttemptAtUtc, d => d.FirstAttemptAtUtc ?? now).SetProperty(d => d.PinnedFingerprint, d => d.PinnedFingerprint ?? fingerprint)
-                .SetProperty(d => d.PinnedFrom, d => d.PinnedFrom ?? from).SetProperty(d => d.LastAttemptAtUtc, (DateTimeOffset?)now), ct) == 1;
+                .SetProperty(d => d.PinnedFrom, d => d.PinnedFrom ?? from).SetProperty(d => d.LastAttemptAtUtc, (DateTimeOffset?)now).SetProperty(d => d.LeaseUntilUtc, (DateTimeOffset?)renewedLease), ct) == 1;
+    }
 
     private async Task AcceptAsync(Held held, string providerMessageId, CancellationToken ct)
     {
@@ -301,9 +360,9 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
         uncertain ? FinishAsync(held, EmailOutboxDelivery.StatusNeedsReconciliation, "uncertain", ct) : FinishAsync(held, EmailOutboxDelivery.StatusFailed, "gave-up", ct);
 
     /// <summary>Nothing was processed by the provider and the fault is not the message's: the attempt is returned and the delivery waits the longest backoff.</summary>
-    private async Task GiveBackAsync(Held held, string outcome, CancellationToken ct)
+    private async Task GiveBackAsync(Held held, string outcome, CancellationToken ct, TimeSpan? delay = null)
     {
-        var next = _clock.GetUtcNow().AddSeconds(_options.RetryMaxSeconds);
+        var next = _clock.GetUtcNow() + (delay ?? TimeSpan.FromSeconds(_options.RetryMaxSeconds));
         await Owned(held).ExecuteUpdateAsync(
             set => set.SetProperty(d => d.Status, EmailOutboxDelivery.StatusPending).SetProperty(d => d.Attempts, d => d.Attempts - 1).SetProperty(d => d.LastOutcome, outcome)
                 .SetProperty(d => d.NextAttemptAtUtc, next).SetProperty(d => d.LeaseUntilUtc, (DateTimeOffset?)null).SetProperty(d => d.ClaimId, (Guid?)null), ct);
@@ -327,12 +386,13 @@ internal sealed class EmailOutboxDispatcher : IEmailOutboxDispatcher
 }
 
 /// <summary>The host's timer for the dispatcher. Off unless <c>Email:Outbox:WorkerEnabled</c> is true (and the dispatcher itself is off unless <c>DispatchEnabled</c> is true): every test host starts with both off.</summary>
-internal sealed class EmailOutboxWorker(IServiceScopeFactory scopes, EmailOutboxOptions options, ILogger<EmailOutboxWorker> logger) : BackgroundService
+internal sealed class EmailOutboxWorker(IServiceScopeFactory scopes, EmailOutboxOptions options, BookingConfirmationEmailOptions booking, ILogger<EmailOutboxWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!options.WorkerEnabled) return;
         if (!options.DispatchEnabled || !options.Resend.IsConfigured) logger.LogWarning("The e-mail outbox timer is on but dispatch is off or the provider is not configured: queued mail waits.");
+        if (booking.Enabled && !booking.IsActive(options)) logger.LogWarning("Booking confirmation e-mails are enabled but need a Customer_Web https origin and a configured provider: booking events stay queued.");
         var delay = TimeSpan.FromSeconds(options.WorkerPollSeconds);
         while (!stoppingToken.IsCancellationRequested)
         {
