@@ -71,12 +71,13 @@ describe("a POST that waits for its CSRF token when the view changes (PR09-C5 P2
     const token = new Promise((resolve) => { release = resolve; });
     // Like the API: a guest has no management session until the exchange succeeded, and says so (PR09-C8: the page asks before it spends the link).
     let session = !options.guestWithoutSession;
-    let account = false; // a signed-in account reads its own booking without a management session
+    let account: "none" | "owner" | "stranger" = "none"; // "owner" reads its own booking; "stranger" is signed in but has no access yet (the API answers 404 reservation.not-found)
     let expiredCookie = false; // the browser still carries a customer cookie that no longer validates
     apiGetMock.mockImplementation(async (path: string) => {
       if (path !== MANAGE_PATH) return token;
       if (expiredCookie) throw new ApiHttpError(401, { title: "t", status: 401, code: "auth.session-invalid" });
-      if (!session && !account) throw new ApiHttpError(401, { title: "t", status: 401, code: "reservation.manage-session-invalid" });
+      if (account === "stranger" && !session) throw new ApiHttpError(404, { title: "t", status: 404, code: "reservation.not-found" });
+      if (!session && account !== "owner") throw new ApiHttpError(401, { title: "t", status: 401, code: "reservation.manage-session-invalid" });
       return DTO;
     });
     apiUnsafeRequestMock.mockImplementation(async (path: string) => (path === EXCHANGE ? (session = true, { status: 200, data: { reservationId: ID, expiresAtUtc: "x" } }) : { status: 200, data: SAVED }));
@@ -90,7 +91,7 @@ describe("a POST that waits for its CSRF token when the view changes (PR09-C5 P2
     return {
       controller,
       releaseToken: () => release(TOKEN),
-      signInAccount: () => { account = true; },
+      signInAccount: (as: "owner" | "stranger" = "owner") => { account = as; },
       loseSession: () => { session = false; },
       setExpiredCookie: (value: boolean) => { expiredCookie = value; },
       get state() { return controller.getState(); },
@@ -178,6 +179,7 @@ describe("a POST that waits for its CSRF token when the view changes (PR09-C5 P2
     await vi.waitFor(() => expect(r.state).toMatchObject({ bound: OWNER, phase: "ready" }));
     expect(JSON.stringify(r.state)).not.toContain(SECRET);
 
+    r.signInAccount("stranger"); // a signed-in account with no access yet: the API says 404 reservation.not-found, and only then is the link exchanged
     r.controller.openLink({ kind: "token", token: SECRET });
     await vi.waitFor(() => expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(1));
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
@@ -224,5 +226,27 @@ describe("a POST that waits for its CSRF token when the view changes (PR09-C5 P2
     await flush();
     expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
     expect(calls(apiGetMock, CSRF)).toBe(0);
+  });
+
+  it("PR09-C9: a signed-in visitor who can already read the booking: shown, 0 exchange POSTs, the CSRF token is not requested; a signed-in account with no access yet (404): exactly one POST", async () => {
+    const owner = rig({ guestWithoutSession: true });
+    owner.releaseToken();
+    owner.signInAccount("owner");
+    owner.controller.offerLink({ kind: "token", token: SECRET });
+    owner.controller.bind(OWNER);
+    await vi.waitFor(() => expect(owner.state).toMatchObject({ phase: "ready", bound: OWNER }));
+    await flush();
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+    expect(calls(apiGetMock, CSRF)).toBe(0);
+
+    apiGetMock.mockReset(); apiUnsafeRequestMock.mockReset();
+    const stranger = rig({ guestWithoutSession: true });
+    stranger.releaseToken();
+    stranger.signInAccount("stranger");
+    stranger.controller.offerLink({ kind: "token", token: SECRET });
+    stranger.controller.bind(OWNER);
+    await vi.waitFor(() => expect(stranger.state).toMatchObject({ phase: "ready", bound: OWNER }));
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(1);
+    expect(apiUnsafeRequestMock.mock.calls.find((c) => c[0] === EXCHANGE)?.[2]).toEqual({ token: SECRET });
   });
 });

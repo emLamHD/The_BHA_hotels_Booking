@@ -62,6 +62,7 @@ const Releaser = ({ armed, onArm }: { armed: boolean; onArm: () => void }) => {
 
 let dom: MiniDom;
 let releaseToken: () => void;
+let stranger = false; // a signed-in account that neither owns the booking nor holds a management session: the API answers 404 reservation.not-found
 let expiredCookie = false; // the browser still carries a customer cookie that no longer validates: the API answers auth.session-invalid
 let granted = false; // the fixture server has issued a management session (an exchange succeeded)
 let released = false; // the layout effect really released the token (a "0 POSTs" result must not come from a token that never arrived)
@@ -75,11 +76,13 @@ beforeEach(() => {
   released = false;
   granted = false;
   expiredCookie = false;
+  stranger = false;
   const token = new Promise<{ token: string; headerName: string }>((resolve) => { releaseToken = () => resolve({ token: "t", headerName: "X-CSRF-TOKEN" }); });
   // Like the API: a signed-in account reads its own booking; a guest needs a management session, which only the exchange creates (PR09-C8: the page asks before it spends the link).
   apiGetMock.mockImplementation(async (path: string) => {
     if (path === CSRF) return token;
     if (expiredCookie) throw new ApiHttpError(401, { title: "t", status: 401, code: "auth.session-invalid" });
+    if (stranger && !granted) throw new ApiHttpError(404, { title: "t", status: 404, code: "reservation.not-found" });
     if (!granted && hash !== "" && session.status !== "authenticated") throw new ApiHttpError(401, { title: "t", status: 401, code: "reservation.manage-session-invalid" });
     return DTO;
   });
@@ -299,5 +302,25 @@ describe("the sign-in link of the error screen (PR09-C8 P3)", () => {
     dom.render(tree({ page: true, armed: false }));
     await vi.waitFor(() => expect(dom.html()).toContain('data-failure="no-access"'));
     expect(dom.html()).toContain(`href="/login?returnTo=/reservations/${ID}/manage"`);
+  });
+});
+
+describe("a signed-in visitor opening a guest link on the mounted page (PR09-C9)", () => {
+  it("who can already read the booking: it is shown, 0 exchange POSTs, no CSRF request", async () => {
+    session = OWNER;
+    dom.render(tree({ page: true, armed: false }));
+    await vi.waitFor(() => expect(dom.html()).toContain("BHA-1"));
+    await flush();
+    expect(posts(EXCHANGE)).toBe(0);
+    expect(gets(CSRF)).toBe(0);
+  });
+
+  it("with no access yet (404 reservation.not-found): exactly one exchange POST, then the booking", async () => {
+    session = OWNER;
+    stranger = true;
+    releaseToken();
+    dom.render(tree({ page: true, armed: false }));
+    await vi.waitFor(() => expect(dom.html()).toContain("BHA-1"));
+    expect(posts(EXCHANGE)).toBe(1);
   });
 });

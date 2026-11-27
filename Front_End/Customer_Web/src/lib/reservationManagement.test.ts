@@ -39,12 +39,13 @@ function rig() {
   // A guest who opened a link has no management session until an exchange succeeded: the page's read before the exchange (PR09-C8) is answered like the API does.
   let linkOpen = false;
   let exchanged = false;
+  let boundKey: string | null = null; // who the page is verified as: a guest is answered 401, a signed-in account that has no access yet is answered 404 (PR09-C9)
   const exchange = vi.fn<[string, string, (() => boolean)?], Promise<void>>().mockImplementation(async () => { exchanged = true; });
   const whenExchangeSettled = vi.fn<[string], Promise<void>>().mockResolvedValue(undefined);
   const signals: AbortSignal[] = [];
   const read = vi.fn<[string, AbortSignal], Promise<ManagedReservation>>().mockImplementation(async (id, signal) => {
     signals.push(signal);
-    if (linkOpen && !exchanged) throw problem(401, "reservation.manage-session-invalid");
+    if (linkOpen && !exchanged) throw boundKey?.startsWith("customer:") ? problem(404, "reservation.not-found") : problem(401, "reservation.manage-session-invalid");
     return { ...RES, reservationId: id };
   });
   const update = vi.fn<[string, { arrivalDate: string; arrivalTime: string }], Promise<ManagedReservation>>();
@@ -52,6 +53,8 @@ function rig() {
   const controller = createReservationManagementController({ exchange, whenExchangeSettled, read, update, requestSessionRefresh });
   const offerLink = controller.offerLink;
   const openLink = controller.openLink;
+  const bind = controller.bind;
+  controller.bind = (context) => { boundKey = context.identityKey; bind(context); };
   controller.offerLink = (offer) => { if (offer.kind === "token") linkOpen = true; offerLink(offer); };
   controller.openLink = (offer) => { if (offer.kind === "token") linkOpen = true; openLink(offer); };
   const grantSession = () => { exchanged = true; }; // the server set the management cookie (even if the answer to the exchange was lost)
@@ -1295,14 +1298,15 @@ describe("PR09-C6 P3: one recovery read after the same signed-in account is veri
   it("a link that was exchanged for the first view is not exchanged again by the recovery read", async () => {
     const r = rig();
     r.controller.offerLink({ kind: "token", token: SECRET });
-    r.read.mockRejectedValueOnce(invalid());
+    // the account has no access yet (404): the link is exchanged; the read after it is refused (the customer cookie is invalid); then the recovery read
+    r.read.mockRejectedValueOnce(problem(404, "reservation.not-found")).mockRejectedValueOnce(invalid());
     r.controller.bind(OWNER);
     await refused(r);
     expect(r.exchange).toHaveBeenCalledTimes(1);
     reverify(r);
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.exchange).toHaveBeenCalledTimes(1);
-    expect(r.read).toHaveBeenCalledTimes(2);
+    expect(r.read).toHaveBeenCalledTimes(3);
   });
 
   it("a binding that was superseded before it started does not use up the single recovery read", async () => {
@@ -1388,6 +1392,7 @@ describe("PR09-C7: a link the visitor opens on purpose is not held back by the s
   const OWNER: ManageContext = { reservationId: ID, identityKey: "customer:aaaa" };
   const SECRET_2 = "Yq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwxyz";
   const invalid = () => problem(401, "auth.session-invalid");
+  const notFound = () => problem(404, "reservation.not-found"); // what the API answers a signed-in account that neither owns the booking nor holds a management session
   const refused = (r: ReturnType<typeof rig>) => vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "session-invalid" }));
   const reverify = (r: ReturnType<typeof rig>) => { r.controller.bind(LOADING_CTX); r.controller.bind(OWNER); };
   /** The recovery allowance is used up: the first read and the recovery read were both refused, and a further recheck started nothing. */
@@ -1410,12 +1415,12 @@ describe("PR09-C7: a link the visitor opens on purpose is not held back by the s
   it("a valid link opened now: exactly one exchange POST, then the booking is read once access is back", async () => {
     const r = await exhausted();
     r.read.mockReset();
-    r.read.mockResolvedValue(RES); // the customer cookie was repaired in another tab
+    r.read.mockRejectedValueOnce(notFound()).mockResolvedValue(RES); // the customer cookie was repaired in another tab: the account has no access yet (404), then it has
     r.controller.openLink({ kind: "token", token: SECRET });
     await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: OWNER }));
     expect(r.exchange).toHaveBeenCalledTimes(1);
     expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function));
-    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(2); // the read before the exchange (PR09-C9) and the read after it
     expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1); // no refresh was asked for
     expect(JSON.stringify(r.state)).not.toContain(SECRET);
   });
@@ -1423,9 +1428,9 @@ describe("PR09-C7: a link the visitor opens on purpose is not held back by the s
   it("the exchange succeeds but the read is still refused: the error stays, no refresh, no loop, and the limit is not reset by the paste", async () => {
     const r = await exhausted();
     r.read.mockReset();
-    r.read.mockRejectedValue(invalid());
+    r.read.mockRejectedValueOnce(notFound()).mockRejectedValue(invalid());
     r.controller.openLink({ kind: "token", token: SECRET });
-    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
     await refused(r);
     await tick();
     expect(r.exchange).toHaveBeenCalledTimes(1);
@@ -1434,7 +1439,7 @@ describe("PR09-C7: a link the visitor opens on purpose is not held back by the s
     await tick();
     reverify(r);
     await tick();
-    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(2);
     expect(r.exchange).toHaveBeenCalledTimes(1);
     expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
     expect(r.state).toMatchObject({ phase: "failed", failure: "session-invalid", reservation: null });
@@ -1456,7 +1461,7 @@ describe("PR09-C7: a link the visitor opens on purpose is not held back by the s
   it("the link is spent by the paste, not kept for a later start: no exchange from a recheck that follows", async () => {
     const r = await exhausted();
     r.read.mockReset();
-    r.read.mockRejectedValue(invalid());
+    r.read.mockRejectedValueOnce(notFound()).mockRejectedValue(invalid());
     r.controller.openLink({ kind: "token", token: SECRET });
     await refused(r);
     for (let i = 0; i < 3; i += 1) { reverify(r); await tick(); }
@@ -1466,7 +1471,7 @@ describe("PR09-C7: a link the visitor opens on purpose is not held back by the s
   it("no parallel exchange: a second paste while the first exchange is out sends nothing more", async () => {
     const r = await exhausted();
     r.read.mockReset();
-    r.read.mockResolvedValue(RES);
+    r.read.mockRejectedValueOnce(notFound()).mockResolvedValue(RES);
     const out = deferred<void>();
     r.exchange.mockReturnValueOnce(out.promise);
     r.controller.openLink({ kind: "token", token: SECRET });
@@ -1490,23 +1495,23 @@ describe("PR09-C7: a link the visitor opens on purpose is not held back by the s
       await vi.waitFor(() => expect(r.state.phase).toBe("failed"));
       expect(r.state.failure).not.toBe("session-invalid");
       expect(r.exchange).toHaveBeenCalledTimes(1);
-      expect(r.read).toHaveBeenCalledTimes(1); // no read followed the failed exchange
-      r.read.mockResolvedValueOnce(RES); // the account's own read (an account is not a guest: the fake guest-session rule does not apply)
+      expect(r.read).toHaveBeenCalledTimes(2); // the read before the exchange (PR09-C9); none followed the failed exchange
+      r.read.mockResolvedValueOnce(RES); // the account's own recovery read
       reverify(r);
       await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
-      expect(r.read).toHaveBeenCalledTimes(2); // exactly the one recovery GET
+      expect(r.read).toHaveBeenCalledTimes(3); // exactly the one recovery GET
       expect(r.exchange).toHaveBeenCalledTimes(1);
     }
   });
 
   it("with the allowance still available (the first refusal, no recheck yet) a pasted link is exchanged once and its refused read starts no second refresh", async () => {
     const r = rig();
-    r.read.mockRejectedValue(invalid());
+    r.read.mockRejectedValueOnce(invalid()).mockRejectedValueOnce(notFound()).mockRejectedValue(invalid());
     r.controller.bind(OWNER);
     await refused(r);
     expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
     r.controller.openLink({ kind: "token", token: SECRET });
-    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(3));
     await refused(r);
     await tick();
     expect(r.exchange).toHaveBeenCalledTimes(1);
@@ -1613,13 +1618,12 @@ describe("PR09-C8 P2: a guest's link is read-checked before it is spent", () => 
     expect(r.exchange).not.toHaveBeenCalled();
   });
 
-  it("an account (not a guest) keeps its flow: no read before the link, the exchange as before", async () => {
-    const r = rig();
-    r.read.mockResolvedValue(RES);
+  it("an account that has no access yet (404 reservation.not-found): the link is exchanged once, then the booking is read (PR09-C9)", async () => {
+    const r = rig(); // the rig answers a signed-in account 404 reservation.not-found until the exchange succeeded
     open(r, OWNER);
     await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: OWNER }));
     expect(r.exchange).toHaveBeenCalledTimes(1);
-    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(2);
   });
 
   it("after the expired-cookie guidance, the cookie is gone and the visitor opens the link again in the same tab: one read, one exchange, the booking", async () => {
@@ -1640,5 +1644,111 @@ describe("PR09-C8 P2: a guest's link is read-checked before it is spent", () => 
     await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "link-invalid" }));
     expect(r.exchange).not.toHaveBeenCalled();
     expect(r.read).not.toHaveBeenCalled();
+  });
+});
+
+describe("PR09-C9: the read before an exchange covers every identity, and only the API's own 'no access yet' lets a link be exchanged", () => {
+  const ACCOUNT: ManageContext = { reservationId: ID, identityKey: "customer:aaaa" };
+  const strangerNotFound = () => problem(404, "reservation.not-found");
+  const open = (r: ReturnType<typeof rig>, ctx: ManageContext) => { r.controller.offerLink({ kind: "token", token: SECRET }); r.controller.bind(ctx); };
+
+  it("a signed-in visitor who can already read the booking (the owner, or an account that also holds its management cookie): shown, 0 POSTs, the link is not spent, whether it is used or fresh", async () => {
+    const r = rig();
+    r.read.mockResolvedValue(RES);
+    open(r, ACCOUNT);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: ACCOUNT }));
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(r.state)).not.toContain(SECRET);
+    // the same link pasted again in this tab: the read answers 200 again, so nothing is posted (the link was not spent by the first open either)
+    r.controller.openLink({ kind: "token", token: SECRET });
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.state).toMatchObject({ phase: "ready", bound: ACCOUNT });
+  });
+
+  it("a signed-in account with no access yet (404 reservation.not-found): exactly one POST for this open, then the booking; the read comes first", async () => {
+    const r = rig(); // the rig answers a signed-in account 404 reservation.not-found until the exchange succeeded
+    open(r, ACCOUNT);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: ACCOUNT }));
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(2);
+    expect(r.read.mock.invocationCallOrder[0]).toBeLessThan(r.exchange.mock.invocationCallOrder[0]);
+    expect(r.exchange.mock.invocationCallOrder[0]).toBeLessThan(r.read.mock.invocationCallOrder[1]);
+  });
+
+  it("the guest and account rules are exact: a 404 does not let a guest's link go, and a guest's 401 does not let an account's", async () => {
+    const guest = rig();
+    guest.read.mockRejectedValue(strangerNotFound()); // a guest is never answered 404 by the API
+    open(guest, GUEST);
+    await vi.waitFor(() => expect(guest.state).toMatchObject({ phase: "failed", failure: "no-access" }));
+    expect(guest.exchange).not.toHaveBeenCalled();
+    const account = rig();
+    account.read.mockRejectedValue(problem(401, "reservation.manage-session-invalid")); // an account is never answered this by the API
+    open(account, ACCOUNT);
+    await vi.waitFor(() => expect(account.state).toMatchObject({ phase: "failed", failure: "no-access" }));
+    expect(account.exchange).not.toHaveBeenCalled();
+  });
+
+  for (const [name, error, failure] of [
+    ["a 404 that is not reservation.not-found", problem(404, "something.else"), "no-access"],
+    ["a 404 without a code", problem(404), "no-access"],
+    ["a 403", problem(403), "no-access"],
+    ["the customer cookie no longer validates", problem(401, "auth.session-invalid"), "link-session-expired"],
+    ["429", problem(429, "booking.rate-limited"), "link-rate-limited"],
+    ["a lost answer (network)", new ApiNetworkError(), "link-not-sent"],
+    ["a 5xx", problem(503), "link-not-sent"],
+    ["an unusable 2xx", new ManagementContractError(), "link-not-sent"],
+  ] as const) {
+    it(`a signed-in account whose read ends in ${name}: this open stops, 0 POSTs, and nothing is exchanged later`, async () => {
+      const r = rig();
+      r.read.mockRejectedValue(error);
+      open(r, ACCOUNT);
+      await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure }));
+      expect(r.exchange).not.toHaveBeenCalled();
+      expect(JSON.stringify(r.state)).not.toContain(SECRET);
+      r.controller.bind(LOADING_CTX); // an automatic recheck is a read, never an exchange
+      r.controller.bind(ACCOUNT);
+      await tick();
+      expect(r.exchange).not.toHaveBeenCalled();
+    });
+  }
+
+  it("no link, a malformed link and an automatic recheck never exchange, for an account", async () => {
+    const r = rig();
+    r.controller.bind(ACCOUNT); // a clean address: a read only
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    r.controller.openLink({ kind: "none" });
+    r.controller.openLink({ kind: "malformed" });
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "link-invalid" }));
+    r.controller.bind(LOADING_CTX);
+    r.controller.bind(ACCOUNT);
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("the view changes while the account's read is out: the old answer is dropped, so no exchange of the old view is sent", async () => {
+    const r = rig();
+    const held = deferred<ManagedReservation>();
+    r.read.mockImplementationOnce(() => held.promise);
+    open(r, ACCOUNT);
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(1));
+    r.controller.bind({ reservationId: ID, identityKey: "customer:bbbb" });
+    held.reject(strangerNotFound());
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("a wrong link (the API refuses the exchange) grants nothing: link-invalid, no booking, and no second POST", async () => {
+    const r = rig();
+    r.exchange.mockRejectedValue(problem(401, "reservation.manage-link-invalid"));
+    open(r, ACCOUNT);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "link-invalid", reservation: null }));
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    r.controller.bind(LOADING_CTX);
+    r.controller.bind(ACCOUNT);
+    await tick();
+    expect(r.exchange).toHaveBeenCalledTimes(1);
   });
 });

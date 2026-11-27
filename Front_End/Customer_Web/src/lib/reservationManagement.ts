@@ -134,12 +134,18 @@ export function classifyExchangeError(error: unknown): ManageFailure {
   return "exchange-uncertain";
 }
 
-/** The guest answer of a reservation without a management session (`401 reservation.manage-session-invalid`): the only answer that lets a link be exchanged. */
-function isManageSessionMissing(error: unknown): boolean {
-  return error instanceof ApiHttpError && error.status === 401 && error.problem.code === "reservation.manage-session-invalid";
+/**
+ * The only two refusals of the read before an exchange that let a link be exchanged (PR09-C9), each the API's own "this caller has no access yet": a guest holding no valid
+ * management session of this reservation gets `401 reservation.manage-session-invalid`; a verified account that neither owns the reservation nor holds such a session gets
+ * `404 reservation.not-found` (a guest is never answered 404: the API hides it). Anything else — a 200 included — is not a reason to spend the link.
+ */
+function exchangeMayFollow(error: unknown, identityKey: string): boolean {
+  if (!(error instanceof ApiHttpError)) return false;
+  if (identityKey === "guest") return error.status === 401 && error.problem.code === "reservation.manage-session-invalid";
+  return identityKey.startsWith("customer:") && error.status === 404 && error.problem.code === "reservation.not-found";
 }
 
-/** What a guest link's pre-exchange read that did not answer "no management session" means: the link was not sent, and the page says why. */
+/** What the read before an exchange that was not one of those two refusals means: the link was not sent, and the page says why. */
 function classifyPreflightError(error: unknown): ManageFailure {
   const failure = classifyReadError(error);
   if (failure === "session-invalid") return "link-session-expired"; // an invalid customer cookie is never a guest: the link would be spent for nothing
@@ -364,11 +370,12 @@ export function createReservationManagementController(deps: ReservationManagemen
       await load(at);
       return;
     }
-    if (ctx.identityKey === "guest") {
-      // PR09-C8: before a guest's link is spent, ask the server what this browser may already read (a GET: no secret, the cookies as they are). Only "no management session"
-      // lets the link be exchanged. A readable booking is shown and the link is left unspent. A customer cookie that no longer validates is never a guest, and the exchange
-      // that would follow would spend the link for a booking that still cannot be read: nothing is sent. Any other answer stops this open. The time between this read and the
-      // POST is the limit of this client-side check; the server's own rules are unchanged.
+    {
+      // PR09-C8/C9: before ANY link is spent, ask the server what this browser may already read (a GET: no secret, the cookies as they are). A readable booking — for a guest
+      // with a management session, a signed-in owner, or any account that also holds one — is shown and the link is left unspent, used or fresh. Only the API's "no access yet"
+      // for this identity lets the link be exchanged (`exchangeMayFollow`). A customer cookie that no longer validates is never a guest, and the exchange that would follow would
+      // spend the link for a booking that still cannot be read: nothing is sent. Any other answer stops this open. The time between this read and the POST is the limit of this
+      // client-side check; the server's own rules (and the exchange's own check of the token) are unchanged.
       publish({ ...WAITING, phase: "loading" });
       try {
         const result = await read(at);
@@ -376,7 +383,7 @@ export function createReservationManagementController(deps: ReservationManagemen
         return;
       } catch (error) {
         if (!current(at)) return;
-        if (!isManageSessionMissing(error)) {
+        if (!exchangeMayFollow(error, ctx.identityKey ?? "")) {
           fail(classifyPreflightError(error));
           return;
         }
