@@ -333,11 +333,9 @@ export function createReservationManagementController(deps: ReservationManagemen
           return;
         }
         sessionInvalid.recovery = "used"; // the same account was verified again: this one read is the recovery; no link is exchanged by it
-      } else if (offer.kind === "token") {
-        // A link the visitor opened on purpose (PR09-C7) is not limited: it gets its own single exchange and the read that follows it. That read is not a further recovery:
-        // the allowance is marked used (never reset by a paste), so a refusal of it ends the pass and starts no refresh and no loop. A malformed link leaves the marker alone.
-        sessionInvalid.recovery = "used";
       }
+      // A link the visitor opened on purpose (PR09-C7) is not limited: it gets its own single exchange and, once that succeeded, the read that follows it. That read is
+      // marked as the used allowance below (never reset by a paste). A malformed link, or an exchange that failed, leaves the marker as it was.
     }
     link = { kind: "none" }; // the secret leaves the controller here; it can be sent at most once
     if (offer.kind === "malformed") {
@@ -355,7 +353,10 @@ export function createReservationManagementController(deps: ReservationManagemen
       if (current(at)) fail(classifyExchangeError(error));
       return;
     }
-    if (current(at)) await load(at);
+    if (current(at)) {
+      if (sessionInvalid?.key === keyOf(ctx)) sessionInvalid.recovery = "used"; // the read after a link the visitor opened is the allowance: a refusal of it ends the pass, no refresh, no loop
+      await load(at);
+    }
     // If the view changed while the exchange was out, the new context's own read waits for it (whenExchangeSettled).
   }
 

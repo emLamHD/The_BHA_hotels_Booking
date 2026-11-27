@@ -1465,6 +1465,25 @@ describe("PR09-C7: a link the visitor opens on purpose is not held back by the s
     expect(r.exchange).toHaveBeenCalledTimes(1);
   });
 
+  it("a pasted link whose exchange fails does not use the allowance: after the account is verified again the recovery read still happens", async () => {
+    for (const failure of [problem(429, "booking.rate-limited"), new ApiNetworkError(), new CsrfTokenUnavailableError()]) {
+      const r = rig();
+      r.read.mockRejectedValueOnce(invalid());
+      r.controller.bind(OWNER);
+      await refused(r);
+      r.exchange.mockRejectedValueOnce(failure);
+      r.controller.openLink({ kind: "token", token: SECRET });
+      await vi.waitFor(() => expect(r.state.phase).toBe("failed"));
+      expect(r.state.failure).not.toBe("session-invalid");
+      expect(r.exchange).toHaveBeenCalledTimes(1);
+      expect(r.read).toHaveBeenCalledTimes(1); // no read followed the failed exchange
+      reverify(r);
+      await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+      expect(r.read).toHaveBeenCalledTimes(2); // exactly the one recovery GET
+      expect(r.exchange).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("with the allowance still available (the first refusal, no recheck yet) a pasted link is exchanged once and its refused read starts no second refresh", async () => {
     const r = rig();
     r.read.mockRejectedValue(invalid());
