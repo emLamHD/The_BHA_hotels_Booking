@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import axios from "axios";
 import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
-import { CsrfTokenUnavailableError } from "@/lib/api/csrf";
+import { CsrfTokenUnavailableError, RequestSupersededError } from "@/lib/api/csrf";
 import { ManagementContractError, type ManagedReservation } from "@/lib/api/reservationManagementService";
 import {
   MANAGE,
@@ -95,6 +95,7 @@ describe("classification", () => {
     expect(classifyExchangeError(problem(429, "booking.rate-limited"))).toBe("link-rate-limited");
     expect(classifyExchangeError(problem(400, "auth.csrf-invalid"))).toBe("link-not-sent");
     expect(classifyExchangeError(new CsrfTokenUnavailableError())).toBe("link-not-sent");
+    expect(classifyExchangeError(new RequestSupersededError())).toBe("link-not-sent"); // a joined exchange whose POST was never sent (C5): the link is not spent
     expect(classifyExchangeError(new ApiConfigError("x"))).toBe("config");
     for (const unknown of [new ApiNetworkError(), problem(500), problem(503), problem(404), new ManagementContractError(), new Error("x")]) {
       expect(classifyExchangeError(unknown)).toBe("exchange-uncertain");
