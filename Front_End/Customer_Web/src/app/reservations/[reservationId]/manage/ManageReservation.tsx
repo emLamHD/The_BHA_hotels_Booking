@@ -67,8 +67,10 @@ const ArrivalForm: FC<{ reservation: ManagedReservation; save: SaveState; onSubm
   }, [estimate?.arrivalDate, estimate?.arrivalTime, estimate?.updatedAtUtc, reservation.reservationId]);
 
   const cancelled = reservation.status === "Cancelled";
-  const busy = save.status === "saving" || save.status === "verifying";
-  const locked = cancelled || busy || save.status === "unverified";
+  const checkingRefusal = save.status === "conflict" && save.checking;
+  const busy = save.status === "saving" || save.status === "verifying" || checkingRefusal;
+  const locked = cancelled || busy || save.status === "unverified" || save.status === "conflict";
+  const canCheckAgain = save.status === "unverified" || (save.status === "conflict" && !save.checking);
   const zone = reservation.propertyTimeZoneId;
   const dateId = "manage-eta-date";
   const timeId = "manage-eta-time";
@@ -83,10 +85,9 @@ const ArrivalForm: FC<{ reservation: ManagedReservation; save: SaveState; onSubm
     save.status === "saving" ? t(MANAGE.etaSaving)
     : save.status === "verifying" ? t(MANAGE.etaVerifying)
     : save.status === "saved" ? t(MANAGE.etaSaved)
-    : save.status === "not-saved" ? t(MANAGE.etaNotSaved)
     : save.status === "unverified" ? t(MANAGE.etaUnverified)
     : "";
-  const errorText = save.status === "error" ? (has(save.messageKey) ? t(save.messageKey) : message(save.messageKey)) : "";
+  const errorText = save.status === "error" || save.status === "conflict" ? (has(save.messageKey) ? t(save.messageKey) : message(save.messageKey)) : "";
 
   return (
     <form className="space-y-5" onSubmit={submit} aria-labelledby="manage-eta-title" noValidate>
@@ -115,10 +116,10 @@ const ArrivalForm: FC<{ reservation: ManagedReservation; save: SaveState; onSubm
       </div>
       {errorText && <p role="alert" className="text-sm text-red-600 dark:text-red-400" data-testid="manage-eta-error">{errorText}</p>}
       <div className="flex flex-wrap gap-3">
-        {save.status === "unverified" ? (
+        {canCheckAgain ? (
           <ButtonSecondary type="button" onClick={onCheckAgain}>{t(MANAGE.etaCheckAgain)}</ButtonSecondary>
         ) : (
-          <ButtonPrimary type="submit" disabled={locked} loading={busy}>{busy ? t(MANAGE.etaSaving) : t(MANAGE.etaSave)}</ButtonPrimary>
+          <ButtonPrimary type="submit" disabled={locked} loading={busy}>{busy && !checkingRefusal ? t(MANAGE.etaSaving) : t(MANAGE.etaSave)}</ButtonPrimary>
         )}
       </div>
     </form>

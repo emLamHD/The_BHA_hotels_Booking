@@ -4877,11 +4877,6 @@
    "placeholders": []
   },
   {
-   "key": "customer.manage.eta.notSaved",
-   "scope": "customer",
-   "placeholders": []
-  },
-  {
    "key": "customer.manage.eta.save",
    "scope": "customer",
    "placeholders": []

@@ -35,7 +35,6 @@ export const MANAGE = {
   etaSaving: "customer.manage.eta.saving",
   etaSaved: "customer.manage.eta.saved",
   etaVerifying: "customer.manage.eta.verifying",
-  etaNotSaved: "customer.manage.eta.notSaved",
   etaUnverified: "customer.manage.eta.unverified",
   etaCheckAgain: "customer.manage.eta.checkAgain",
   etaCancelled: "customer.manage.eta.cancelled",
@@ -151,10 +150,13 @@ export type SaveState =
   | { status: "saved" }
   /** A known refusal (text key); the form stays open for the visitor's own correction or retry. */
   | { status: "error"; messageKey: string }
-  /** Verified by a read: the server does not hold the submitted arrival. An explicit retry is offered. */
-  | { status: "not-saved" }
-  /** The read that would settle it failed too: nothing is known; only another read is offered. */
-  | { status: "unverified" };
+  /**
+   * The outcome of a lost update is not established: a read cannot prove the earlier request finished, so a read that shows another value, no value, or
+   * fails is the same "not confirmed". Nothing can be submitted for the rest of this view; only another read ("Check again") is offered.
+   */
+  | { status: "unverified" }
+  /** A 409 was shown and the booking is being read again (`checking`) or that read failed (`!checking`: only another read is offered). Nothing can be submitted. */
+  | { status: "conflict"; messageKey: string; checking: boolean };
 
 export interface ManageContext {
   /** Canonical lowercase id. */
@@ -336,7 +338,7 @@ export function createReservationManagementController(deps: ReservationManagemen
       const reservation = state.reservation;
       const ctx = context;
       if (!ctx || state.phase !== "ready" || !reservation || reservation.status === "Cancelled" || saveLock) return;
-      if (["saving", "verifying", "unverified"].includes(state.save.status)) return;
+      if (["saving", "verifying", "unverified", "conflict"].includes(state.save.status)) return;
       const invalid = validateArrival(input, reservation.checkIn);
       if (invalid) {
         publish({ ...state, save: { status: "error", messageKey: invalid === "date" ? MANAGE.etaInvalidDate : MANAGE.etaInvalidTime } });
@@ -354,15 +356,19 @@ export function createReservationManagementController(deps: ReservationManagemen
           publish({ phase: "ready", failure: null, reservation: updated, save: { status: "saved" } });
         } catch (error) {
           if (!current(at)) return;
-          saveLock = false;
           if (error instanceof ApiHttpError && [400, 409, 429].includes(error.status)) {
-            // A refusal before anything was written: shown, and the visitor decides. A 409 means the reservation is no longer changeable: read it again.
+            // A refusal before anything was written: shown, and the visitor decides. A 409 means the reservation is no longer changeable: it is read again with the form shut.
             const key = error.status === 429 ? "shared.apiError.auth.rate-limited" : error.problem.code ? `shared.apiError.${error.problem.code}` : "shared.apiError.error.unknown";
+            if (error.status === 409) {
+              await refreshAfterRefusal(at, key);
+              return;
+            }
+            saveLock = false;
             publish({ ...state, save: { status: "error", messageKey: key } });
-            if (error.status === 409) void refreshQuietly(at);
             return;
           }
           if (error instanceof ApiHttpError && [401, 403, 404].includes(error.status)) {
+            saveLock = false;
             failRead(error); // access lost: nothing private stays on screen
             return;
           }
@@ -370,9 +376,11 @@ export function createReservationManagementController(deps: ReservationManagemen
         }
       })();
     },
+    // Only ever a READ: it never sends the update again, and a press while a read is out starts nothing.
     verifySave: () => {
-      if (!context || state.phase !== "ready" || !["unverified", "verifying"].includes(state.save.status) || saveLock) return;
-      void settle(epoch);
+      if (!context || state.phase !== "ready") return;
+      if (state.save.status === "unverified") void settle(epoch);
+      else if (state.save.status === "conflict" && !state.save.checking) void refreshAfterRefusal(epoch, state.save.messageKey);
     },
     // Unmount: answers still on their way are dropped. The controller can be bound again (a re-mount), it is never poisoned.
     dispose: () => {
@@ -381,32 +389,39 @@ export function createReservationManagementController(deps: ReservationManagemen
     },
   };
 
-  /** The submitted result is unknown: read the server, then say saved only if it holds exactly what was sent. */
+  /** The submitted result is unknown: read the server. "Saved" only when it holds exactly what was sent; any other answer proves nothing about the earlier request, so the lock stays. */
   async function settle(at: number): Promise<void> {
     saveLock = true;
     publish({ ...state, save: { status: "verifying" } });
     try {
       const reservation = await read(at);
       if (!reservation) return;
-      saveLock = false;
       const held = reservation.estimatedArrival;
       const matches = !!submitted && !!held && held.arrivalDate === submitted.arrivalDate && held.arrivalTime === submitted.arrivalTime;
-      publish({ phase: "ready", failure: null, reservation, save: matches ? { status: "saved" } : { status: "not-saved" } });
+      if (matches) saveLock = false;
+      publish({ phase: "ready", failure: null, reservation, save: { status: matches ? "saved" : "unverified" } });
     } catch (error) {
       if (!current(at)) return;
-      saveLock = false;
       const failure = classifyReadError(error);
       if (failure === "no-access" || failure === "session-invalid") failRead(error);
       else publish({ ...state, save: { status: "unverified" } });
     }
   }
 
-  async function refreshQuietly(at: number): Promise<void> {
+  /** After a 409 the form is shut (controller lock + UI) before the read starts and opens again only when a read says the booking is still editable. */
+  async function refreshAfterRefusal(at: number, messageKey: string): Promise<void> {
+    saveLock = true;
+    publish({ ...state, save: { status: "conflict", messageKey, checking: true } });
     try {
       const reservation = await read(at);
-      if (reservation) publish({ ...state, reservation });
-    } catch {
-      /* the refusal text stays; the next read shows the real state */
+      if (!reservation) return;
+      saveLock = false; // a Cancelled booking stays shut by its status
+      publish({ phase: "ready", failure: null, reservation, save: { status: "error", messageKey } });
+    } catch (error) {
+      if (!current(at)) return;
+      const failure = classifyReadError(error);
+      if (failure === "no-access" || failure === "session-invalid") failRead(error);
+      else publish({ ...state, save: { status: "conflict", messageKey, checking: false } });
     }
   }
 }
