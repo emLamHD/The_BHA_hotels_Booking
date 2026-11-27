@@ -74,7 +74,7 @@ Estimated arrival: the date list is the check-in day and the next day (UTC arith
 
 ## Known limitations
 
-- A guest who opens the **same e-mail link a second time** in a browser that already holds the session sees the "link is not valid / already used — reload to check" text first; **reload** (the fragment is already gone) then shows the booking. The page does not try a read after a 401 exchange.
+- A guest who opens the **same e-mail link a second time** (in a new tab, or pasted into the tab that already shows the booking, PR09-C4) in a browser that already holds the session sees the "link is not valid / already used — reload to check" text first; **reload** (the fragment is already gone) then shows the booking. The page does not try a read after a 401 exchange.
 - The automatic exchange can be spent by a mail scanner that runs JavaScript.
 - The submit lock lives in the page's controller (per reservation and verified identity, kept through a session recheck, PR09-C4): **reloading** the page during an unknown update result starts a fresh view that can submit again (the read on load shows what the server holds then; a lost POST that is still on its way can still be applied afterwards, and reload cannot tell). The PR09-C2/C3 guarantee is "no automatic or in-view replay", not a server-side idempotency key (the API has none for this endpoint; changing that is a contract change, out of scope).
 - The hold is per verified identity: the same reservation opened by another identity (guest, then a signed-in account) is a different view and is not held by the first one's request. A server-side idempotency key would be needed for that, which is a contract change and out of scope.

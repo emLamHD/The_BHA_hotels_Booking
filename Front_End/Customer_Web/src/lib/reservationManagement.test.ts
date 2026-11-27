@@ -864,6 +864,43 @@ describe("PR09-C4 P2-1: an unsettled arrival update keeps its hold through a ses
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.state.save).toEqual({ status: "idle" });
   });
+
+  for (const [name, answer] of [
+    ["a definite success", (d: ReturnType<typeof deferred<ManagedReservation>>) => d.resolve(withEta("2026-12-02", "09:00"))],
+    ["a definite refusal", (d: ReturnType<typeof deferred<ManagedReservation>>) => d.reject(problem(400, "validation.arrival-time-invalid"))],
+  ] as const) {
+    it(`another reservation's view is not shut by it, and ${name} of the first cannot touch the second's lock or view`, async () => {
+      const r = rig();
+      await ready(r);
+      const a = deferred<ManagedReservation>();
+      r.update.mockReturnValueOnce(a.promise);
+      submit(r); // reservation A: unsettled
+      const OTHER_RESERVATION: ManageContext = { reservationId: ID_B, identityKey: "guest" };
+      r.controller.bind(OTHER_RESERVATION);
+      await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+      expect(r.state.reservation).toMatchObject({ reservationId: ID_B });
+      expect(r.state.save).toEqual({ status: "idle" }); // not held by A's request
+      const b = deferred<ManagedReservation>();
+      r.update.mockReturnValueOnce(b.promise);
+      r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "10:00" });
+      expect(r.update).toHaveBeenCalledTimes(2);
+      expect(r.update).toHaveBeenLastCalledWith(ID_B, { arrivalDate: "2026-12-02", arrivalTime: "10:00" });
+      answer(a); // A's answer arrives while B is on screen and B's request is out
+      await tick();
+      expect(r.state.save).toEqual({ status: "saving" }); // B untouched
+      expect(r.state.reservation).toMatchObject({ reservationId: ID_B, estimatedArrival: null }); // nothing of A's answer is shown
+      r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "11:00" });
+      expect(r.update).toHaveBeenCalledTimes(2); // B's own lock was not opened by A's answer
+      r.controller.bind(GUEST); // back to A: its request was answered, so its hold is gone
+      await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+      expect(r.state.reservation).toMatchObject({ reservationId: ID });
+      expect(r.state.save).toEqual({ status: "idle" });
+      r.controller.bind(OTHER_RESERVATION); // and B, whose request is still out, comes back shut
+      await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+      expect(r.state.save).toEqual({ status: "unverified" });
+      b.resolve(withEta("2026-12-02", "10:00"));
+    });
+  }
 });
 
 describe("PR09-C4 P2-2: a link opened in the same tab", () => {
