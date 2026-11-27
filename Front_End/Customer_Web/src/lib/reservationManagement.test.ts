@@ -36,14 +36,26 @@ const deferred = <T,>() => { let resolve!: (v: T) => void; let reject!: (e: unkn
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 function rig() {
-  const exchange = vi.fn<[string, string], Promise<void>>().mockResolvedValue(undefined);
+  // A guest who opened a link has no management session until an exchange succeeded: the page's read before the exchange (PR09-C8) is answered like the API does.
+  let linkOpen = false;
+  let exchanged = false;
+  const exchange = vi.fn<[string, string, (() => boolean)?], Promise<void>>().mockImplementation(async () => { exchanged = true; });
   const whenExchangeSettled = vi.fn<[string], Promise<void>>().mockResolvedValue(undefined);
   const signals: AbortSignal[] = [];
-  const read = vi.fn<[string, AbortSignal], Promise<ManagedReservation>>().mockImplementation(async (id, signal) => { signals.push(signal); return { ...RES, reservationId: id }; });
+  const read = vi.fn<[string, AbortSignal], Promise<ManagedReservation>>().mockImplementation(async (id, signal) => {
+    signals.push(signal);
+    if (linkOpen && !exchanged) throw problem(401, "reservation.manage-session-invalid");
+    return { ...RES, reservationId: id };
+  });
   const update = vi.fn<[string, { arrivalDate: string; arrivalTime: string }], Promise<ManagedReservation>>();
   const requestSessionRefresh = vi.fn();
   const controller = createReservationManagementController({ exchange, whenExchangeSettled, read, update, requestSessionRefresh });
-  return { controller, exchange, whenExchangeSettled, read, update, requestSessionRefresh, signals, get state() { return controller.getState(); } };
+  const offerLink = controller.offerLink;
+  const openLink = controller.openLink;
+  controller.offerLink = (offer) => { if (offer.kind === "token") linkOpen = true; offerLink(offer); };
+  controller.openLink = (offer) => { if (offer.kind === "token") linkOpen = true; openLink(offer); };
+  const grantSession = () => { exchanged = true; }; // the server set the management cookie (even if the answer to the exchange was lost)
+  return { controller, exchange, whenExchangeSettled, read, update, requestSessionRefresh, signals, grantSession, get state() { return controller.getState(); } };
 }
 async function ready(r: ReturnType<typeof rig>, ctx: ManageContext = GUEST) {
   r.controller.bind(ctx);
@@ -122,8 +134,9 @@ describe("opening the link: one exchange, never replayed", () => {
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.exchange).toHaveBeenCalledTimes(1);
     expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function)); // the third argument is the view's validity (C5)
-    expect(r.read).toHaveBeenCalledTimes(1);
-    expect(r.exchange.mock.invocationCallOrder[0]).toBeLessThan(r.read.mock.invocationCallOrder[0]);
+    expect(r.read).toHaveBeenCalledTimes(2); // the read before the exchange (PR09-C8: it decides whether the link may be spent) and the read after it
+    expect(r.read.mock.invocationCallOrder[0]).toBeLessThan(r.exchange.mock.invocationCallOrder[0]);
+    expect(r.exchange.mock.invocationCallOrder[0]).toBeLessThan(r.read.mock.invocationCallOrder[1]);
     expect(JSON.stringify(r.state)).not.toContain(SECRET);
   });
 
@@ -184,7 +197,7 @@ describe("opening the link: one exchange, never replayed", () => {
       r.controller.bind(GUEST);
       await vi.waitFor(() => expect(r.state.phase).toBe("failed"));
       expect(r.state.failure).toBe(failure);
-      expect(r.read).not.toHaveBeenCalled();
+      expect(r.read).toHaveBeenCalledTimes(1); // only the read before the exchange (PR09-C8); none after the failed one
       r.controller.retry(); // a visitor's own repeat reads, it never exchanges
       r.controller.bind(GUEST);
       await tick();
@@ -195,14 +208,14 @@ describe("opening the link: one exchange, never replayed", () => {
 
   it("after a lost exchange answer, the visitor's repeat is a READ with the cookie and can succeed", async () => {
     const r = rig();
-    r.exchange.mockRejectedValue(new ApiNetworkError());
+    r.exchange.mockImplementation(async () => { r.grantSession(); throw new ApiNetworkError(); }); // the cookie was set, the answer was lost
     r.controller.offerLink({ kind: "token", token: SECRET });
     r.controller.bind(GUEST);
     await vi.waitFor(() => expect(r.state.failure).toBe("exchange-uncertain"));
     r.controller.retry();
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.exchange).toHaveBeenCalledTimes(1);
-    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(2); // the read before the exchange, and the visitor's own repeat
   });
 
   it("a used link is not retryable at all", async () => {
@@ -213,7 +226,7 @@ describe("opening the link: one exchange, never replayed", () => {
     await vi.waitFor(() => expect(r.state.phase).toBe("failed"));
     r.controller.retry();
     await tick();
-    expect(r.read).not.toHaveBeenCalled();
+    expect(r.read).toHaveBeenCalledTimes(1); // only the read before the exchange: a used link has no repeat
   });
 
   it("the read after an exchange waits for any exchange of the id still under way (a re-mounted page)", async () => {
@@ -331,11 +344,12 @@ describe("a change of reservation or identity", () => {
     r.whenExchangeSettled.mockReturnValue(exchanging.promise);
     r.controller.bind({ reservationId: ID, identityKey: "customer:a" });
     await tick();
-    expect(r.read).not.toHaveBeenCalled();
+    expect(r.read).toHaveBeenCalledTimes(1); // only the first view's read before its exchange; the new view waits for the exchange
+    r.grantSession();
     exchanging.resolve();
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.exchange).toHaveBeenCalledTimes(1);
-    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(2);
     expect(isStateFor(r.state, ID, "customer:a")).toBe(true);
   });
 
@@ -916,13 +930,13 @@ describe("PR09-C4 P2-2: a link opened in the same tab", () => {
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.exchange).toHaveBeenCalledTimes(2);
     expect(r.exchange).toHaveBeenLastCalledWith(ID, SECRET_2, expect.any(Function));
-    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(3); // one read before each exchange (PR09-C8) and the read after the second
     expect(JSON.stringify(r.state)).not.toContain(SECRET_2);
     // nothing afterwards replays it: a re-render, a re-bind, a read
     r.controller.bind(GUEST);
     r.controller.bind(LOADING_CTX);
     r.controller.bind(GUEST);
-    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(4));
     r.controller.retry();
     await tick();
     expect(r.exchange).toHaveBeenCalledTimes(2);
@@ -954,7 +968,7 @@ describe("PR09-C4 P2-2: a link opened in the same tab", () => {
   it("an open while an exchange is already out sends nothing (no parallel exchange)", async () => {
     const r = rig();
     const out = deferred<void>();
-    r.exchange.mockReturnValueOnce(out.promise);
+    r.exchange.mockImplementationOnce(() => out.promise.then(() => r.grantSession()));
     r.controller.offerLink({ kind: "token", token: SECRET });
     r.controller.bind(GUEST);
     await vi.waitFor(() => expect(r.state.phase).toBe("exchanging"));
@@ -991,7 +1005,7 @@ describe("PR09-C4 P2-2: a link opened in the same tab", () => {
 
   it("after an exchange whose answer was lost, Try again is a read; only an explicit open sends one more POST", async () => {
     const r = rig();
-    r.exchange.mockRejectedValueOnce(new ApiNetworkError());
+    r.exchange.mockImplementationOnce(async () => { r.grantSession(); throw new ApiNetworkError(); });
     r.controller.offerLink({ kind: "token", token: SECRET });
     r.controller.bind(GUEST);
     await vi.waitFor(() => expect(r.state.failure).toBe("exchange-uncertain"));
@@ -1477,6 +1491,7 @@ describe("PR09-C7: a link the visitor opens on purpose is not held back by the s
       expect(r.state.failure).not.toBe("session-invalid");
       expect(r.exchange).toHaveBeenCalledTimes(1);
       expect(r.read).toHaveBeenCalledTimes(1); // no read followed the failed exchange
+      r.read.mockResolvedValueOnce(RES); // the account's own read (an account is not a guest: the fake guest-session rule does not apply)
       reverify(r);
       await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
       expect(r.read).toHaveBeenCalledTimes(2); // exactly the one recovery GET
@@ -1496,5 +1511,134 @@ describe("PR09-C7: a link the visitor opens on purpose is not held back by the s
     await tick();
     expect(r.exchange).toHaveBeenCalledTimes(1);
     expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PR09-C8 P2: a guest's link is read-checked before it is spent", () => {
+  const OWNER: ManageContext = { reservationId: ID, identityKey: "customer:aaaa" };
+  const expiredCustomerCookie = () => problem(401, "auth.session-invalid");
+  const noSession = () => problem(401, "reservation.manage-session-invalid");
+  const open = (r: ReturnType<typeof rig>, ctx: ManageContext = GUEST) => { r.controller.offerLink({ kind: "token", token: SECRET }); r.controller.bind(ctx); };
+
+  it("an expired customer cookie (the server answers auth.session-invalid): 0 exchanges, the link is kept unspent, guidance is shown, and nothing retries by itself", async () => {
+    const r = rig();
+    r.read.mockRejectedValue(expiredCustomerCookie());
+    open(r);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "link-session-expired", reservation: null }));
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.requestSessionRefresh).not.toHaveBeenCalled(); // not the session-recovery pass: the page does not refresh or sign anyone out
+    expect(JSON.stringify(r.state)).not.toContain(SECRET);
+    r.controller.retry(); // not a read-retryable failure
+    r.controller.bind(LOADING_CTX); // rechecks and re-binds never send the (discarded) secret
+    r.controller.bind(GUEST);
+    await tick();
+    r.controller.bind(LOADING_CTX);
+    r.controller.bind(GUEST);
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.read).toHaveBeenCalledTimes(2); // the read before the link, then the first recheck's automatic load (a read, never an exchange); the next is held back by the C6 limit
+  });
+
+  it("the same link works in a clean browser: the read says there is no management session, then exactly one exchange, then the booking", async () => {
+    const r = rig();
+    open(r); // the rig answers reservation.manage-session-invalid until the exchange succeeded
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(2);
+    expect(r.read.mock.invocationCallOrder[0]).toBeLessThan(r.exchange.mock.invocationCallOrder[0]);
+    expect(r.exchange.mock.invocationCallOrder[0]).toBeLessThan(r.read.mock.invocationCallOrder[1]);
+  });
+
+  it("a booking this browser may already read is shown and the link is not spent", async () => {
+    const r = rig();
+    r.read.mockResolvedValue(RES);
+    open(r);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(r.state)).not.toContain(SECRET);
+    r.controller.bind(LOADING_CTX);
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
+    expect(r.exchange).not.toHaveBeenCalled(); // the secret was not kept for a later start
+  });
+
+  for (const [name, error, failure] of [
+    ["429", problem(429, "booking.rate-limited"), "link-rate-limited"],
+    ["a lost answer (network)", new ApiNetworkError(), "link-not-sent"],
+    ["a 5xx", problem(503), "link-not-sent"],
+    ["an unusable 2xx", new ManagementContractError(), "link-not-sent"],
+    ["a 403", problem(403), "no-access"],
+    ["a 404", problem(404), "no-access"],
+    ["another 401", problem(401, "something.else"), "no-access"],
+    ["a configuration error", new ApiConfigError("x"), "config"],
+  ] as const) {
+    it(`${name} on the read before the link: this open stops, the link is not sent, and nothing is exchanged later`, async () => {
+      const r = rig();
+      r.read.mockRejectedValue(error);
+      open(r);
+      await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure }));
+      expect(r.exchange).not.toHaveBeenCalled();
+      expect(JSON.stringify(r.state)).not.toContain(SECRET);
+      r.controller.bind(LOADING_CTX);
+      r.controller.bind(GUEST);
+      await tick();
+      expect(r.exchange).not.toHaveBeenCalled();
+    });
+  }
+
+  it("the view changes while the read before the link is out: that answer is dropped, so no exchange of the old view is sent", async () => {
+    const r = rig();
+    const held = deferred<ManagedReservation>();
+    r.read.mockImplementationOnce(() => held.promise);
+    open(r);
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(1));
+    r.controller.bind({ reservationId: ID, identityKey: "customer:bbbb" }); // another account is verified
+    held.reject(noSession()); // the old view's answer would have allowed the exchange
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.state).toMatchObject({ bound: { identityKey: "customer:bbbb" } });
+    expect(r.state.failure).not.toBe("link-session-expired");
+  });
+
+  it("the page is left while that read is out: nothing is exchanged", async () => {
+    const r = rig();
+    const held = deferred<ManagedReservation>();
+    r.read.mockImplementationOnce(() => held.promise);
+    open(r);
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(1));
+    r.controller.dispose();
+    held.reject(noSession());
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("an account (not a guest) keeps its flow: no read before the link, the exchange as before", async () => {
+    const r = rig();
+    r.read.mockResolvedValue(RES);
+    open(r, OWNER);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: OWNER }));
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(1);
+  });
+
+  it("after the expired-cookie guidance, the cookie is gone and the visitor opens the link again in the same tab: one read, one exchange, the booking", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(expiredCustomerCookie());
+    open(r);
+    await vi.waitFor(() => expect(r.state.failure).toBe("link-session-expired"));
+    r.controller.openLink({ kind: "token", token: SECRET }); // the rig has no management session: the read before the link now says so
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(3);
+  });
+
+  it("a malformed fragment still sends nothing and reads nothing before it", async () => {
+    const r = rig();
+    r.controller.offerLink({ kind: "malformed" });
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "link-invalid" }));
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.read).not.toHaveBeenCalled();
   });
 });

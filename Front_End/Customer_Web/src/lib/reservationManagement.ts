@@ -54,6 +54,7 @@ export type ManageFailure =
   | "link-invalid" // the link is malformed, used or expired: a new link is needed
   | "link-not-sent" // nothing reached the server (security check / configuration): the link is NOT spent
   | "link-rate-limited" // 429 before the link was read: NOT spent
+  | "link-session-expired" // this browser carries a customer session that is no longer valid: the link was NOT sent (PR09-C8); open the original link in a private window or a clean browser
   | "exchange-uncertain" // the answer was lost or unusable: the link may be spent
   | "no-access" // generic: this browser/account may not open this reservation (never says whether it exists)
   | "session-invalid" // the customer session cookie is invalid: never treated as a guest
@@ -67,6 +68,7 @@ export const FAILURE_KEY: Readonly<Record<ManageFailure, string>> = {
   "link-invalid": "customer.manage.error.linkInvalid",
   "link-not-sent": "customer.manage.error.linkNotSent",
   "link-rate-limited": "customer.manage.error.linkRateLimited",
+  "link-session-expired": "customer.manage.error.linkSessionExpired",
   "exchange-uncertain": "customer.manage.error.exchangeUncertain",
   "no-access": "customer.manage.error.noAccess",
   "session-invalid": "shared.apiError.auth.session-invalid",
@@ -130,6 +132,20 @@ export function classifyExchangeError(error: unknown): ManageFailure {
   }
   // network, 5xx, 403/404, a 2xx that is not the documented answer: the outcome is unknown.
   return "exchange-uncertain";
+}
+
+/** The guest answer of a reservation without a management session (`401 reservation.manage-session-invalid`): the only answer that lets a link be exchanged. */
+function isManageSessionMissing(error: unknown): boolean {
+  return error instanceof ApiHttpError && error.status === 401 && error.problem.code === "reservation.manage-session-invalid";
+}
+
+/** What a guest link's pre-exchange read that did not answer "no management session" means: the link was not sent, and the page says why. */
+function classifyPreflightError(error: unknown): ManageFailure {
+  const failure = classifyReadError(error);
+  if (failure === "session-invalid") return "link-session-expired"; // an invalid customer cookie is never a guest: the link would be spent for nothing
+  if (failure === "rate-limited") return "link-rate-limited";
+  if (failure === "network" || failure === "server") return "link-not-sent";
+  return failure; // no-access (another 401, 403, 404) and config
 }
 
 /** A failed read or an access-losing write. */
@@ -308,15 +324,17 @@ export function createReservationManagementController(deps: ReservationManagemen
     }
   }
 
+  function showRead(result: ReadResult): void {
+    sessionInvalid = null; // a successful read ends any session-recovery pass
+    publish({ phase: "ready", failure: null, reservation: result.reservation, save: saveStateOf(result) });
+  }
+
   async function load(at: number): Promise<void> {
     publish({ ...WAITING, phase: "loading" });
     try {
       const result = await read(at);
       // `read` checked the epoch before it returned, but this continuation runs later: the view may have changed in between, and then nothing is published.
-      if (result && current(at)) {
-        sessionInvalid = null; // a successful read ends any session-recovery pass
-        publish({ phase: "ready", failure: null, reservation: result.reservation, save: saveStateOf(result) });
-      }
+      if (result && current(at)) showRead(result);
     } catch (error) {
       if (current(at)) failRead(error);
     }
@@ -345,6 +363,25 @@ export function createReservationManagementController(deps: ReservationManagemen
     if (offer.kind === "none") {
       await load(at);
       return;
+    }
+    if (ctx.identityKey === "guest") {
+      // PR09-C8: before a guest's link is spent, ask the server what this browser may already read (a GET: no secret, the cookies as they are). Only "no management session"
+      // lets the link be exchanged. A readable booking is shown and the link is left unspent. A customer cookie that no longer validates is never a guest, and the exchange
+      // that would follow would spend the link for a booking that still cannot be read: nothing is sent. Any other answer stops this open. The time between this read and the
+      // POST is the limit of this client-side check; the server's own rules are unchanged.
+      publish({ ...WAITING, phase: "loading" });
+      try {
+        const result = await read(at);
+        if (result && current(at)) showRead(result);
+        return;
+      } catch (error) {
+        if (!current(at)) return;
+        if (!isManageSessionMissing(error)) {
+          fail(classifyPreflightError(error));
+          return;
+        }
+      }
+      if (!current(at)) return;
     }
     publish({ ...WAITING, phase: "exchanging" });
     try {

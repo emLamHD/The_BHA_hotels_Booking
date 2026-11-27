@@ -1656,6 +1656,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.auth.redirecting.reservation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.auth.unresolved.refused",
    "scope": "customer",
    "placeholders": []
@@ -4817,6 +4822,11 @@
   },
   {
    "key": "customer.manage.error.linkRateLimited",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.manage.error.linkSessionExpired",
    "scope": "customer",
    "placeholders": []
   },

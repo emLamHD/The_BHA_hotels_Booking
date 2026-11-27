@@ -31,6 +31,7 @@ import {
   type SaveState,
 } from "@/lib/reservationManagement";
 import { LOGIN_PAGE } from "@/lib/customerAuthUi";
+import { loginForReservationHref } from "@/lib/authReturnTarget";
 import { formatAsGiven } from "@/lib/i18n/display";
 import { useApiMessage } from "@/lib/i18n/apiMessage";
 import { useDateFormat } from "@/lib/i18n/dates";
@@ -226,7 +227,7 @@ export const Details: FC<{
 };
 
 /** Exported for the support-channel regression test (`reservationManagementContact.test.ts`). */
-export const Problem: FC<{ failure: ManageFailure; onRetry?: () => void; contact?: ContactChoice }> = ({ failure, onRetry, contact = { status: "loading" } }) => {
+export const Problem: FC<{ failure: ManageFailure; onRetry?: () => void; contact?: ContactChoice; loginHref?: string }> = ({ failure, onRetry, contact = { status: "loading" }, loginHref = LOGIN_PAGE }) => {
   const { t } = useI18n();
   const signIn = failure === "session-invalid" || failure === "no-access";
   return (
@@ -235,7 +236,7 @@ export const Problem: FC<{ failure: ManageFailure; onRetry?: () => void; contact
       <p className="text-neutral-6000 dark:text-neutral-300">{t(FAILURE_KEY[failure])}</p>
       <div className="flex flex-wrap gap-3">
         {onRetry && READ_RETRYABLE.has(failure) && <ButtonPrimary type="button" onClick={onRetry}>{t(MANAGE.retry)}</ButtonPrimary>}
-        {signIn && <ButtonSecondary href={LOGIN_PAGE as Route}>{t(MANAGE.signIn)}</ButtonSecondary>}
+        {signIn && <ButtonSecondary href={loginHref as Route}>{t(MANAGE.signIn)}</ButtonSecondary>}
         <ContactAction contact={contact} />
         <ButtonSecondary href="/">{t(MANAGE.moreProperties)}</ButtonSecondary>
       </div>
@@ -293,6 +294,8 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
   const state = useSyncExternalStore(controller.subscribe, controller.getState, controller.getState);
   const identityKey = verifiedOwnerKey(session);
   const contact = useContactChoice();
+  // After signing in the owner comes back to this reservation's clean management address (built from the route's id alone: no query, fragment or link secret).
+  const loginHref = (id && loginForReservationHref(id)) || LOGIN_PAGE;
   const stripped = useRef(false);
 
   useEffect(() => {
@@ -337,7 +340,7 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
     if (identityKey === null || !isStateFor(state, id, identityKey) || state.phase === "waiting") return <Status messageKey={MANAGE.loadingSession} />;
     if (state.phase === "exchanging") return <Status messageKey={MANAGE.loadingLink} />;
     if (state.phase === "loading") return <Status messageKey={MANAGE.loadingReservation} />;
-    if (state.phase === "failed" && state.failure) return <Problem failure={state.failure} onRetry={controller.retry} contact={contact} />;
+    if (state.phase === "failed" && state.failure) return <Problem failure={state.failure} onRetry={controller.retry} contact={contact} loginHref={loginHref} />;
     if (state.phase === "ready" && state.reservation) {
       return (
         <Details

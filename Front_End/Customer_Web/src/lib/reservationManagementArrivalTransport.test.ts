@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiNetworkError } from "@/lib/api/errors";
+import { ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
 
 // BHA-CHECKOUT-001-PR09-C3: the controller on the REAL service and the REAL CSRF helper; only the HTTP client is replaced, so what reaches the transport is counted.
 const apiGetMock = vi.fn();
@@ -66,11 +66,20 @@ describe("a POST that waits for its CSRF token when the view changes (PR09-C5 P2
   const SAVED = { ...DTO, estimatedArrival: { arrivalDate: "2026-12-02", arrivalTime: "09:00", timeZoneId: "Asia/Ho_Chi_Minh", updatedAtUtc: "u" } };
 
   /** The token request is held until the test releases it. */
-  function rig() {
+  function rig(options: { guestWithoutSession?: boolean } = {}) {
     let release!: (value: unknown) => void;
     const token = new Promise((resolve) => { release = resolve; });
-    apiGetMock.mockImplementation(async (path: string) => (path === MANAGE_PATH ? DTO : token));
-    apiUnsafeRequestMock.mockImplementation(async (path: string) => (path === EXCHANGE ? { status: 200, data: { reservationId: ID, expiresAtUtc: "x" } } : { status: 200, data: SAVED }));
+    // Like the API: a guest has no management session until the exchange succeeded, and says so (PR09-C8: the page asks before it spends the link).
+    let session = !options.guestWithoutSession;
+    let account = false; // a signed-in account reads its own booking without a management session
+    let expiredCookie = false; // the browser still carries a customer cookie that no longer validates
+    apiGetMock.mockImplementation(async (path: string) => {
+      if (path !== MANAGE_PATH) return token;
+      if (expiredCookie) throw new ApiHttpError(401, { title: "t", status: 401, code: "auth.session-invalid" });
+      if (!session && !account) throw new ApiHttpError(401, { title: "t", status: 401, code: "reservation.manage-session-invalid" });
+      return DTO;
+    });
+    apiUnsafeRequestMock.mockImplementation(async (path: string) => (path === EXCHANGE ? (session = true, { status: 200, data: { reservationId: ID, expiresAtUtc: "x" } }) : { status: 200, data: SAVED }));
     const controller = createReservationManagementController({
       exchange: (rid, tok, stillCurrent) => exchangeOnce(rid, tok, (id, t) => exchangeManagementLink(id, t, stillCurrent)),
       whenExchangeSettled,
@@ -78,7 +87,14 @@ describe("a POST that waits for its CSRF token when the view changes (PR09-C5 P2
       read: (id, signal) => readManagedReservation(id, { signal }),
       update: updateEstimatedArrival,
     });
-    return { controller, releaseToken: () => release(TOKEN), get state() { return controller.getState(); } };
+    return {
+      controller,
+      releaseToken: () => release(TOKEN),
+      signInAccount: () => { account = true; },
+      loseSession: () => { session = false; },
+      setExpiredCookie: (value: boolean) => { expiredCookie = value; },
+      get state() { return controller.getState(); },
+    };
   }
   const ready = async (r: ReturnType<typeof rig>, ctx: ManageContext = GUEST) => {
     r.controller.bind(ctx);
@@ -150,10 +166,11 @@ describe("a POST that waits for its CSRF token when the view changes (PR09-C5 P2
   });
 
   it("the link exchange: the visitor changed account while the token was being read: 0 exchange POSTs, no failure shown to the new view; opening the link again sends exactly one", async () => {
-    const r = rig();
+    const r = rig({ guestWithoutSession: true });
     r.controller.offerLink({ kind: "token", token: SECRET });
     r.controller.bind(GUEST);
     await vi.waitFor(() => expect(calls(apiGetMock, CSRF)).toBe(1)); // the exchange is waiting for its token
+    r.signInAccount();
     r.controller.bind(OWNER);
     r.releaseToken();
     await flush();
@@ -168,13 +185,44 @@ describe("a POST that waits for its CSRF token when the view changes (PR09-C5 P2
   });
 
   it("the link exchange with the view unchanged: exactly one exchange POST (control), and C4's same-tab reopen still sends one more", async () => {
-    const r = rig();
+    const r = rig({ guestWithoutSession: true });
     r.releaseToken();
     r.controller.offerLink({ kind: "token", token: SECRET });
     await ready(r);
     expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(1);
+    r.loseSession(); // the management session is gone (cleared cookies, a private window): the server says so, and the link is exchanged
     r.controller.openLink({ kind: "token", token: SECRET });
     await vi.waitFor(() => expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(2));
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+  });
+
+  it("PR09-C8: an expired customer cookie: the guest's link is not sent (0 exchange POSTs, the CSRF token is not even requested); once the cookie is gone the same link is exchanged exactly once and the booking is read", async () => {
+    const r = rig({ guestWithoutSession: true });
+    r.releaseToken();
+    r.setExpiredCookie(true);
+    r.controller.offerLink({ kind: "token", token: SECRET });
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "link-session-expired" }));
+    await flush();
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+    expect(calls(apiGetMock, CSRF)).toBe(0);
+    expect(JSON.stringify(r.state)).not.toContain(SECRET);
+
+    r.setExpiredCookie(false); // a private window / a clean browser: no customer cookie, no management session
+    r.controller.openLink({ kind: "token", token: SECRET });
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(1);
+    expect(apiUnsafeRequestMock.mock.calls.find((c) => c[0] === EXCHANGE)?.[2]).toEqual({ token: SECRET });
+  });
+
+  it("PR09-C8: a booking the browser may already read is shown and the link is not spent", async () => {
+    const r = rig(); // the guest already holds a management session
+    r.releaseToken();
+    r.controller.offerLink({ kind: "token", token: SECRET });
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    await flush();
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+    expect(calls(apiGetMock, CSRF)).toBe(0);
   });
 });

@@ -25,7 +25,7 @@ vi.mock("@/app/CustomerSessionProvider", () => ({ useCustomerSession: () => ({ s
 
 import { resetCsrfStateForTests } from "@/lib/api/csrf";
 import { ApiHttpError } from "@/lib/api/errors";
-import { withI18n } from "@/lib/i18n/testkit";
+import { loadPack, withI18n } from "@/lib/i18n/testkit";
 import ManageReservation from "../app/reservations/[reservationId]/manage/ManageReservation";
 
 const ID = "7b1f6c52-0a43-4d2e-9c1f-3d8a5e6b7c90";
@@ -62,6 +62,8 @@ const Releaser = ({ armed, onArm }: { armed: boolean; onArm: () => void }) => {
 
 let dom: MiniDom;
 let releaseToken: () => void;
+let expiredCookie = false; // the browser still carries a customer cookie that no longer validates: the API answers auth.session-invalid
+let granted = false; // the fixture server has issued a management session (an exchange succeeded)
 let released = false; // the layout effect really released the token (a "0 POSTs" result must not come from a token that never arrived)
 let hash = "";
 beforeEach(() => {
@@ -71,10 +73,18 @@ beforeEach(() => {
   session = { status: "anonymous", customer: null };
   hash = `#${SECRET}`;
   released = false;
+  granted = false;
+  expiredCookie = false;
   const token = new Promise<{ token: string; headerName: string }>((resolve) => { releaseToken = () => resolve({ token: "t", headerName: "X-CSRF-TOKEN" }); });
-  apiGetMock.mockImplementation(async (path: string) => (path === CSRF ? token : DTO));
+  // Like the API: a signed-in account reads its own booking; a guest needs a management session, which only the exchange creates (PR09-C8: the page asks before it spends the link).
+  apiGetMock.mockImplementation(async (path: string) => {
+    if (path === CSRF) return token;
+    if (expiredCookie) throw new ApiHttpError(401, { title: "t", status: 401, code: "auth.session-invalid" });
+    if (!granted && hash !== "" && session.status !== "authenticated") throw new ApiHttpError(401, { title: "t", status: 401, code: "reservation.manage-session-invalid" });
+    return DTO;
+  });
   apiUnsafeRequestMock.mockImplementation(async (path: string) =>
-    path === EXCHANGE ? { status: 200, data: { reservationId: ID, expiresAtUtc: "x" } } : { status: 200, data: { ...DTO, estimatedArrival: { arrivalDate: "2026-12-02", arrivalTime: "09:00", timeZoneId: "Asia/Ho_Chi_Minh", updatedAtUtc: "u" } } });
+    path === EXCHANGE ? (granted = true, { status: 200, data: { reservationId: ID, expiresAtUtc: "x" } }) : { status: 200, data: { ...DTO, estimatedArrival: { arrivalDate: "2026-12-02", arrivalTime: "09:00", timeZoneId: "Asia/Ho_Chi_Minh", updatedAtUtc: "u" } } });
   vi.stubGlobal("fetch", () => Promise.reject(new Error("offline"))); // the support channel is not under test here
   dom = mountMiniDom({ location: { get hash() { return hash; }, pathname: `/reservations/${ID}/manage`, search: "" }, history: { state: null, replaceState: vi.fn() } });
 });
@@ -140,7 +150,7 @@ describe("a link exchange waiting for its CSRF token when the page is removed or
     dom.render(tree({ page: true, armed: false }));
     await vi.waitFor(() => expect(dom.html()).toContain("BHA-1"));
     expect(posts(EXCHANGE)).toBe(1);
-    expect(gets(MANAGE_PATH)).toBe(1);
+    expect(gets(MANAGE_PATH)).toBe(2); // the read before the exchange (PR09-C8) and the read after it
   });
 
   it("StrictMode (development: mount, unmount, mount in one flush): the initial link is neither dropped nor sent twice, and the booking is read", async () => {
@@ -149,7 +159,7 @@ describe("a link exchange waiting for its CSRF token when the page is removed or
     await vi.waitFor(() => expect(dom.html()).toContain("BHA-1"));
     await flush();
     expect(posts(EXCHANGE)).toBe(1);
-    expect(gets(MANAGE_PATH)).toBe(1);
+    expect(gets(MANAGE_PATH)).toBe(2);
   });
 
   it("StrictMode with the token still pending: the one exchange waits for it and is then sent once", async () => {
@@ -236,5 +246,58 @@ describe("the support channel on the mounted page (PR09-C6 P2-2)", () => {
     await vi.waitFor(() => expect(dom.html()).toContain('data-testid="manage-contact-unavailable"'));
     expect(dom.html()).toContain("BHA-1");
     expect(dom.html()).not.toContain('href="/contact"');
+  });
+});
+
+// BHA-CHECKOUT-001-PR09-C8 on the real page.
+describe("a guest's link on the mounted page (PR09-C8)", () => {
+  it("expired customer cookie: the guidance is shown, 0 exchange POSTs, the CSRF token is never requested, and the link is not kept", async () => {
+    expiredCookie = true;
+    dom.render(tree({ page: true, armed: false }));
+    await vi.waitFor(() => expect(dom.html()).toContain('data-failure="link-session-expired"'));
+    const text = loadPack("vi")["customer.manage.error.linkSessionExpired"];
+    expect(dom.html()).toContain(text.slice(0, 40));
+    expect(dom.html()).not.toContain('href="/login');
+    await flush();
+    expect(posts(EXCHANGE)).toBe(0);
+    expect(gets(CSRF)).toBe(0);
+    expect(dom.html()).not.toContain(SECRET);
+  });
+
+  it("the same link in a clean browser: the read says there is no management session, then exactly one exchange, then the booking", async () => {
+    releaseToken();
+    dom.render(tree({ page: true, armed: false }));
+    await vi.waitFor(() => expect(dom.html()).toContain("BHA-1"));
+    expect(posts(EXCHANGE)).toBe(1);
+  });
+
+  it("a booking this browser may already read is shown and the link is not spent", async () => {
+    granted = true;
+    dom.render(tree({ page: true, armed: false }));
+    await vi.waitFor(() => expect(dom.html()).toContain("BHA-1"));
+    await flush();
+    expect(posts(EXCHANGE)).toBe(0);
+    expect(gets(CSRF)).toBe(0);
+  });
+});
+
+describe("the sign-in link of the error screen (PR09-C8 P3)", () => {
+  const noAccess = () => apiGetMock.mockImplementation(async () => { throw new ApiHttpError(403, { title: "t", status: 403 }); });
+
+  it("goes to /login with the canonical management path as the return target, with no query, fragment or link secret of the current address", async () => {
+    noAccess();
+    dom.render(tree({ page: true, armed: false })); // the address holds #<secret>, as when the visitor opened an e-mail link
+    await vi.waitFor(() => expect(dom.html()).toContain('data-failure="no-access"'));
+    expect(dom.html()).toContain(`href="/login?returnTo=/reservations/${ID}/manage"`);
+    expect(dom.html()).not.toContain(SECRET);
+    expect(dom.html()).not.toMatch(/returnTo=[^"]*[#?&]/);
+  });
+
+  it("the account page's own flow is unchanged (a visit with no link)", async () => {
+    hash = "";
+    noAccess();
+    dom.render(tree({ page: true, armed: false }));
+    await vi.waitFor(() => expect(dom.html()).toContain('data-failure="no-access"'));
+    expect(dom.html()).toContain(`href="/login?returnTo=/reservations/${ID}/manage"`);
   });
 });
