@@ -54,6 +54,37 @@ describe("the arrival update when the CSRF token cannot be read (PR09-C3 P2-2)",
   });
 });
 
+// BHA-CHECKOUT-001-PR09-C11: coming back to the tab revalidates; an arrival update that is still waiting for its CSRF token belongs to the view that is being revalidated, so it is not
+// sent (the C5 rule: a superseded view sends nothing). Disclosed as a limit: the visitor's Save disappears and the form is rebuilt from the fresh read.
+describe("revalidate while an arrival update waits for its CSRF token (PR09-C11)", () => {
+  it("0 POSTs: the not-yet-sent update is dropped, the view is rebuilt from a fresh read, and the visitor can save again", async () => {
+    let release!: (value: unknown) => void;
+    const token = new Promise((resolve) => { release = resolve; });
+    apiGetMock.mockImplementation(async (path: string) => (path === MANAGE_PATH ? DTO : token));
+    apiUnsafeRequestMock.mockImplementation(async (_path: string, _method: string, body: { arrivalDate: string; arrivalTime: string }) => ({
+      status: 200, data: { ...DTO, estimatedArrival: { arrivalDate: body.arrivalDate, arrivalTime: body.arrivalTime, timeZoneId: "Asia/Ho_Chi_Minh", updatedAtUtc: "u" } },
+    }));
+    const controller = createReservationManagementController({
+      exchange: async () => {}, whenExchangeSettled: async () => {}, requestSessionRefresh: () => {}, verifySession: async () => "guest",
+      read: (id, signal) => readManagedReservation(id, { signal }), update: updateEstimatedArrival,
+    });
+    controller.bind({ reservationId: ID, identityKey: "guest" });
+    await vi.waitFor(() => expect(controller.getState().phase).toBe("ready"));
+    controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "09:00" });
+    await vi.waitFor(() => expect(calls(apiGetMock, "/api/v1/auth/csrf")).toBe(1)); // the update waits for its token
+    controller.revalidate();
+    release({ token: "t", headerName: "X-CSRF-TOKEN" });
+    await vi.waitFor(() => expect(controller.getState().phase).toBe("ready"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls(apiUnsafeRequestMock, POST)).toBe(0);
+    controller.verifySave(); // "Check again" if the form was shut by the hold, a read only
+    await new Promise((r) => setTimeout(r, 0));
+    controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "09:00" });
+    await vi.waitFor(() => expect(controller.getState().save).toEqual({ status: "saved" }));
+    expect(calls(apiUnsafeRequestMock, POST)).toBe(1);
+  });
+});
+
 // BHA-CHECKOUT-001-PR09-C10 P3: the REAL controller, service and CSRF helper; only the HTTP client is replaced. A 200 that does not carry the arrival that was sent is an unusable
 // answer: the result is unknown, the form stays shut, nothing is replayed, and a read that shows the submitted value still does not say "saved".
 describe("a 200 for the arrival update that does not carry the submitted arrival (PR09-C10 P3)", () => {

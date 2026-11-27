@@ -178,7 +178,7 @@ describe("coming back to a tab that shows a booking (PR09-C11 P2-1, real session
     expect(count("POST")).toBe(0);
   });
 
-  it("a page that shows no private details does nothing on focus, and a tab that is hidden does nothing", async () => {
+  it("a page that shows no private details does nothing on focus", async () => {
     api.cookie = "none";
     dom.render(page());
     await vi.waitFor(() => expect(dom.html()).toContain('data-failure="no-access"'));
@@ -186,11 +186,20 @@ describe("coming back to a tab that shows a booking (PR09-C11 P2-1, real session
     comeBack();
     await flush();
     expect(api.log.length).toBe(before);
-    api.cookie = "X";
-    api.confirmation = "BHA-OWNER-1";
-    // a hidden tab never revalidates
-    await (async () => { dom.setVisibility("hidden"); comeBack(); await flush(); dom.setVisibility("visible"); })();
+  });
+
+  it("a tab that is not visible does nothing, even with the booking on screen (the guard is exercised, then a visible return does revalidate)", async () => {
+    await mountWithBooking();
+    const before = api.log.length;
+    dom.setVisibility("hidden");
+    comeBack(); // `focus` and `visibilitychange` while the document is hidden
+    await flush();
     expect(api.log.length).toBe(before);
+    expect(dom.html()).toContain("BHA-OWNER-1"); // the details are still there: nothing was revalidated
+    dom.setVisibility("visible");
+    comeBack();
+    await vi.waitFor(() => expect(api.log.length).toBeGreaterThan(before)); // a visible return does
+    await vi.waitFor(() => expect(dom.html()).toContain("BHA-OWNER-1"));
   });
 });
 
