@@ -120,7 +120,7 @@ describe("opening the link: one exchange, never replayed", () => {
     r.controller.bind(GUEST); // a re-render or a second effect run
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.exchange).toHaveBeenCalledTimes(1);
-    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET);
+    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function)); // the third argument is the view's validity (C5)
     expect(r.read).toHaveBeenCalledTimes(1);
     expect(r.exchange.mock.invocationCallOrder[0]).toBeLessThan(r.read.mock.invocationCallOrder[0]);
     expect(JSON.stringify(r.state)).not.toContain(SECRET);
@@ -360,7 +360,7 @@ describe("estimated arrival", () => {
     r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "01:30" });
     r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "01:30" });
     expect(r.update).toHaveBeenCalledTimes(1);
-    expect(r.update).toHaveBeenCalledWith(ID, { arrivalDate: "2026-12-02", arrivalTime: "01:30" });
+    expect(r.update).toHaveBeenCalledWith(ID, { arrivalDate: "2026-12-02", arrivalTime: "01:30" }, expect.any(Function));
     expect(r.state.save).toEqual({ status: "saving" });
     saved.resolve(withEta("2026-12-02", "01:30"));
     await vi.waitFor(() => expect(r.state.save).toEqual({ status: "saved" }));
@@ -884,7 +884,7 @@ describe("PR09-C4 P2-1: an unsettled arrival update keeps its hold through a ses
       r.update.mockReturnValueOnce(b.promise);
       r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "10:00" });
       expect(r.update).toHaveBeenCalledTimes(2);
-      expect(r.update).toHaveBeenLastCalledWith(ID_B, { arrivalDate: "2026-12-02", arrivalTime: "10:00" });
+      expect(r.update).toHaveBeenLastCalledWith(ID_B, { arrivalDate: "2026-12-02", arrivalTime: "10:00" }, expect.any(Function));
       answer(a); // A's answer arrives while B is on screen and B's request is out
       await tick();
       expect(r.state.save).toEqual({ status: "saving" }); // B untouched
@@ -914,7 +914,7 @@ describe("PR09-C4 P2-2: a link opened in the same tab", () => {
     r.controller.openLink({ kind: "token", token: SECRET_2 });
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.exchange).toHaveBeenCalledTimes(2);
-    expect(r.exchange).toHaveBeenLastCalledWith(ID, SECRET_2);
+    expect(r.exchange).toHaveBeenLastCalledWith(ID, SECRET_2, expect.any(Function));
     expect(r.read).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(r.state)).not.toContain(SECRET_2);
     // nothing afterwards replays it: a re-render, a re-bind, a read
@@ -985,7 +985,7 @@ describe("PR09-C4 P2-2: a link opened in the same tab", () => {
     r.controller.bind(GUEST);
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.exchange).toHaveBeenCalledTimes(1);
-    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET);
+    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function)); // the third argument is the view's validity (C5)
   });
 
   it("after an exchange whose answer was lost, Try again is a read; only an explicit open sends one more POST", async () => {
@@ -1013,5 +1013,221 @@ describe("the secret never reaches an error object", () => {
     await vi.waitFor(() => expect(r.state.phase).toBe("failed"));
     expect(JSON.stringify(r.state)).not.toContain(SECRET);
     expect(Object.values(r.state).some((v) => v === leaky)).toBe(false);
+  });
+});
+
+describe("PR09-C5 P2-1: a read's answer is checked again where it is published", () => {
+  const OTHER: ManageContext = { reservationId: ID, identityKey: "customer:aaaa" };
+  const OLD = withEta("2026-12-02", "03:00");
+  /**
+   * The answer is a reservation whose `reservationId` getter changes the view when `read()` looks at it: that happens inside `read()`, after its own epoch check and
+   * before it returns, i.e. exactly in the gap before the caller continues. Deterministic: no timer, no microtask counting.
+   */
+  function answerThenChange(answer: ReturnType<typeof deferred<ManagedReservation>>, value: ManagedReservation, change: () => void) {
+    let fired = false;
+    const hooked = { ...value };
+    Object.defineProperty(hooked, "reservationId", {
+      enumerable: true,
+      get: () => {
+        if (!fired) { fired = true; change(); }
+        return value.reservationId;
+      },
+    });
+    answer.resolve(hooked);
+  }
+  /** The next two reads: the first one is held (the old view's), the second one (the new view's) is held too. */
+  function twoHeldReads(r: ReturnType<typeof rig>) {
+    const oldView = deferred<ManagedReservation>();
+    const newView = deferred<ManagedReservation>();
+    r.read.mockImplementationOnce(() => oldView.promise).mockImplementationOnce(() => newView.promise);
+    return { oldView, newView };
+  }
+  const nothingOld = (r: ReturnType<typeof rig>) => {
+    expect(r.state).toMatchObject({ phase: "loading", reservation: null, save: { status: "idle" }, bound: OTHER });
+    expect(JSON.stringify(r.state)).not.toContain("03:00");
+  };
+
+  it("load(): the old view's DTO is not published under the new identity", async () => {
+    const r = rig();
+    const { oldView, newView } = twoHeldReads(r);
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(1));
+    answerThenChange(oldView, OLD, () => r.controller.bind(OTHER));
+    await tick();
+    nothingOld(r);
+    newView.resolve(RES);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.state.reservation?.estimatedArrival).toBeNull();
+    expect(r.state.bound).toEqual(OTHER);
+  });
+
+  it("load(): the same holds when the reservation changes, and when the page is left", async () => {
+    const r = rig();
+    const { oldView, newView } = twoHeldReads(r);
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(1));
+    const B: ManageContext = { reservationId: ID_B, identityKey: "guest" };
+    answerThenChange(oldView, OLD, () => r.controller.bind(B));
+    await tick();
+    expect(r.state).toMatchObject({ phase: "loading", reservation: null, bound: B });
+    newView.resolve({ ...RES, reservationId: ID_B });
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+
+    const left = rig();
+    const held = deferred<ManagedReservation>();
+    left.read.mockImplementationOnce(() => held.promise);
+    left.controller.bind(GUEST);
+    await vi.waitFor(() => expect(left.read).toHaveBeenCalledTimes(1));
+    const seen: string[] = [];
+    left.controller.subscribe(() => seen.push(left.state.phase));
+    answerThenChange(held, OLD, () => left.controller.dispose());
+    await tick();
+    expect(seen).not.toContain("ready"); // nothing is published for a view that is gone
+  });
+
+  it("settle(): the old view's read is not published, and its lock decision is not applied, under the new view", async () => {
+    const r = rig();
+    await ready(r);
+    r.update.mockRejectedValueOnce(new ApiNetworkError()); // lost: the read below settles it
+    const { oldView, newView } = twoHeldReads(r);
+    r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "03:00" });
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2)); // load + the verifying read
+    expect(r.state.save).toEqual({ status: "verifying" });
+    answerThenChange(oldView, OLD, () => r.controller.bind(OTHER));
+    await tick();
+    nothingOld(r);
+    newView.resolve(RES);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.state.save).toEqual({ status: "idle" }); // the other identity is free: the old lock did not leak
+    r.controller.bind(GUEST); // ... while the lost POST still holds its own view
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST, save: { status: "unverified" } }));
+  });
+
+  it("refreshAfterRefusal(): the old view's read, error text and unlock are not applied under the new view", async () => {
+    const r = rig();
+    await ready(r);
+    r.update.mockRejectedValueOnce(problem(409, "reservation.not-editable"));
+    const { oldView, newView } = twoHeldReads(r);
+    r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "03:00" });
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
+    expect(r.state.save).toMatchObject({ status: "conflict", checking: true });
+    answerThenChange(oldView, OLD, () => r.controller.bind(OTHER));
+    await tick();
+    nothingOld(r);
+    newView.resolve(RES);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.state.save).toEqual({ status: "idle" });
+  });
+});
+
+describe("PR09-C5 P2-3: a read that began before the POST was settled cannot open the form", () => {
+  const LOADING: ManageContext = { reservationId: ID, identityKey: null };
+  const submit = (r: ReturnType<typeof rig>, time = "09:00") => r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: time });
+
+  /** A POST is pending; the identity goes through loading and the same account is verified again; the new view's GET is out (held). */
+  async function pendingPostAndHeldGet() {
+    const r = rig();
+    await ready(r);
+    const post = deferred<ManagedReservation>();
+    const get = deferred<ManagedReservation>();
+    r.update.mockReturnValueOnce(post.promise);
+    submit(r);
+    r.read.mockImplementationOnce(() => get.promise);
+    r.controller.bind(LOADING);
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
+    return { r, post, get };
+  }
+
+  it("the POST succeeds, then the older GET answers with the old ETA: the form stays shut until a GET that began after the POST; then it shows the new ETA", async () => {
+    const { r, post, get } = await pendingPostAndHeldGet();
+    post.resolve(withEta("2026-12-02", "09:00"));
+    await tick();
+    expect(r.state.phase).toBe("loading"); // the POST's answer is not published into the new view
+    get.resolve(RES); // the OLD arrival (none), answered after the POST's answer
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.state.reservation?.estimatedArrival).toBeNull();
+    expect(r.state.save).toEqual({ status: "unverified" }); // shut: a read that began before the POST settled decides nothing
+    submit(r, "10:00");
+    await tick();
+    expect(r.update).toHaveBeenCalledTimes(1);
+
+    r.read.mockResolvedValueOnce(withEta("2026-12-02", "09:00")); // a GET that begins now, after the POST settled
+    r.controller.verifySave();
+    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "idle" }));
+    expect(r.state.reservation?.estimatedArrival).toMatchObject({ arrivalDate: "2026-12-02", arrivalTime: "09:00" });
+    r.update.mockResolvedValueOnce(withEta("2026-12-02", "10:00"));
+    submit(r, "10:00");
+    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "saved" }));
+    expect(r.update).toHaveBeenCalledTimes(2);
+  });
+
+  it("a definite refusal of the POST before the older GET answers: the same rule (the read began under the hold)", async () => {
+    const { r, post, get } = await pendingPostAndHeldGet();
+    post.reject(problem(400, "reservation.arrival-invalid"));
+    await tick();
+    get.resolve(RES);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.state.save).toEqual({ status: "unverified" });
+    r.controller.verifySave();
+    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "idle" }));
+  });
+
+  it("the older GET fails for a moment: nothing opens; a read the visitor repeats after the POST was settled does", async () => {
+    const { r, post, get } = await pendingPostAndHeldGet();
+    post.resolve(withEta("2026-12-02", "09:00"));
+    await tick();
+    get.reject(new ApiNetworkError());
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "network" }));
+    expect(r.state.save).toEqual({ status: "idle" }); // there is no form on a failed view
+    r.read.mockResolvedValueOnce(withEta("2026-12-02", "09:00"));
+    r.controller.retry();
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.state.save).toEqual({ status: "idle" }); // began after the settle, succeeded
+    expect(r.state.reservation?.estimatedArrival).toMatchObject({ arrivalTime: "09:00" });
+  });
+
+  it("the older GET fails while the POST is still unsettled: the retry keeps the lock, and only Check again after the POST's answer opens it", async () => {
+    const { r, post, get } = await pendingPostAndHeldGet();
+    get.reject(new ApiNetworkError());
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "network" }));
+    r.controller.retry();
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.state.save).toEqual({ status: "unverified" }); // the POST has no answer yet
+    submit(r, "10:00");
+    await tick();
+    expect(r.update).toHaveBeenCalledTimes(1);
+    post.resolve(withEta("2026-12-02", "09:00"));
+    await tick();
+    expect(r.state.save).toEqual({ status: "unverified" }); // its answer publishes nothing into this view
+    r.controller.verifySave();
+    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "idle" }));
+  });
+
+  it("a POST whose result stays unknown keeps the form shut whatever any read shows (C3/C4 behaviour kept)", async () => {
+    const { r, post, get } = await pendingPostAndHeldGet();
+    post.reject(new ApiNetworkError());
+    await tick();
+    get.resolve(withEta("2026-12-02", "09:00"));
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.state.save).toEqual({ status: "unverified" });
+    r.controller.verifySave();
+    await tick();
+    expect(r.state.save).toEqual({ status: "unverified" });
+    expect(r.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("access lost and Cancelled still behave as before after a recheck", async () => {
+    const { r, post, get } = await pendingPostAndHeldGet();
+    post.resolve(withEta("2026-12-02", "09:00"));
+    get.reject(problem(403));
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "no-access", reservation: null }));
+    r.read.mockResolvedValueOnce({ ...RES, status: "Cancelled" });
+    r.controller.bind(LOADING);
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    submit(r, "10:00");
+    await tick();
+    expect(r.update).toHaveBeenCalledTimes(1); // Cancelled stays shut by its status
   });
 });

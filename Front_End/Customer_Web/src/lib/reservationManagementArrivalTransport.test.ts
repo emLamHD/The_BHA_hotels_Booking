@@ -12,8 +12,8 @@ vi.mock("@/lib/api/httpClient", () => ({
 }));
 
 import { resetCsrfStateForTests } from "@/lib/api/csrf";
-import { readManagedReservation, updateEstimatedArrival } from "@/lib/api/reservationManagementService";
-import { MANAGE, createReservationManagementController } from "./reservationManagement";
+import { exchangeManagementLink, exchangeOnce, readManagedReservation, updateEstimatedArrival, whenExchangeSettled } from "@/lib/api/reservationManagementService";
+import { MANAGE, createReservationManagementController, type ManageContext } from "./reservationManagement";
 
 const ID = "7b1f6c52-0a43-4d2e-9c1f-3d8a5e6b7c90";
 const DTO = {
@@ -51,5 +51,130 @@ describe("the arrival update when the CSRF token cannot be read (PR09-C3 P2-2)",
     await vi.waitFor(() => expect(controller.getState().save).toEqual({ status: "saved" }));
     expect(calls(apiUnsafeRequestMock, POST)).toBe(1);
     expect(calls(apiGetMock, MANAGE_PATH)).toBe(1);
+  });
+});
+
+// BHA-CHECKOUT-001-PR09-C5 P2-2: the REAL controller, service and CSRF helper; only the HTTP client is replaced. A POST that waits for its CSRF token is handed to the
+// transport only if the view that started it is still the current one.
+describe("a POST that waits for its CSRF token when the view changes (PR09-C5 P2-2)", () => {
+  const CSRF = "/api/v1/auth/csrf";
+  const EXCHANGE = `${MANAGE_PATH}/exchange`;
+  const SECRET = "Zq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwabc";
+  const GUEST: ManageContext = { reservationId: ID, identityKey: "guest" };
+  const OWNER: ManageContext = { reservationId: ID, identityKey: "customer:aaaa" };
+  const TOKEN = { token: "t", headerName: "X-CSRF-TOKEN" };
+  const SAVED = { ...DTO, estimatedArrival: { arrivalDate: "2026-12-02", arrivalTime: "09:00", timeZoneId: "Asia/Ho_Chi_Minh", updatedAtUtc: "u" } };
+
+  /** The token request is held until the test releases it. */
+  function rig() {
+    let release!: (value: unknown) => void;
+    const token = new Promise((resolve) => { release = resolve; });
+    apiGetMock.mockImplementation(async (path: string) => (path === MANAGE_PATH ? DTO : token));
+    apiUnsafeRequestMock.mockImplementation(async (path: string) => (path === EXCHANGE ? { status: 200, data: { reservationId: ID, expiresAtUtc: "x" } } : { status: 200, data: SAVED }));
+    const controller = createReservationManagementController({
+      exchange: (rid, tok, stillCurrent) => exchangeOnce(rid, tok, (id, t) => exchangeManagementLink(id, t, stillCurrent)),
+      whenExchangeSettled,
+      requestSessionRefresh: () => {},
+      read: (id, signal) => readManagedReservation(id, { signal }),
+      update: updateEstimatedArrival,
+    });
+    return { controller, releaseToken: () => release(TOKEN), get state() { return controller.getState(); } };
+  }
+  const ready = async (r: ReturnType<typeof rig>, ctx: ManageContext = GUEST) => {
+    r.controller.bind(ctx);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+  };
+  const save = (r: ReturnType<typeof rig>, time = "09:00") => r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: time });
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("control: the view is still the same when the token arrives: exactly one POST", async () => {
+    const r = rig();
+    await ready(r);
+    save(r);
+    r.releaseToken();
+    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "saved" }));
+    expect(calls(apiUnsafeRequestMock, POST)).toBe(1);
+  });
+
+  it("the visitor changed account while the token was being read: 0 POSTs; the new view shows no error from it, is free to save, and sends one POST when it does", async () => {
+    const r = rig();
+    await ready(r);
+    save(r);
+    r.controller.bind(OWNER);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: OWNER }));
+    r.releaseToken();
+    await flush();
+    expect(calls(apiUnsafeRequestMock, POST)).toBe(0);
+    expect(r.state).toMatchObject({ phase: "ready", bound: OWNER, save: { status: "idle" } }); // nothing from the old operation
+    save(r, "10:00");
+    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "saved" }));
+    expect(calls(apiUnsafeRequestMock, POST)).toBe(1);
+  });
+
+  it("the visitor left the page while the token was being read: 0 POSTs", async () => {
+    const r = rig();
+    await ready(r);
+    save(r);
+    r.controller.dispose();
+    r.releaseToken();
+    await flush();
+    expect(calls(apiUnsafeRequestMock, POST)).toBe(0);
+  });
+
+  it("another reservation: 0 POSTs for the old one", async () => {
+    const r = rig();
+    await ready(r);
+    save(r);
+    r.controller.bind({ reservationId: "11111111-2222-4333-8444-555555555555", identityKey: "guest" });
+    r.releaseToken();
+    await flush();
+    expect(apiUnsafeRequestMock.mock.calls.filter((c) => String(c[0]).endsWith("/estimated-arrival"))).toHaveLength(0);
+  });
+
+  it("a session recheck (loading, then the same account): the old operation is not sent; its hold is released, so one Check again later the form is open", async () => {
+    const r = rig();
+    await ready(r);
+    save(r);
+    r.controller.bind({ reservationId: ID, identityKey: null });
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    r.releaseToken();
+    await flush();
+    expect(calls(apiUnsafeRequestMock, POST)).toBe(0);
+    expect(r.state.save).toEqual({ status: "unverified" }); // this view's read began while the operation was unsettled
+    r.controller.verifySave(); // a read that begins after the operation was settled (never sent)
+    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "idle" }));
+    save(r, "10:00");
+    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "saved" }));
+    expect(calls(apiUnsafeRequestMock, POST)).toBe(1);
+  });
+
+  it("the link exchange: the visitor changed account while the token was being read: 0 exchange POSTs, no failure shown to the new view; opening the link again sends exactly one", async () => {
+    const r = rig();
+    r.controller.offerLink({ kind: "token", token: SECRET });
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(calls(apiGetMock, CSRF)).toBe(1)); // the exchange is waiting for its token
+    r.controller.bind(OWNER);
+    r.releaseToken();
+    await flush();
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ bound: OWNER, phase: "ready" }));
+    expect(JSON.stringify(r.state)).not.toContain(SECRET);
+
+    r.controller.openLink({ kind: "token", token: SECRET });
+    await vi.waitFor(() => expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(1));
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(apiUnsafeRequestMock.mock.calls.filter((c) => c[0] === EXCHANGE)[0][2]).toEqual({ token: SECRET });
+  });
+
+  it("the link exchange with the view unchanged: exactly one exchange POST (control), and C4's same-tab reopen still sends one more", async () => {
+    const r = rig();
+    r.releaseToken();
+    r.controller.offerLink({ kind: "token", token: SECRET });
+    await ready(r);
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(1);
+    r.controller.openLink({ kind: "token", token: SECRET });
+    await vi.waitFor(() => expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(2));
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
   });
 });

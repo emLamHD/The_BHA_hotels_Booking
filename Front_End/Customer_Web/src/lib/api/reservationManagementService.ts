@@ -121,10 +121,11 @@ export function toManagedReservation(data: unknown, reservationId: string): Mana
 /**
  * `POST /manage/exchange` with `{ token }`: consumes the one-time link and sets the session cookie. Handed to the transport ONCE through the
  * no-retry CSRF path (the shared helper would replay it after an antiforgery failure). No signal: aborting cannot un-consume a link, it would only
- * lose the answer. A 2xx whose body is not this reservation's is a {@link ManagementContractError} (unknown outcome).
+ * lose the answer. A 2xx whose body is not this reservation's is a {@link ManagementContractError} (unknown outcome). `stillCurrent` is the initiating view's
+ * validity, asked right before the hand-over (see `submitCsrfProtectedRequestOnce`): a view that is gone sends nothing.
  */
-export async function exchangeManagementLink(reservationId: string, token: string): Promise<void> {
-  const response = await submitCsrfProtectedRequestOnce<unknown>(`${managePath(reservationId)}/exchange`, "POST", { token });
+export async function exchangeManagementLink(reservationId: string, token: string, stillCurrent?: () => boolean): Promise<void> {
+  const response = await submitCsrfProtectedRequestOnce<unknown>(`${managePath(reservationId)}/exchange`, "POST", { token }, {}, stillCurrent);
   const body = response.data as { reservationId?: unknown; expiresAtUtc?: unknown } | undefined;
   if (
     response.status !== 200 ||
@@ -148,12 +149,15 @@ export interface ArrivalInput {
   arrivalTime: string;
 }
 
-/** `POST /manage/estimated-arrival` with exactly `{ arrivalDate, arrivalTime }`, once (never replayed here). Answers the updated reservation. */
-export async function updateEstimatedArrival(reservationId: string, input: ArrivalInput): Promise<ManagedReservation> {
-  const response = await submitCsrfProtectedRequestOnce<unknown>(`${managePath(reservationId)}/estimated-arrival`, "POST", {
-    arrivalDate: input.arrivalDate,
-    arrivalTime: input.arrivalTime,
-  });
+/** `POST /manage/estimated-arrival` with exactly `{ arrivalDate, arrivalTime }`, once (never replayed here), and only while `stillCurrent` (the initiating view) says so. Answers the updated reservation. */
+export async function updateEstimatedArrival(reservationId: string, input: ArrivalInput, stillCurrent?: () => boolean): Promise<ManagedReservation> {
+  const response = await submitCsrfProtectedRequestOnce<unknown>(
+    `${managePath(reservationId)}/estimated-arrival`,
+    "POST",
+    { arrivalDate: input.arrivalDate, arrivalTime: input.arrivalTime },
+    {},
+    stillCurrent
+  );
   if (response.status !== 200) throw new ManagementContractError();
   return toManagedReservation(response.data, reservationId);
 }

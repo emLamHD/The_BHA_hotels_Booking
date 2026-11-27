@@ -1,6 +1,6 @@
 import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
 import { isRequestCancelledError } from "@/lib/api/httpClient";
-import { CsrfTokenUnavailableError } from "@/lib/api/csrf";
+import { CsrfTokenUnavailableError, RequestSupersededError } from "@/lib/api/csrf";
 import { ManagementContractError, canonicalReservationId, type ArrivalInput, type ManagedReservation } from "@/lib/api/reservationManagementService";
 
 /**
@@ -120,7 +120,8 @@ export function validateArrival(input: ArrivalInput, checkIn: string): "date" | 
 /** An exchange that ended without a usable 200. Certain refusals leave the link unspent; everything else is "may be spent" and is never retried. */
 export function classifyExchangeError(error: unknown): ManageFailure {
   if (error instanceof ApiConfigError) return "config";
-  if (error instanceof CsrfTokenUnavailableError) return "link-not-sent";
+  // Nothing reached the server in either case: no token, or the view that wanted to send was gone (a joined exchange of another view whose POST was never sent).
+  if (error instanceof CsrfTokenUnavailableError || error instanceof RequestSupersededError) return "link-not-sent";
   if (error instanceof ApiHttpError) {
     if (error.status === 401) return "link-invalid";
     if (error.status === 429) return "link-rate-limited";
@@ -184,12 +185,16 @@ export function isStateFor(state: ManageState, reservationId: string, identityKe
 }
 
 export interface ReservationManagementDeps {
-  /** The single exchange request (joins one already in flight for the id). */
-  exchange: (reservationId: string, token: string) => Promise<void>;
+  /**
+   * The single exchange request (joins one already in flight for the id). `stillCurrent` says whether the view that asked is still the current one; it is asked
+   * right before the POST is handed to the transport, and a view that is gone sends nothing.
+   */
+  exchange: (reservationId: string, token: string, stillCurrent: () => boolean) => Promise<void>;
   /** Resolves when an exchange of this id that is under way has finished (so a read never races its own cookie). */
   whenExchangeSettled: (reservationId: string) => Promise<void>;
   read: (reservationId: string, signal: AbortSignal) => Promise<ManagedReservation>;
-  update: (reservationId: string, input: ArrivalInput) => Promise<ManagedReservation>;
+  /** The arrival update, with the same `stillCurrent` rule: a superseded request is never sent (it rejects with `RequestSupersededError`). */
+  update: (reservationId: string, input: ArrivalInput, stillCurrent: () => boolean) => Promise<ManagedReservation>;
   /** The customer session is read again (an invalid customer cookie asks for it). */
   requestSessionRefresh: () => void;
 }
@@ -247,8 +252,12 @@ export function createReservationManagementController(deps: ReservationManagemen
 
   const current = (at: number) => at === epoch;
 
-  /** What a freshly read view of the current context shows for saving: shut ("not confirmed") while an update of this very view is unsettled. */
-  const saveStateOfView = (): SaveState => (writeHolds.has(keyOf(context!)) ? { status: "unverified" } : { status: "idle" });
+  /**
+   * What a freshly read view of the current context shows for saving: shut ("not confirmed") while an update of this very view is unsettled, and also when the read
+   * itself BEGAN while one was (`underHold`): such a GET may predate the POST's effect, so it cannot open the form even if the POST's answer arrived first.
+   * Only a successful read that began after the hold was gone opens it.
+   */
+  const saveStateOf = (result: ReadResult): SaveState => (result.underHold || writeHolds.has(keyOf(context!)) ? { status: "unverified" } : { status: "idle" });
 
   function fail(failure: ManageFailure): void {
     publish({ phase: "failed", failure, reservation: null, save: { status: "idle" } });
@@ -265,19 +274,26 @@ export function createReservationManagementController(deps: ReservationManagemen
     fail(failure);
   }
 
-  async function read(at: number): Promise<ManagedReservation | null> {
+  /** A successful read of the current view, and whether an arrival update of this view was unsettled when the request was handed over. */
+  interface ReadResult {
+    reservation: ManagedReservation;
+    underHold: boolean;
+  }
+
+  async function read(at: number): Promise<ReadResult | null> {
     const ctx = context!;
     await deps.whenExchangeSettled(ctx.reservationId);
     if (!current(at)) return null;
     reading?.abort();
     const controller = new AbortController();
     reading = controller;
+    const underHold = writeHolds.has(keyOf(ctx));
     try {
       const reservation = await deps.read(ctx.reservationId, controller.signal);
       if (!current(at)) return null;
       // Defence in depth (the service already checks): an answer for any other reservation is never shown.
       if (reservation.reservationId !== ctx.reservationId) throw new ManagementContractError();
-      return reservation;
+      return { reservation, underHold };
     } catch (error) {
       if (!current(at) || isRequestCancelledError(error)) return null;
       throw error;
@@ -287,8 +303,9 @@ export function createReservationManagementController(deps: ReservationManagemen
   async function load(at: number): Promise<void> {
     publish({ ...WAITING, phase: "loading" });
     try {
-      const reservation = await read(at);
-      if (reservation) publish({ phase: "ready", failure: null, reservation, save: saveStateOfView() });
+      const result = await read(at);
+      // `read` checked the epoch before it returned, but this continuation runs later: the view may have changed in between, and then nothing is published.
+      if (result && current(at)) publish({ phase: "ready", failure: null, reservation: result.reservation, save: saveStateOf(result) });
     } catch (error) {
       if (current(at)) failRead(error);
     }
@@ -312,7 +329,7 @@ export function createReservationManagementController(deps: ReservationManagemen
     }
     publish({ ...WAITING, phase: "exchanging" });
     try {
-      await deps.exchange(ctx.reservationId, offer.token);
+      await deps.exchange(ctx.reservationId, offer.token, () => current(at));
     } catch (error) {
       if (current(at)) fail(classifyExchangeError(error));
       return;
@@ -381,14 +398,15 @@ export function createReservationManagementController(deps: ReservationManagemen
       publish({ ...state, save: { status: "saving" } });
       void (async () => {
         try {
-          const updated = await deps.update(ctx.reservationId, { arrivalDate: input.arrivalDate, arrivalTime: input.arrivalTime });
+          const updated = await deps.update(ctx.reservationId, { arrivalDate: input.arrivalDate, arrivalTime: input.arrivalTime }, () => current(at));
           release();
           if (!current(at)) return;
           saveLock = false;
           publish({ phase: "ready", failure: null, reservation: updated, save: { status: "saved" } });
         } catch (error) {
-          // Definite: a refusal, an access refusal, or a token that was never read (the POST never left). Anything else (network, 5xx, unusable answer) is unknown and keeps the hold.
-          if ((error instanceof ApiHttpError && [400, 401, 403, 404, 409, 429].includes(error.status)) || error instanceof CsrfTokenUnavailableError) release();
+          // Definite: a refusal, an access refusal, or a request that never left (no token was read, or the view was gone before the hand-over). Anything else (network, 5xx, unusable answer) is unknown and keeps the hold.
+          const neverSent = error instanceof CsrfTokenUnavailableError || error instanceof RequestSupersededError;
+          if ((error instanceof ApiHttpError && [400, 401, 403, 404, 409, 429].includes(error.status)) || neverSent) release();
           if (!current(at)) return;
           if (error instanceof ApiHttpError && [400, 409, 429].includes(error.status)) {
             // A refusal before anything was written: shown, and the visitor decides. A 409 means the reservation is no longer changeable: it is read again with the form shut.
@@ -406,8 +424,8 @@ export function createReservationManagementController(deps: ReservationManagemen
             failRead(error); // access lost: nothing private stays on screen
             return;
           }
-          if (error instanceof CsrfTokenUnavailableError) {
-            // The token could not be read, so the POST never reached the transport: nothing can be applied later. Retryable by the visitor, with their input kept.
+          if (neverSent) {
+            // The POST never reached the transport (no token; a superseded view never gets here, it returned above): nothing can be applied later. Retryable by the visitor, with their input kept.
             saveLock = false;
             publish({ ...state, save: { status: "error", messageKey: MANAGE.etaNotSent } });
             return;
@@ -437,12 +455,12 @@ export function createReservationManagementController(deps: ReservationManagemen
     saveLock = true;
     publish({ ...state, save: { status: "verifying" } });
     try {
-      const reservation = await read(at);
-      if (!reservation) return;
-      // Still not confirmed while the update is unsettled. Only when its own answer has since come (the hold is gone) does the form open again: the read content never decides.
-      const save = saveStateOfView();
+      const result = await read(at);
+      if (!result || !current(at)) return; // the view changed after read() returned: no state and no lock is touched
+      // Still not confirmed while the update is unsettled, or when this read began while it was. Only a read that began after its own answer came opens the form: the read content never decides.
+      const save = saveStateOf(result);
       saveLock = save.status !== "idle";
-      publish({ phase: "ready", failure: null, reservation, save });
+      publish({ phase: "ready", failure: null, reservation: result.reservation, save });
     } catch (error) {
       if (!current(at)) return;
       const failure = classifyReadError(error);
@@ -456,10 +474,10 @@ export function createReservationManagementController(deps: ReservationManagemen
     saveLock = true;
     publish({ ...state, save: { status: "conflict", messageKey, checking: true } });
     try {
-      const reservation = await read(at);
-      if (!reservation) return;
+      const result = await read(at);
+      if (!result || !current(at)) return;
       saveLock = false; // a Cancelled booking stays shut by its status
-      publish({ phase: "ready", failure: null, reservation, save: { status: "error", messageKey } });
+      publish({ phase: "ready", failure: null, reservation: result.reservation, save: { status: "error", messageKey } });
     } catch (error) {
       if (!current(at)) return;
       const failure = classifyReadError(error);

@@ -25,6 +25,8 @@ export interface StaySearchContextValue {
   propsStatus: CatalogStatus;
   propsError: string | null;
   riverside: PropertyDto | undefined;
+  /** The whole public catalog, once loaded (empty before): the same list `riverside` is found in, never a second fetch. */
+  properties: PropertyDto[];
   roomsStatus: CatalogStatus;
   roomsError: string | null;
   roomTypes: RoomTypeDto[];
@@ -193,6 +195,7 @@ export function StaySearchProvider({ children }: { children: React.ReactNode }) 
       propsStatus,
       propsError,
       riverside,
+      properties,
       roomsStatus,
       roomsError,
       roomTypes,
@@ -203,7 +206,7 @@ export function StaySearchProvider({ children }: { children: React.ReactNode }) 
       clearProblem,
       submit,
     }),
-    [draft, updateDraft, propsStatus, propsError, riverside, roomsStatus, roomsError, roomTypes, ensureCatalog, retryProperties, retryRoomTypes, problem, clearProblem, submit]
+    [draft, updateDraft, propsStatus, propsError, riverside, properties, roomsStatus, roomsError, roomTypes, ensureCatalog, retryProperties, retryRoomTypes, problem, clearProblem, submit]
   );
 
   return <StaySearchContext.Provider value={value}>{children}</StaySearchContext.Provider>;

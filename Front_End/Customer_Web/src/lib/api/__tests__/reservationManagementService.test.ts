@@ -40,7 +40,7 @@ describe("exchangeManagementLink", () => {
     once.mockResolvedValue({ status: 200, data: { reservationId: ID, expiresAtUtc: "2026-11-26T00:00:00Z" } });
     await exchangeManagementLink(ID, "S".repeat(43));
     expect(once).toHaveBeenCalledTimes(1);
-    expect(once).toHaveBeenCalledWith(`/api/v1/reservations/${ID}/manage/exchange`, "POST", { token: "S".repeat(43) });
+    expect(once).toHaveBeenCalledWith(`/api/v1/reservations/${ID}/manage/exchange`, "POST", { token: "S".repeat(43) }, {}, undefined);
   });
 
   it("a 2xx that is not this reservation's answer is a contract error (unknown outcome), never success", async () => {
@@ -113,7 +113,7 @@ describe("reads and the arrival update", () => {
     once.mockResolvedValue({ status: 200, data: { ...DTO, estimatedArrival: { arrivalDate: "2026-12-01", arrivalTime: "21:30", timeZoneId: "Asia/Ho_Chi_Minh", updatedAtUtc: "u" } } });
     const r = await updateEstimatedArrival(ID, { arrivalDate: "2026-12-01", arrivalTime: "21:30" });
     expect(once).toHaveBeenCalledTimes(1);
-    expect(once).toHaveBeenCalledWith(`/api/v1/reservations/${ID}/manage/estimated-arrival`, "POST", { arrivalDate: "2026-12-01", arrivalTime: "21:30" });
+    expect(once).toHaveBeenCalledWith(`/api/v1/reservations/${ID}/manage/estimated-arrival`, "POST", { arrivalDate: "2026-12-01", arrivalTime: "21:30" }, {}, undefined);
     expect(r.estimatedArrival?.arrivalTime).toBe("21:30");
   });
 

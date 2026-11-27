@@ -11,6 +11,7 @@ import { verifiedOwnerKey } from "@/lib/api/directBookingAttempt";
 import { calculateNights } from "@/lib/api/availabilityValidation";
 import {
   canonicalReservationId,
+  exchangeManagementLink,
   exchangeOnce,
   readManagedReservation,
   updateEstimatedArrival,
@@ -137,7 +138,8 @@ export const Details: FC<{
   const { t, has, content, formatLocale } = useI18n();
   const dates = useDateFormat();
   const stay = useStaySearch();
-  const property = stay?.riverside ? resolveProperty([stay.riverside], reservation.propertyId) : undefined;
+  // The booked property is looked up in the whole public catalog the provider already loaded (a booking may belong to any property, not only Riverside).
+  const property = stay ? resolveProperty(stay.properties, reservation.propertyId) : undefined;
   const nights = calculateNights(reservation.checkIn, reservation.checkOut);
   const cancelled = reservation.status === "Cancelled";
   const money = (amount: number) => formatAsGiven(amount, reservation.currencyCode, formatLocale);
@@ -249,7 +251,7 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
   refreshRef.current = refreshSession;
   const [controller] = useState(() =>
     createReservationManagementController({
-      exchange: (rid, token) => exchangeOnce(rid, token),
+      exchange: (rid, token, stillCurrent) => exchangeOnce(rid, token, (id, t) => exchangeManagementLink(id, t, stillCurrent)),
       whenExchangeSettled,
       read: (rid, signal) => readManagedReservation(rid, { signal }),
       update: updateEstimatedArrival,

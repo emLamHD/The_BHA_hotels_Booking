@@ -96,7 +96,8 @@ function acquireCsrfToken(): Promise<CsrfMemory> {
  * resent when the generation changes afterwards.
  */
 async function dispatchWithCurrentToken<T>(
-  send: (csrf: CsrfMemory) => Promise<T>
+  send: (csrf: CsrfMemory) => Promise<T>,
+  stillCurrent?: () => boolean
 ): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
   for (;;) {
     const requestedIn = generation;
@@ -110,6 +111,10 @@ async function dispatchWithCurrentToken<T>(
       continue;
     }
     if (requestedIn === generation) {
+      // The initiating view is asked in this same synchronous continuation, right before the hand-over: if it is gone, nothing is sent.
+      if (stillCurrent && !stillCurrent()) {
+        throw new RequestSupersededError();
+      }
       return send(memory).then(
         (value) => ({ ok: true as const, value }),
         (error: unknown) => ({ ok: false as const, error })
@@ -138,23 +143,34 @@ export class CsrfTokenUnavailableError extends Error {
   }
 }
 
+/** The view that started the mutation changed (another account or reservation, or the page was left) before it was handed to the transport: nothing was sent. */
+export class RequestSupersededError extends Error {
+  constructor() {
+    super("The view that started this request is gone; nothing was sent.");
+    this.name = "RequestSupersededError";
+  }
+}
+
 /**
  * BHA-CHECKOUT-001-PR09: the same CSRF-protected mutation, handed to the transport exactly ONCE. Nothing is ever replayed, not even
  * after the exact antiforgery failure (for a one-shot link exchange or an arrival update the caller alone decides about a resend).
  * A failure to read the token throws {@link CsrfTokenUnavailableError} (nothing was sent); on the exact antiforgery failure the cached
  * token is dropped so the caller's next, deliberate attempt reads a fresh one. Every other error is the transport's own.
+ * `stillCurrent` (optional) is asked synchronously right before the hand-over, once the current generation's token is in hand: when it says the initiating view
+ * is gone, nothing is sent and {@link RequestSupersededError} is thrown, distinct from a token failure ({@link CsrfTokenUnavailableError}) and from a request that was handed over.
  */
 export async function submitCsrfProtectedRequestOnce<T>(
   path: string,
   method: "POST" | "PUT" | "PATCH" | "DELETE",
   body: unknown,
-  options: ApiRequestOptions = {}
+  options: ApiRequestOptions = {},
+  stillCurrent?: () => boolean
 ): Promise<ApiUnsafeResponse<T>> {
   let outcome: Awaited<ReturnType<typeof dispatchWithCurrentToken<ApiUnsafeResponse<T>>>>;
   try {
-    outcome = await dispatchWithCurrentToken((csrf) => sendWithToken<T>(path, method, body, options, csrf));
-  } catch {
-    throw new CsrfTokenUnavailableError();
+    outcome = await dispatchWithCurrentToken((csrf) => sendWithToken<T>(path, method, body, options, csrf), stillCurrent);
+  } catch (error) {
+    throw error instanceof RequestSupersededError ? error : new CsrfTokenUnavailableError();
   }
   if (outcome.ok) {
     return outcome.value;

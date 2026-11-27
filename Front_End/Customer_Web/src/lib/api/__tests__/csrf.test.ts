@@ -593,3 +593,53 @@ describe("submitCsrfProtectedRequestOnce (BHA-CHECKOUT-001-PR09)", () => {
     expect(apiUnsafeRequestMock).not.toHaveBeenCalled();
   });
 });
+
+describe("submitCsrfProtectedRequestOnce: the initiating view is checked at dispatch (BHA-CHECKOUT-001-PR09-C5 P2-2)", () => {
+  const gate = () => {
+    let release!: (value: unknown) => void;
+    const promise = new Promise((resolve) => { release = resolve; });
+    return { promise, release };
+  };
+
+  it("a view that changed while the token was being read: nothing is handed to the transport, and the error says so (not a token failure)", async () => {
+    const { submitCsrfProtectedRequestOnce, CsrfTokenUnavailableError } = await import("../csrf");
+    const token = gate();
+    apiGetMock.mockReturnValueOnce(token.promise);
+    apiUnsafeRequestMock.mockResolvedValue({ status: 200, data: {} });
+    let viewIsCurrent = true;
+    const sending = submitCsrfProtectedRequestOnce("/x", "POST", { a: 1 }, {}, () => viewIsCurrent).catch((e: unknown) => e);
+    viewIsCurrent = false; // the visitor changed account / left, while the token request is still out
+    token.release(CSRF_RESPONSE);
+    const outcome = (await sending) as Error;
+    expect(outcome).toBeInstanceOf(Error);
+    expect(outcome.name).toBe("RequestSupersededError");
+    expect(outcome).not.toBeInstanceOf(CsrfTokenUnavailableError);
+    expect(apiUnsafeRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("the same call with a view that is still current sends exactly one request, with the token", async () => {
+    const { submitCsrfProtectedRequestOnce } = await import("../csrf");
+    const token = gate();
+    apiGetMock.mockReturnValueOnce(token.promise);
+    apiUnsafeRequestMock.mockResolvedValueOnce({ status: 200, data: {} });
+    const sending = submitCsrfProtectedRequestOnce("/x", "POST", { a: 1 }, {}, () => true);
+    token.release(CSRF_RESPONSE);
+    await sending;
+    expect(apiUnsafeRequestMock).toHaveBeenCalledTimes(1);
+    expect(apiUnsafeRequestMock.mock.calls[0][3].headers["X-CSRF-TOKEN"]).toBe("csrf-token-1");
+  });
+
+  it("an invalidation that overtakes the token read does not let a superseded view send with the newer token either; and it is never replayed", async () => {
+    const { submitCsrfProtectedRequestOnce, invalidateCsrfToken } = await import("../csrf");
+    const first = gate();
+    apiGetMock.mockReturnValueOnce(first.promise).mockResolvedValueOnce({ token: "csrf-token-2", headerName: "X-CSRF-TOKEN" });
+    apiUnsafeRequestMock.mockResolvedValue({ status: 200, data: {} });
+    let viewIsCurrent = true;
+    const sending = submitCsrfProtectedRequestOnce("/x", "POST", {}, {}, () => viewIsCurrent).catch((e: unknown) => e);
+    invalidateCsrfToken(); // the identity changed: the old token's generation is gone
+    viewIsCurrent = false;
+    first.release(CSRF_RESPONSE);
+    expect(((await sending) as Error).name).toBe("RequestSupersededError");
+    expect(apiUnsafeRequestMock).not.toHaveBeenCalled();
+  });
+});
