@@ -25,6 +25,7 @@ import {
   createReservationManagementController,
   isStateFor,
   parseManageFragment,
+  type LinkOffer,
   type ManageFailure,
   type SaveState,
 } from "@/lib/reservationManagement";
@@ -219,6 +220,20 @@ const Status: FC<{ messageKey: string; children?: React.ReactNode }> = ({ messag
 };
 
 /**
+ * Reads what the address fragment holds and removes it at once: first through `history.replaceState` with the entry's own state, then through the App Router,
+ * which keeps its own copy of the address and would write the secret back on every `router.refresh()`.
+ */
+function takeFragment(router: ReturnType<typeof useRouter>): LinkOffer {
+  const offer = parseManageFragment(window.location.hash);
+  if (window.location.hash !== "") {
+    const clean = window.location.pathname + window.location.search;
+    window.history.replaceState(window.history.state, "", clean);
+    router.replace(clean as never);
+  }
+  return offer;
+}
+
+/**
  * BHA-CHECKOUT-001-PR09. The link secret is read from the address fragment ONCE, the fragment is removed at once (first through
  * `history.replaceState` with the entry's own state, then through the App Router, which keeps its own copy of the address and would write the
  * secret back on every `router.refresh()`, e.g. a language switch), and the secret goes only to the controller, which sends it in one request body.
@@ -254,13 +269,15 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
     // Once: after the first run the fragment is gone, and a second run must not read "no link" over the real one.
     if (stripped.current) return;
     stripped.current = true;
-    const offer = parseManageFragment(window.location.hash);
-    if (window.location.hash !== "") {
-      const clean = window.location.pathname + window.location.search;
-      window.history.replaceState(window.history.state, "", clean);
-      router.replace(clean as never);
-    }
-    controller.offerLink(offer);
+    controller.offerLink(takeFragment(router));
+  }, [controller, router]);
+
+  useEffect(() => {
+    // A link opened in this very tab while the page stays mounted (paste into the address bar after a refusal) changes only the fragment: no new mount, no effect above.
+    // Each such open is an explicit one: the fragment is removed at once and the controller sends at most one exchange for it. Our own cleaning fires no hashchange.
+    const onHashChange = () => controller.openLink(takeFragment(router));
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
   }, [controller, router]);
 
   useEffect(() => {

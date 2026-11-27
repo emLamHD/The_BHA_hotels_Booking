@@ -197,8 +197,13 @@ export interface ReservationManagementDeps {
 export interface ReservationManagementController {
   getState: () => ManageState;
   subscribe: (listener: () => void) => () => void;
-  /** Hands over what the address fragment held, once. */
+  /** Hands over what the address fragment held, once, when the page opens. */
   offerLink: (offer: LinkOffer) => void;
+  /**
+   * The visitor opens a link while the page is already open (a fragment-only navigation in this tab): an explicit open, handled like a fresh one, with at most
+   * one exchange for it. Nothing is sent while an exchange of this view is already out, and nothing is replayed by this or by any render, refresh or read.
+   */
+  openLink: (offer: LinkOffer) => void;
   /** The reservation and verified identity this view is for. A change clears everything private and invalidates answers still on their way. */
   bind: (context: ManageContext) => void;
   /** A visitor's own repeat of the READ (never an exchange). */
@@ -216,6 +221,12 @@ export function createReservationManagementController(deps: ReservationManagemen
   let link: LinkOffer = { kind: "none" };
   let reading: AbortController | null = null;
   let saveLock = false;
+  /**
+   * Arrival updates whose result is not settled, per view key (`reservationId|verified identity`): set when the POST is handed over, released only by a
+   * definite answer of THAT request (never by a read, never by a change of epoch). Unlike `saveLock` it survives the identity going through loading/unknown
+   * and coming back (a session recheck), because the request may still be applied. It holds an empty token: no reservation data, nothing about the guest.
+   */
+  const writeHolds = new Map<string, object>();
   /** A context whose read was refused for an invalid customer session: not repeated by itself (the refresh below passes through "loading"). */
   let sessionInvalidFor: string | null = null;
   const listeners = new Set<() => void>();
@@ -235,6 +246,9 @@ export function createReservationManagementController(deps: ReservationManagemen
   }
 
   const current = (at: number) => at === epoch;
+
+  /** What a freshly read view of the current context shows for saving: shut ("not confirmed") while an update of this very view is unsettled. */
+  const saveStateOfView = (): SaveState => (writeHolds.has(keyOf(context!)) ? { status: "unverified" } : { status: "idle" });
 
   function fail(failure: ManageFailure): void {
     publish({ phase: "failed", failure, reservation: null, save: { status: "idle" } });
@@ -274,7 +288,7 @@ export function createReservationManagementController(deps: ReservationManagemen
     publish({ ...WAITING, phase: "loading" });
     try {
       const reservation = await read(at);
-      if (reservation) publish({ phase: "ready", failure: null, reservation, save: { status: "idle" } });
+      if (reservation) publish({ phase: "ready", failure: null, reservation, save: saveStateOfView() });
     } catch (error) {
       if (current(at)) failRead(error);
     }
@@ -318,6 +332,17 @@ export function createReservationManagementController(deps: ReservationManagemen
     offerLink: (offer) => {
       if (link.kind === "none") link = offer;
     },
+    openLink: (offer) => {
+      if (offer.kind === "none") return;
+      if (!context || context.identityKey === null) {
+        link = offer; // no verified identity yet: it is opened (once) when the identity settles, like the link of a fresh page
+        return;
+      }
+      if (state.phase === "exchanging") return; // never a second exchange beside the one that is out
+      invalidate(); // an unsettled arrival update keeps its hold (writeHolds); only the epoch-bound lock and answers are dropped
+      link = offer;
+      void begin(epoch);
+    },
     bind: (next) => {
       if (context && context.reservationId === next.reservationId && context.identityKey === next.identityKey) return;
       invalidate();
@@ -337,7 +362,8 @@ export function createReservationManagementController(deps: ReservationManagemen
       const reservation = state.reservation;
       const ctx = context;
       if (!ctx || state.phase !== "ready" || !reservation || reservation.status === "Cancelled" || saveLock) return;
-      if (["saving", "verifying", "unverified", "conflict"].includes(state.save.status)) return;
+      const viewKey = keyOf(ctx);
+      if (writeHolds.has(viewKey) || ["saving", "verifying", "unverified", "conflict"].includes(state.save.status)) return;
       const invalid = validateArrival(input, reservation.checkIn);
       if (invalid) {
         publish({ ...state, save: { status: "error", messageKey: invalid === "date" ? MANAGE.etaInvalidDate : MANAGE.etaInvalidTime } });
@@ -345,14 +371,24 @@ export function createReservationManagementController(deps: ReservationManagemen
       }
       saveLock = true; // synchronous: a second click or Enter in the same tick sends nothing
       const at = epoch;
+      const mine = {};
+      writeHolds.set(viewKey, mine);
+      // Only a definite answer of THIS request frees the hold, and it does so even when the view it came from is gone (hidden, rebound, another identity):
+      // then nothing is shown or rebuilt from the answer, and no other view's lock is touched.
+      const release = () => {
+        if (writeHolds.get(viewKey) === mine) writeHolds.delete(viewKey);
+      };
       publish({ ...state, save: { status: "saving" } });
       void (async () => {
         try {
           const updated = await deps.update(ctx.reservationId, { arrivalDate: input.arrivalDate, arrivalTime: input.arrivalTime });
+          release();
           if (!current(at)) return;
           saveLock = false;
           publish({ phase: "ready", failure: null, reservation: updated, save: { status: "saved" } });
         } catch (error) {
+          // Definite: a refusal, an access refusal, or a token that was never read (the POST never left). Anything else (network, 5xx, unusable answer) is unknown and keeps the hold.
+          if ((error instanceof ApiHttpError && [400, 401, 403, 404, 409, 429].includes(error.status)) || error instanceof CsrfTokenUnavailableError) release();
           if (!current(at)) return;
           if (error instanceof ApiHttpError && [400, 409, 429].includes(error.status)) {
             // A refusal before anything was written: shown, and the visitor decides. A 409 means the reservation is no longer changeable: it is read again with the form shut.
@@ -395,7 +431,7 @@ export function createReservationManagementController(deps: ReservationManagemen
 
   /**
    * The submitted result is unknown: read the server and show what it holds, nothing more. Even a read equal to what was sent proves nothing: the same value
-   * may have been stored before the request, and the lost POST may still be on its way. So this never reports "saved" and never opens the form (lock held for this view).
+   * may have been stored before the request, and the lost POST may still be on its way. So this never reports "saved" and never opens the form while the update is unsettled (`writeHolds`; only that request's own answer releases it).
    */
   async function settle(at: number): Promise<void> {
     saveLock = true;
@@ -403,7 +439,10 @@ export function createReservationManagementController(deps: ReservationManagemen
     try {
       const reservation = await read(at);
       if (!reservation) return;
-      publish({ phase: "ready", failure: null, reservation, save: { status: "unverified" } });
+      // Still not confirmed while the update is unsettled. Only when its own answer has since come (the hold is gone) does the form open again: the read content never decides.
+      const save = saveStateOfView();
+      saveLock = save.status !== "idle";
+      publish({ phase: "ready", failure: null, reservation, save });
     } catch (error) {
       if (!current(at)) return;
       const failure = classifyReadError(error);
