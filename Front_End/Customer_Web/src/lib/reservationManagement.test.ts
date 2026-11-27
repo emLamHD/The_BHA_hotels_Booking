@@ -1232,3 +1232,140 @@ describe("PR09-C5 P2-3: a read that began before the POST was settled cannot ope
     expect(r.update).toHaveBeenCalledTimes(1); // Cancelled stays shut by its status
   });
 });
+
+describe("PR09-C6 P3: one recovery read after the same signed-in account is verified again", () => {
+  const OWNER: ManageContext = { reservationId: ID, identityKey: "customer:aaaa" };
+  const OTHER_OWNER: ManageContext = { reservationId: ID, identityKey: "customer:bbbb" };
+  const invalid = () => problem(401, "auth.session-invalid");
+  /** What the session provider does after the refresh that was asked for: the identity goes through loading and the same account is verified again. */
+  const reverify = (r: ReturnType<typeof rig>, ctx: ManageContext = OWNER) => {
+    r.controller.bind(LOADING_CTX);
+    expect(r.state).toMatchObject({ phase: "waiting", reservation: null }); // nothing private while it is unverified
+    r.controller.bind(ctx);
+  };
+  const refused = async (r: ReturnType<typeof rig>) => vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "session-invalid" }));
+
+  it("the read is refused, the same account is verified again: exactly one more GET, which succeeds; one session refresh, no exchange", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(invalid());
+    r.controller.bind(OWNER);
+    await refused(r);
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
+    reverify(r);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", failure: null, bound: OWNER }));
+    expect(r.read).toHaveBeenCalledTimes(2);
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("the recovery read is refused too: the error stays, the session is not refreshed again, and no further read starts for this account (also after another recheck)", async () => {
+    const r = rig();
+    r.read.mockRejectedValue(invalid());
+    r.controller.bind(OWNER);
+    await refused(r);
+    reverify(r);
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
+    await refused(r);
+    await tick();
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1); // the recovery pass is over: no refresh from its refusal
+    reverify(r);
+    await tick();
+    reverify(r);
+    await tick();
+    expect(r.read).toHaveBeenCalledTimes(2);
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
+    expect(r.state).toMatchObject({ phase: "failed", failure: "session-invalid", reservation: null });
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("a link that was exchanged for the first view is not exchanged again by the recovery read", async () => {
+    const r = rig();
+    r.controller.offerLink({ kind: "token", token: SECRET });
+    r.read.mockRejectedValueOnce(invalid());
+    r.controller.bind(OWNER);
+    await refused(r);
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    reverify(r);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("a binding that was superseded before it started does not use up the single recovery read", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(invalid());
+    r.controller.bind(OWNER);
+    await refused(r);
+    // verified, then lost again in the same tick (never started), then verified again: still exactly one recovery GET
+    r.controller.bind(LOADING_CTX);
+    r.controller.bind(OWNER);
+    r.controller.bind(LOADING_CTX);
+    await tick();
+    expect(r.read).toHaveBeenCalledTimes(1);
+    r.controller.bind(OWNER);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("a guest view gets no recovery: the refusal is followed by one refresh, and the same guest verified again reads nothing (as before)", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(invalid());
+    r.controller.bind(GUEST);
+    await refused(r);
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
+    reverify(r, GUEST);
+    await tick();
+    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(r.state).toMatchObject({ phase: "failed", failure: "session-invalid" });
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("another verified identity is a fresh view and ends the old pass; coming back to the first account later gets its own recovery", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(invalid());
+    r.controller.bind(OWNER);
+    await refused(r);
+    reverify(r, OTHER_OWNER); // another account is verified: its read is a normal first read
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: OTHER_OWNER }));
+    expect(r.read).toHaveBeenCalledTimes(2);
+    r.read.mockRejectedValueOnce(invalid());
+    reverify(r, OWNER); // back to the first account: a normal first read (refused again), not a suppressed one
+    await refused(r);
+    expect(r.read).toHaveBeenCalledTimes(3);
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(2);
+    reverify(r, OWNER);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready")); // and it has its own single recovery
+    expect(r.read).toHaveBeenCalledTimes(4);
+  });
+
+  it("a successful read ends the pass: a later refusal starts a new one (refresh and recovery again)", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(invalid());
+    r.controller.bind(OWNER);
+    await refused(r);
+    reverify(r);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    r.read.mockRejectedValueOnce(invalid());
+    r.controller.bind(LOADING_CTX);
+    r.controller.bind(OWNER); // a normal read (refused again)
+    await refused(r);
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(2);
+    reverify(r);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+  });
+
+  it("the recovery read's answer is checked by the epoch: a view that changed meanwhile shows nothing from it", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(invalid());
+    r.controller.bind(OWNER);
+    await refused(r);
+    const held = deferred<ManagedReservation>();
+    r.read.mockImplementationOnce(() => held.promise);
+    reverify(r);
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
+    r.controller.bind(LOADING_CTX); // the identity is lost again while the recovery read is out
+    held.resolve(RES);
+    await tick();
+    expect(r.state).toMatchObject({ phase: "waiting", reservation: null });
+  });
+});

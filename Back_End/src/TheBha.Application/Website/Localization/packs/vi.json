@@ -862,6 +862,7 @@
    "customer.login.loginForm.youCanBookWithoutAn": "Bạn có thể đặt phòng mà không cần tài khoản. Chưa có tài khoản?",
    "customer.manage.cancelledNotice": "Đặt phòng này đã bị hủy. Bạn vẫn xem được chi tiết nhưng không thể thay đổi giờ đến.",
    "customer.manage.contact": "Liên hệ cơ sở",
+   "customer.manage.contactUnavailable": "Hiện chưa có kênh liên hệ nào khả dụng trên trang này. Vui lòng thử lại sau.",
    "customer.manage.error.exchangeUncertain": "Chúng tôi chưa biết liên kết đã mở được hay chưa vì kết nối bị gián đoạn. Hãy bấm Thử lại hoặc tải lại trang để kiểm tra phiên truy cập hiện tại. Nếu vẫn không vào được, vui lòng liên hệ cơ sở.",
    "customer.manage.error.invalidId": "Địa chỉ này không phải là một đặt phòng hợp lệ. Hãy mở lại liên kết trong email xác nhận của bạn.",
    "customer.manage.error.linkInvalid": "Liên kết này không hợp lệ, đã hết hạn hoặc đã được sử dụng. Nếu bạn đã mở liên kết trên thiết bị này, hãy tải lại trang để kiểm tra. Nếu vẫn không vào được, vui lòng liên hệ cơ sở để được hỗ trợ.",

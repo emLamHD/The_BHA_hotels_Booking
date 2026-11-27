@@ -4791,6 +4791,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.manage.contactUnavailable",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.manage.error.exchangeUncertain",
    "scope": "customer",
    "placeholders": []

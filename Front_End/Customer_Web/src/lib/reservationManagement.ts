@@ -44,6 +44,7 @@ export const MANAGE = {
   retry: "customer.manage.retry",
   signIn: "customer.manage.signIn",
   contact: "customer.manage.contact",
+  contactUnavailable: "customer.manage.contactUnavailable",
   moreProperties: "customer.receipt.moreProperties",
 } as const;
 
@@ -232,8 +233,13 @@ export function createReservationManagementController(deps: ReservationManagemen
    * and coming back (a session recheck), because the request may still be applied. It holds an empty token: no reservation data, nothing about the guest.
    */
   const writeHolds = new Map<string, object>();
-  /** A context whose read was refused for an invalid customer session: not repeated by itself (the refresh below passes through "loading"). */
-  let sessionInvalidFor: string | null = null;
+  /**
+   * A view whose read was refused for an invalid customer session (PR09-C6). The refresh that is asked for passes through "loading", and when the SAME signed-in account is
+   * verified again the view gets exactly ONE recovery read (`recovery` "available" -> "used"), e.g. the visitor signed in again in another tab. A refusal of that read, or any
+   * refusal for a guest view, ends the pass: the error stays, the session is not refreshed again and no further read starts for this key. The marker survives the loading
+   * transition (and `dispose()`); it is reset by a successful read or by a different verified identity or reservation.
+   */
+  let sessionInvalid: { key: string; recovery: "available" | "used" } | null = null;
   const listeners = new Set<() => void>();
 
   const keyOf = (c: ManageContext) => `${c.reservationId}|${c.identityKey}`;
@@ -266,8 +272,10 @@ export function createReservationManagementController(deps: ReservationManagemen
   function failRead(error: unknown): void {
     const failure = classifyReadError(error);
     if (failure === "session-invalid") {
-      sessionInvalidFor = keyOf(context!);
+      const key = keyOf(context!);
       fail(failure);
+      if (sessionInvalid?.key === key && sessionInvalid.recovery === "used") return; // the recovery read was refused too: the pass is over, no further refresh
+      sessionInvalid = { key, recovery: context!.identityKey?.startsWith("customer:") ? "available" : "used" };
       deps.requestSessionRefresh(); // never treated as a guest; the session is read again
       return;
     }
@@ -305,7 +313,10 @@ export function createReservationManagementController(deps: ReservationManagemen
     try {
       const result = await read(at);
       // `read` checked the epoch before it returned, but this continuation runs later: the view may have changed in between, and then nothing is published.
-      if (result && current(at)) publish({ phase: "ready", failure: null, reservation: result.reservation, save: saveStateOf(result) });
+      if (result && current(at)) {
+        sessionInvalid = null; // a successful read ends any session-recovery pass
+        publish({ phase: "ready", failure: null, reservation: result.reservation, save: saveStateOf(result) });
+      }
     } catch (error) {
       if (current(at)) failRead(error);
     }
@@ -313,9 +324,12 @@ export function createReservationManagementController(deps: ReservationManagemen
 
   async function begin(at: number): Promise<void> {
     const ctx = context!;
-    if (sessionInvalidFor === keyOf(ctx)) {
-      fail("session-invalid");
-      return;
+    if (sessionInvalid?.key === keyOf(ctx)) {
+      if (sessionInvalid.recovery === "used") {
+        fail("session-invalid");
+        return;
+      }
+      sessionInvalid.recovery = "used"; // the same account was verified again: this one read is the recovery; the link is not exchanged again (it was consumed)
     }
     const offer = link;
     link = { kind: "none" }; // the secret leaves the controller here; it can be sent at most once
@@ -364,11 +378,15 @@ export function createReservationManagementController(deps: ReservationManagemen
       if (context && context.reservationId === next.reservationId && context.identityKey === next.identityKey) return;
       invalidate();
       context = next;
-      if (next.identityKey === null) {
-        publish(WAITING); // nothing private is kept or requested while the identity is not verified
-        return;
-      }
-      void begin(epoch);
+      if (sessionInvalid && next.identityKey !== null && sessionInvalid.key !== keyOf(next)) sessionInvalid = null; // another identity or reservation: a fresh view
+      publish(WAITING); // nothing private is kept or requested while the identity is not verified, and the old data is cleared in this very call
+      if (next.identityKey === null) return;
+      // The work starts one microtask later, only if this binding is still the current one. React StrictMode (development) mounts, unmounts and mounts again in one
+      // synchronous flush: the first binding is then superseded before it starts, so it consumes no link and sends nothing, and the second one starts exactly once.
+      const at = epoch;
+      queueMicrotask(() => {
+        if (current(at)) void begin(at);
+      });
     },
     retry: () => {
       if (!context || context.identityKey === null || state.phase !== "failed" || !state.failure || !READ_RETRYABLE.has(state.failure)) return;

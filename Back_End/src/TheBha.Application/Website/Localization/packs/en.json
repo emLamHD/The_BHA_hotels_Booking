@@ -862,6 +862,7 @@
    "customer.login.loginForm.youCanBookWithoutAn": "You can book without an account. Don't have one yet?",
    "customer.manage.cancelledNotice": "This booking was cancelled. You can still see its details, but you can't change the arrival time.",
    "customer.manage.contact": "Contact the property",
+   "customer.manage.contactUnavailable": "No contact channel is available on this page right now. Please try again later.",
    "customer.manage.error.exchangeUncertain": "We can't tell whether the link was opened because the connection was interrupted. Press Try again, or reload the page, to check your current access. If you still can't get in, please contact the property.",
    "customer.manage.error.invalidId": "This address is not a valid booking. Please open the link in your confirmation e-mail again.",
    "customer.manage.error.linkInvalid": "This link is not valid, has expired or has already been used. If you opened it on this device, reload the page to check. If you still can't get in, please contact the property for help.",

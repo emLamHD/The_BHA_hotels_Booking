@@ -862,6 +862,7 @@
    "customer.login.loginForm.youCanBookWithoutAn": "Vous pouvez réserver sans compte. Vous n’en avez pas encore ?",
    "customer.manage.cancelledNotice": "Cette réservation a été annulée. Vous pouvez toujours consulter ses détails, mais vous ne pouvez plus modifier l'heure d'arrivée.",
    "customer.manage.contact": "Contacter l'établissement",
+   "customer.manage.contactUnavailable": "Aucun moyen de contact n'est disponible sur cette page pour le moment. Veuillez réessayer plus tard.",
    "customer.manage.error.exchangeUncertain": "Nous ne savons pas si le lien a été ouvert, la connexion ayant été interrompue. Appuyez sur Réessayer ou rechargez la page pour vérifier votre accès actuel. Si vous ne pouvez toujours pas accéder à votre réservation, veuillez contacter l'établissement.",
    "customer.manage.error.invalidId": "Cette adresse n'est pas une réservation valide. Veuillez rouvrir le lien de votre e-mail de confirmation.",
    "customer.manage.error.linkInvalid": "Ce lien n'est pas valide, a expiré ou a déjà été utilisé. Si vous l'avez ouvert sur cet appareil, rechargez la page pour vérifier. Si vous ne pouvez toujours pas accéder à votre réservation, veuillez contacter l'établissement.",

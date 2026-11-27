@@ -1,6 +1,6 @@
 "use client";
 
-import React, { FC, FormEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import React, { FC, FormEvent, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import ButtonPrimary from "@/shared/ButtonPrimary";
@@ -36,6 +36,10 @@ import { useApiMessage } from "@/lib/i18n/apiMessage";
 import { useDateFormat } from "@/lib/i18n/dates";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { resolveProperty } from "@/lib/roomDetailsRoute";
+import { chooseContact, fetchContactSettings, type ContactChoice } from "@/lib/social/settings";
+
+// `useLayoutEffect` warns when rendered on the server; the cleanup it carries only matters in the browser.
+const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 const Row: FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="flex flex-col gap-1 sm:flex-row text-neutral-6000 dark:text-neutral-300">
@@ -43,6 +47,32 @@ const Row: FC<{ label: string; children: React.ReactNode }> = ({ label, children
     <span className="sm:flex-1 font-medium text-neutral-900 dark:text-neutral-100 break-words">{children}</span>
   </div>
 );
+
+/**
+ * The one support channel of the page (PR09-C6), shared by the details and the error screens: the public Website Social Settings, Phone, then Zalo, then Messenger.
+ * It needs no booking and no session, so it works for a guest who cannot read the reservation; nothing about the booking, the address or the link is added to it.
+ * While it is being read nothing is shown; when it cannot be read or no channel is usable, a notice is shown instead of a button.
+ */
+function useContactChoice(): ContactChoice {
+  const [choice, setChoice] = useState<ContactChoice>({ status: "loading" });
+  useEffect(() => {
+    const abort = new AbortController();
+    fetchContactSettings(abort.signal).then(
+      (settings) => { if (!abort.signal.aborted) setChoice(chooseContact(settings)); },
+      () => { if (!abort.signal.aborted) setChoice({ status: "none" }); }
+    );
+    return () => abort.abort();
+  }, []);
+  return choice;
+}
+
+const ContactAction: FC<{ contact: ContactChoice }> = ({ contact }) => {
+  const { t } = useI18n();
+  if (contact.status === "loading") return null;
+  if (contact.status === "none") return <p className="text-sm text-neutral-500 dark:text-neutral-400" data-testid="manage-contact-unavailable">{t(MANAGE.contactUnavailable)}</p>;
+  // Phone opens the dialler; Zalo and Messenger open in a new tab with no referrer, so this address never reaches them.
+  return <ButtonSecondary href={contact.href as Route} targetBlank={contact.kind !== "phone"}>{t(MANAGE.contact)}</ButtonSecondary>;
+};
 
 const FIELD =
   "block w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm focus:border-primary-300 focus:ring focus:ring-primary-200 focus:ring-opacity-50 dark:border-neutral-700 dark:bg-neutral-900";
@@ -134,7 +164,8 @@ export const Details: FC<{
   save: SaveState;
   onSubmit: (date: string, time: string) => void;
   onCheckAgain: () => void;
-}> = ({ reservation, save, onSubmit, onCheckAgain }) => {
+  contact?: ContactChoice;
+}> = ({ reservation, save, onSubmit, onCheckAgain, contact = { status: "loading" } }) => {
   const { t, has, content, formatLocale } = useI18n();
   const dates = useDateFormat();
   const stay = useStaySearch();
@@ -188,13 +219,14 @@ export const Details: FC<{
       <ArrivalForm reservation={reservation} save={save} onSubmit={onSubmit} onCheckAgain={onCheckAgain} />
       <div className="flex flex-wrap gap-3">
         <ButtonPrimary href="/">{t(MANAGE.moreProperties)}</ButtonPrimary>
-        <ButtonSecondary href={"/contact" as Route}>{t(MANAGE.contact)}</ButtonSecondary>
+        <ContactAction contact={contact} />
       </div>
     </div>
   );
 };
 
-const Problem: FC<{ failure: ManageFailure; onRetry?: () => void }> = ({ failure, onRetry }) => {
+/** Exported for the support-channel regression test (`reservationManagementContact.test.ts`). */
+export const Problem: FC<{ failure: ManageFailure; onRetry?: () => void; contact?: ContactChoice }> = ({ failure, onRetry, contact = { status: "loading" } }) => {
   const { t } = useI18n();
   const signIn = failure === "session-invalid" || failure === "no-access";
   return (
@@ -204,7 +236,7 @@ const Problem: FC<{ failure: ManageFailure; onRetry?: () => void }> = ({ failure
       <div className="flex flex-wrap gap-3">
         {onRetry && READ_RETRYABLE.has(failure) && <ButtonPrimary type="button" onClick={onRetry}>{t(MANAGE.retry)}</ButtonPrimary>}
         {signIn && <ButtonSecondary href={LOGIN_PAGE as Route}>{t(MANAGE.signIn)}</ButtonSecondary>}
-        <ButtonSecondary href={"/contact" as Route}>{t(MANAGE.contact)}</ButtonSecondary>
+        <ContactAction contact={contact} />
         <ButtonSecondary href="/">{t(MANAGE.moreProperties)}</ButtonSecondary>
       </div>
     </div>
@@ -260,6 +292,7 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
   );
   const state = useSyncExternalStore(controller.subscribe, controller.getState, controller.getState);
   const identityKey = verifiedOwnerKey(session);
+  const contact = useContactChoice();
   const stripped = useRef(false);
 
   useEffect(() => {
@@ -286,10 +319,13 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
     if (id) controller.bind({ reservationId: id, identityKey });
   }, [controller, id, identityKey]);
 
-  useEffect(() => () => controller.dispose(), [controller]);
+  // The view is invalidated while the commit that removes (or re-keys) it is applied, not in the passive cleanup that follows: a token that resolves between the two
+  // would otherwise still find the old view current and a pending exchange or arrival update would be handed to the transport after the visitor left (PR09-C6).
+  // Starting the work stays in the passive `bind` effect above (deferred one microtask in the controller), so StrictMode's mount-unmount-mount costs no link.
+  useIsoLayoutEffect(() => () => controller.dispose(), [controller, id, identityKey]);
 
   const body = () => {
-    if (!id) return <Problem failure="invalid-id" />;
+    if (!id) return <Problem failure="invalid-id" contact={contact} />;
     if (session.status === "unknown") {
       return (
         <Status messageKey={MANAGE.identityUnknown}>
@@ -301,7 +337,7 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
     if (identityKey === null || !isStateFor(state, id, identityKey) || state.phase === "waiting") return <Status messageKey={MANAGE.loadingSession} />;
     if (state.phase === "exchanging") return <Status messageKey={MANAGE.loadingLink} />;
     if (state.phase === "loading") return <Status messageKey={MANAGE.loadingReservation} />;
-    if (state.phase === "failed" && state.failure) return <Problem failure={state.failure} onRetry={controller.retry} />;
+    if (state.phase === "failed" && state.failure) return <Problem failure={state.failure} onRetry={controller.retry} contact={contact} />;
     if (state.phase === "ready" && state.reservation) {
       return (
         <Details
@@ -309,6 +345,7 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
           save={state.save}
           onSubmit={(arrivalDate, arrivalTime) => controller.submitArrival({ arrivalDate, arrivalTime })}
           onCheckAgain={controller.verifySave}
+          contact={contact}
         />
       );
     }
