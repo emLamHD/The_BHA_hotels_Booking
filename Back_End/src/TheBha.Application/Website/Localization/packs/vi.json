@@ -875,6 +875,7 @@
    "customer.manage.eta.current": "Giờ đến đã lưu: {date} lúc {time} (giờ {zone})",
    "customer.manage.eta.date": "Ngày đến",
    "customer.manage.eta.error.date": "Hãy chọn ngày nhận phòng hoặc ngày hôm sau.",
+   "customer.manage.eta.error.notSent": "Giờ đến chưa được gửi đi nên chưa có gì thay đổi. Hãy kiểm tra kết nối và bấm Lưu giờ đến lần nữa.",
    "customer.manage.eta.error.time": "Hãy nhập giờ đến hợp lệ (giờ:phút).",
    "customer.manage.eta.help": "Giờ địa phương tại cơ sở (múi giờ {zone}). Bạn có thể chọn ngày nhận phòng hoặc ngày hôm sau nếu đến qua đêm. Thông tin này chỉ giúp cơ sở chuẩn bị đón bạn.",
    "customer.manage.eta.none": "Bạn chưa cho chúng tôi biết giờ đến dự kiến.",

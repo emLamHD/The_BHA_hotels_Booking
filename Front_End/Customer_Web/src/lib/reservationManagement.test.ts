@@ -419,7 +419,7 @@ describe("estimated arrival", () => {
     expect(r.update).toHaveBeenCalledTimes(1);
   });
 
-  it("a lost answer: the server is read first; 'saved' only when it holds exactly what was sent; the update is never replayed", async () => {
+  it("a lost answer: the server is read first and shown; it is never reported as saved and the update is never replayed (PR09-C3 P2-1)", async () => {
     const r = rig();
     await ready(r);
     r.update.mockRejectedValueOnce(new ApiNetworkError());
@@ -429,55 +429,53 @@ describe("estimated arrival", () => {
     await vi.waitFor(() => expect(r.state.save).toEqual({ status: "verifying" }));
     r.controller.submitArrival({ arrivalDate: "2026-12-01", arrivalTime: "21:30" }); // disabled while verifying
     verify.resolve(withEta("2026-12-01", "21:30"));
-    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "saved" }));
+    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "unverified" }));
+    expect(r.state.reservation?.estimatedArrival).toMatchObject({ arrivalDate: "2026-12-01", arrivalTime: "21:30" }); // the read is shown ...
+    expect(r.update).toHaveBeenCalledTimes(1); // ... but proves nothing about the lost POST
+  });
+
+  it("PR09-C3 P2-1: the stored arrival already equals the one submitted; a matching read after a lost POST keeps the lock, so a later, different update cannot be overtaken by the delayed first one", async () => {
+    const r = rig();
+    r.read.mockResolvedValue(withEta("2026-12-01", "21:30")); // the SAME value is stored before anything is submitted
+    await ready(r);
+    r.update.mockRejectedValueOnce(new ApiNetworkError());
+    r.controller.submitArrival({ arrivalDate: "2026-12-01", arrivalTime: "21:30" });
+    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "unverified" })); // the verifying GET matches at once
+    expect(r.state.save.status).not.toBe("saved");
+    r.update.mockResolvedValue(withEta("2026-12-02", "09:00"));
+    r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "09:00" }); // the guest now tries another value
+    await tick();
+    expect(r.update).toHaveBeenCalledTimes(1);
+    expect(r.state.save).toEqual({ status: "unverified" });
+    r.controller.verifySave(); // "Check again" is a read and nothing else, even when it matches again
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(3));
+    await tick();
+    expect(r.state.save).toEqual({ status: "unverified" });
+    r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "09:00" });
     expect(r.update).toHaveBeenCalledTimes(1);
   });
 
-  it("P2-1: a lost answer is never turned into 'not saved' by a read that does not show the value; the update is never replayed", async () => {
+  it("PR09-C3 P2-1: the first read differs from the submitted value and a later read matches it; the form stays shut and nothing is reported saved", async () => {
     const r = rig();
     await ready(r);
     r.update.mockRejectedValueOnce(problem(503));
-    r.read.mockResolvedValueOnce(withEta("2026-12-01", "18:00")); // first read still shows the OLD value: the lost POST may not have committed yet
+    r.read.mockResolvedValueOnce(withEta("2026-12-01", "18:00"));
     r.controller.submitArrival({ arrivalDate: "2026-12-01", arrivalTime: "21:30" });
     await vi.waitFor(() => expect(r.state.save).toEqual({ status: "unverified" }));
-    expect(r.state.reservation?.estimatedArrival?.arrivalTime).toBe("18:00"); // what the server holds right now is shown, nothing is claimed about the POST
-    r.controller.submitArrival({ arrivalDate: "2026-12-01", arrivalTime: "21:30" }); // the submit lock holds for this management session
-    r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "09:00" });
-    expect(r.update).toHaveBeenCalledTimes(1);
-    // "Check again" only reads: a read with no arrival at all, and another with a different value, stay unverified
-    r.read.mockResolvedValueOnce(RES);
+    expect(r.state.reservation?.estimatedArrival?.arrivalTime).toBe("18:00"); // what the server holds right now is shown
+    r.read.mockResolvedValueOnce(RES); // no arrival at all
     r.controller.verifySave();
     await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(3));
-    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "unverified" }));
-    r.read.mockResolvedValueOnce(withEta("2026-12-02", "09:00"));
+    await tick();
+    expect(r.state.save).toEqual({ status: "unverified" });
+    r.read.mockResolvedValueOnce(withEta("2026-12-01", "21:30")); // now it matches
     r.controller.verifySave();
     await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(4));
-    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "unverified" }));
-    // ... and only a read that shows exactly the submitted date and time confirms it
-    r.read.mockResolvedValueOnce(withEta("2026-12-01", "21:30"));
-    r.controller.verifySave();
-    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "saved" }));
-    expect(r.update).toHaveBeenCalledTimes(1);
-    // confirmed: the form is free again
-    r.update.mockResolvedValueOnce(withEta("2026-12-01", "22:00"));
-    r.controller.submitArrival({ arrivalDate: "2026-12-01", arrivalTime: "22:00" });
-    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "saved" }));
-    expect(r.update).toHaveBeenCalledTimes(2);
-  });
-
-  it("P2-1: the first verifying read sees the old value, the next one the new value: one POST only", async () => {
-    const r = rig();
-    await ready(r);
-    r.update.mockRejectedValueOnce(new ApiNetworkError());
-    const first = deferred<ManagedReservation>();
-    r.read.mockReturnValueOnce(first.promise);
+    await tick();
+    expect(r.state.save).toEqual({ status: "unverified" });
+    expect(r.state.reservation?.estimatedArrival?.arrivalTime).toBe("21:30");
+    r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "09:00" });
     r.controller.submitArrival({ arrivalDate: "2026-12-01", arrivalTime: "21:30" });
-    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "verifying" }));
-    first.resolve(withEta("2026-12-01", "18:00"));
-    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "unverified" }));
-    r.read.mockResolvedValueOnce(withEta("2026-12-01", "21:30"));
-    r.controller.verifySave();
-    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "saved" }));
     expect(r.update).toHaveBeenCalledTimes(1);
   });
 
@@ -492,8 +490,27 @@ describe("estimated arrival", () => {
     expect(r.update).toHaveBeenCalledTimes(1);
     r.read.mockResolvedValueOnce(withEta("2026-12-01", "21:30"));
     r.controller.verifySave();
-    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "saved" }));
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(3));
+    await tick();
+    expect(r.state.save).toEqual({ status: "unverified" });
     expect(r.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("PR09-C3 P2-2: a token that could not be read means nothing was sent: a retryable error, no verifying read, no automatic resend; the next Save sends exactly one POST", async () => {
+    const r = rig();
+    await ready(r);
+    r.update.mockRejectedValueOnce(new CsrfTokenUnavailableError());
+    r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "09:00" });
+    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "error", messageKey: MANAGE.etaNotSent }));
+    await tick();
+    expect(r.update).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(1); // only the load read: no verifying read
+    expect(r.state.reservation?.estimatedArrival).toBeNull();
+    r.update.mockResolvedValueOnce(withEta("2026-12-02", "09:00"));
+    r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "09:00" });
+    await vi.waitFor(() => expect(r.state.save).toEqual({ status: "saved" }));
+    expect(r.update).toHaveBeenCalledTimes(2);
+    expect(r.read).toHaveBeenCalledTimes(1);
   });
 
   it("P2-2 (behaviour only): after a 409 with the read held, a second submit sends nothing and the late read cannot overwrite a saved arrival", async () => {

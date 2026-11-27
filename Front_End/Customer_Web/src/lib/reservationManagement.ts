@@ -40,6 +40,7 @@ export const MANAGE = {
   etaCancelled: "customer.manage.eta.cancelled",
   etaInvalidDate: "customer.manage.eta.error.date",
   etaInvalidTime: "customer.manage.eta.error.time",
+  etaNotSent: "customer.manage.eta.error.notSent",
   retry: "customer.manage.retry",
   signIn: "customer.manage.signIn",
   contact: "customer.manage.contact",
@@ -151,8 +152,8 @@ export type SaveState =
   /** A known refusal (text key); the form stays open for the visitor's own correction or retry. */
   | { status: "error"; messageKey: string }
   /**
-   * The outcome of a lost update is not established: a read cannot prove the earlier request finished, so a read that shows another value, no value, or
-   * fails is the same "not confirmed". Nothing can be submitted for the rest of this view; only another read ("Check again") is offered.
+   * The outcome of a lost update is not established and a read cannot establish it (even one that shows the submitted value: it may have been stored before).
+   * Nothing can be submitted for the rest of this view; only another read ("Check again") is offered, and it never turns this into "saved".
    */
   | { status: "unverified" }
   /** A 409 was shown and the booking is being read again (`checking`) or that read failed (`!checking`: only another read is offered). Nothing can be submitted. */
@@ -215,7 +216,6 @@ export function createReservationManagementController(deps: ReservationManagemen
   let link: LinkOffer = { kind: "none" };
   let reading: AbortController | null = null;
   let saveLock = false;
-  let submitted: ArrivalInput | null = null;
   /** A context whose read was refused for an invalid customer session: not repeated by itself (the refresh below passes through "loading"). */
   let sessionInvalidFor: string | null = null;
   const listeners = new Set<() => void>();
@@ -232,7 +232,6 @@ export function createReservationManagementController(deps: ReservationManagemen
     reading?.abort();
     reading = null;
     saveLock = false;
-    submitted = null;
   }
 
   const current = (at: number) => at === epoch;
@@ -346,11 +345,10 @@ export function createReservationManagementController(deps: ReservationManagemen
       }
       saveLock = true; // synchronous: a second click or Enter in the same tick sends nothing
       const at = epoch;
-      submitted = { arrivalDate: input.arrivalDate, arrivalTime: input.arrivalTime };
       publish({ ...state, save: { status: "saving" } });
       void (async () => {
         try {
-          const updated = await deps.update(ctx.reservationId, submitted!);
+          const updated = await deps.update(ctx.reservationId, { arrivalDate: input.arrivalDate, arrivalTime: input.arrivalTime });
           if (!current(at)) return;
           saveLock = false;
           publish({ phase: "ready", failure: null, reservation: updated, save: { status: "saved" } });
@@ -372,6 +370,12 @@ export function createReservationManagementController(deps: ReservationManagemen
             failRead(error); // access lost: nothing private stays on screen
             return;
           }
+          if (error instanceof CsrfTokenUnavailableError) {
+            // The token could not be read, so the POST never reached the transport: nothing can be applied later. Retryable by the visitor, with their input kept.
+            saveLock = false;
+            publish({ ...state, save: { status: "error", messageKey: MANAGE.etaNotSent } });
+            return;
+          }
           await settle(at); // network, 5xx or an unusable answer: unknown, so the server is read before anything is reported
         }
       })();
@@ -389,17 +393,17 @@ export function createReservationManagementController(deps: ReservationManagemen
     },
   };
 
-  /** The submitted result is unknown: read the server. "Saved" only when it holds exactly what was sent; any other answer proves nothing about the earlier request, so the lock stays. */
+  /**
+   * The submitted result is unknown: read the server and show what it holds, nothing more. Even a read equal to what was sent proves nothing: the same value
+   * may have been stored before the request, and the lost POST may still be on its way. So this never reports "saved" and never opens the form (lock held for this view).
+   */
   async function settle(at: number): Promise<void> {
     saveLock = true;
     publish({ ...state, save: { status: "verifying" } });
     try {
       const reservation = await read(at);
       if (!reservation) return;
-      const held = reservation.estimatedArrival;
-      const matches = !!submitted && !!held && held.arrivalDate === submitted.arrivalDate && held.arrivalTime === submitted.arrivalTime;
-      if (matches) saveLock = false;
-      publish({ phase: "ready", failure: null, reservation, save: { status: matches ? "saved" : "unverified" } });
+      publish({ phase: "ready", failure: null, reservation, save: { status: "unverified" } });
     } catch (error) {
       if (!current(at)) return;
       const failure = classifyReadError(error);

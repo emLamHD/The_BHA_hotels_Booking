@@ -875,6 +875,7 @@
    "customer.manage.eta.current": "Arrivée enregistrée : {date} à {time} (heure {zone})",
    "customer.manage.eta.date": "Date d'arrivée",
    "customer.manage.eta.error.date": "Choisissez la date d'arrivée ou le lendemain.",
+   "customer.manage.eta.error.notSent": "L'heure d'arrivée n'a pas été envoyée : rien n'a été modifié. Vérifiez votre connexion et appuyez de nouveau sur « Enregistrer l'heure d'arrivée ».",
    "customer.manage.eta.error.time": "Saisissez une heure d'arrivée valide (heures:minutes).",
    "customer.manage.eta.help": "Heure locale de l'établissement (fuseau {zone}). Choisissez la date d'arrivée, ou le lendemain si vous arrivez dans la nuit. Cela aide seulement l'établissement à vous accueillir.",
    "customer.manage.eta.none": "Vous n'avez pas encore indiqué votre heure d'arrivée prévue.",

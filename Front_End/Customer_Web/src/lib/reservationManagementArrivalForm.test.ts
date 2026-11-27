@@ -27,6 +27,16 @@ describe("the arrival form for each save state (PR09-C2)", () => {
     expect(disabledControls(render({ status: "error", messageKey: REFUSAL }))).toBe(0);
   });
 
+  it("the 'not sent' error (CSRF token unavailable) leaves the form open and says nothing was sent, in vi / en / fr (PR09-C3)", () => {
+    for (const locale of ["vi", "en", "fr"]) {
+      const text = decode(loadPack(locale)["customer.manage.eta.error.notSent"]);
+      const html = render({ status: "error", messageKey: "customer.manage.eta.error.notSent" }, locale);
+      expect(disabledControls(html), locale).toBe(0);
+      expect(decode(html), locale).toContain(text);
+      expect(decode(html), locale).not.toContain(decode(loadPack(locale)["customer.manage.eta.unverified"]));
+    }
+  });
+
   it("is shut for every state in which an earlier request may still take effect or the booking may no longer be editable", () => {
     // date + time + submit are all disabled while a request or read is out
     for (const save of [

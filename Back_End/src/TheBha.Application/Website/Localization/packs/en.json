@@ -875,6 +875,7 @@
    "customer.manage.eta.current": "Saved arrival: {date} at {time} ({zone} time)",
    "customer.manage.eta.date": "Arrival date",
    "customer.manage.eta.error.date": "Choose the check-in date or the next day.",
+   "customer.manage.eta.error.notSent": "The arrival time was not sent, so nothing was changed. Check your connection and press Save arrival time again.",
    "customer.manage.eta.error.time": "Enter a valid arrival time (hours:minutes).",
    "customer.manage.eta.help": "Local time at the property (time zone {zone}). Choose the check-in date, or the next day if you arrive overnight. This only helps the property prepare for you.",
    "customer.manage.eta.none": "You haven't told us your estimated arrival yet.",
