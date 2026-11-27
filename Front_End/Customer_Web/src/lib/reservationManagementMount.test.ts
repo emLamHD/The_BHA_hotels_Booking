@@ -62,6 +62,7 @@ const Releaser = ({ armed, onArm }: { armed: boolean; onArm: () => void }) => {
 
 let dom: MiniDom;
 let releaseToken: () => void;
+let released = false; // the layout effect really released the token (a "0 POSTs" result must not come from a token that never arrived)
 let hash = "";
 beforeEach(() => {
   apiGetMock.mockReset();
@@ -69,6 +70,7 @@ beforeEach(() => {
   resetCsrfStateForTests();
   session = { status: "anonymous", customer: null };
   hash = `#${SECRET}`;
+  released = false;
   const token = new Promise<{ token: string; headerName: string }>((resolve) => { releaseToken = () => resolve({ token: "t", headerName: "X-CSRF-TOKEN" }); });
   apiGetMock.mockImplementation(async (path: string) => (path === CSRF ? token : DTO));
   apiUnsafeRequestMock.mockImplementation(async (path: string) =>
@@ -84,7 +86,7 @@ afterEach(() => {
 
 const page = () => withI18n(React.createElement(ManageReservation, { reservationId: ID }));
 const tree = (opts: { page: boolean; armed: boolean; strict?: boolean }) => {
-  const inner = React.createElement(Fragment, null, opts.page ? page() : null, React.createElement(Releaser, { armed: opts.armed, onArm: () => releaseToken() }));
+  const inner = React.createElement(Fragment, null, opts.page ? page() : null, React.createElement(Releaser, { armed: opts.armed, onArm: () => { released = true; releaseToken(); } }));
   return opts.strict ? React.createElement(StrictMode, null, inner) : inner;
 };
 
@@ -118,6 +120,7 @@ describe("a link exchange waiting for its CSRF token when the page is removed or
     await vi.waitFor(() => expect(gets(CSRF)).toBe(1));
     dom.render(tree({ page: false, armed: true }));
     await flush();
+    expect(released).toBe(true);
     expect(posts(EXCHANGE)).toBe(0);
   });
 
@@ -127,6 +130,7 @@ describe("a link exchange waiting for its CSRF token when the page is removed or
     session = OWNER;
     dom.render(tree({ page: true, armed: true }));
     await flush();
+    expect(released).toBe(true);
     expect(posts(EXCHANGE)).toBe(0);
     await vi.waitFor(() => expect(dom.html()).toContain("BHA-1")); // the new identity's own view reads the booking (the link was not spent)
   });
@@ -178,6 +182,7 @@ describe("an arrival update waiting for its CSRF token when the page is removed 
     await vi.waitFor(() => expect(gets(CSRF)).toBe(1));
     dom.render(tree({ page: false, armed: true }));
     await flush();
+    expect(released).toBe(true);
     expect(posts(ARRIVAL)).toBe(0);
   });
 });
