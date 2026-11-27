@@ -66,11 +66,12 @@ describe("fetchContactSettings (PR09-C6)", () => {
     return fetchMock;
   };
 
-  it("reads the public endpoint without credentials or cache, and parses it", async () => {
+  it("reads the public endpoint with credentials omitted and no cache, and parses it", async () => {
     const fetchMock = respond({ ok: true, body: fake });
-    await expect(fetchContactSettings()).resolves.toEqual(fake);
-    expect(fetchMock).toHaveBeenCalledWith("https://api.example.test/api/v1/website/social-media", expect.objectContaining({ cache: "no-store" }));
-    expect((fetchMock.mock.calls[0] as unknown[])[1]).not.toHaveProperty("credentials");
+    const controller = new AbortController();
+    await expect(fetchContactSettings(controller.signal)).resolves.toEqual(fake);
+    expect((fetchMock.mock.calls[0] as unknown[])[1]).toMatchObject({ signal: controller.signal, headers: { Accept: "application/json" } });
+    expect(fetchMock).toHaveBeenCalledWith("https://api.example.test/api/v1/website/social-media", expect.objectContaining({ cache: "no-store", credentials: "omit" }));
   });
 
   it("rejects on an HTTP error, and answers null for a body that is not the contract", async () => {

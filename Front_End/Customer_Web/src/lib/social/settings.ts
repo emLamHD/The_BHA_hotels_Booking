@@ -58,9 +58,9 @@ export function chooseContact(settings: ContactSettings | null): ContactChoice {
   return { status: "none" };
 }
 
-/** The public contact settings, read like the floating contact buttons read them (no credentials, no cache). Rejects on any failure; null for an unusable body. */
+/** The public contact settings: no cache and `credentials: "omit"` (a same-origin deployment, i.e. the API proxy, would otherwise send the customer's root-scoped session cookie with this public request). Rejects on any failure; null for an unusable body. */
 export async function fetchContactSettings(signal?: AbortSignal): Promise<ContactSettings | null> {
-  const response = await fetch(`${getApiBaseUrl()}/api/v1/website/social-media`, { signal, cache: "no-store", headers: { Accept: "application/json" } });
+  const response = await fetch(`${getApiBaseUrl()}/api/v1/website/social-media`, { signal, cache: "no-store", credentials: "omit", headers: { Accept: "application/json" } });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return parseContactSettings(await response.json());
 }

@@ -324,14 +324,21 @@ export function createReservationManagementController(deps: ReservationManagemen
 
   async function begin(at: number): Promise<void> {
     const ctx = context!;
-    if (sessionInvalid?.key === keyOf(ctx)) {
-      if (sessionInvalid.recovery === "used") {
-        fail("session-invalid");
-        return;
-      }
-      sessionInvalid.recovery = "used"; // the same account was verified again: this one read is the recovery; the link is not exchanged again (it was consumed)
-    }
     const offer = link;
+    if (sessionInvalid?.key === keyOf(ctx)) {
+      if (offer.kind === "none") {
+        // An automatic start (a recheck of the session): the recovery limit applies.
+        if (sessionInvalid.recovery === "used") {
+          fail("session-invalid");
+          return;
+        }
+        sessionInvalid.recovery = "used"; // the same account was verified again: this one read is the recovery; no link is exchanged by it
+      } else if (offer.kind === "token") {
+        // A link the visitor opened on purpose (PR09-C7) is not limited: it gets its own single exchange and the read that follows it. That read is not a further recovery:
+        // the allowance is marked used (never reset by a paste), so a refusal of it ends the pass and starts no refresh and no loop. A malformed link leaves the marker alone.
+        sessionInvalid.recovery = "used";
+      }
+    }
     link = { kind: "none" }; // the secret leaves the controller here; it can be sent at most once
     if (offer.kind === "malformed") {
       fail("link-invalid");

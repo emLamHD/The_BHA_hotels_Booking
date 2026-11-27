@@ -1369,3 +1369,113 @@ describe("PR09-C6 P3: one recovery read after the same signed-in account is veri
     expect(r.state).toMatchObject({ phase: "waiting", reservation: null });
   });
 });
+
+describe("PR09-C7: a link the visitor opens on purpose is not held back by the session-recovery limit", () => {
+  const OWNER: ManageContext = { reservationId: ID, identityKey: "customer:aaaa" };
+  const SECRET_2 = "Yq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwxyz";
+  const invalid = () => problem(401, "auth.session-invalid");
+  const refused = (r: ReturnType<typeof rig>) => vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "session-invalid" }));
+  const reverify = (r: ReturnType<typeof rig>) => { r.controller.bind(LOADING_CTX); r.controller.bind(OWNER); };
+  /** The recovery allowance is used up: the first read and the recovery read were both refused, and a further recheck started nothing. */
+  async function exhausted() {
+    const r = rig();
+    r.read.mockRejectedValue(invalid());
+    r.controller.bind(OWNER);
+    await refused(r);
+    reverify(r);
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
+    await refused(r);
+    reverify(r);
+    await tick();
+    expect(r.read).toHaveBeenCalledTimes(2); // the limit holds for automatic starts
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
+    return r;
+  }
+
+  it("a valid link opened now: exactly one exchange POST, then the booking is read once access is back", async () => {
+    const r = await exhausted();
+    r.read.mockReset();
+    r.read.mockResolvedValue(RES); // the customer cookie was repaired in another tab
+    r.controller.openLink({ kind: "token", token: SECRET });
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: OWNER }));
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function));
+    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1); // no refresh was asked for
+    expect(JSON.stringify(r.state)).not.toContain(SECRET);
+  });
+
+  it("the exchange succeeds but the read is still refused: the error stays, no refresh, no loop, and the limit is not reset by the paste", async () => {
+    const r = await exhausted();
+    r.read.mockReset();
+    r.read.mockRejectedValue(invalid());
+    r.controller.openLink({ kind: "token", token: SECRET });
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(1));
+    await refused(r);
+    await tick();
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
+    reverify(r); // automatic rechecks afterwards still start nothing
+    await tick();
+    reverify(r);
+    await tick();
+    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
+    expect(r.state).toMatchObject({ phase: "failed", failure: "session-invalid", reservation: null });
+  });
+
+  it("a malformed fragment sends nothing, shows link-invalid, and does not consume a link or reset the limit", async () => {
+    const r = await exhausted();
+    r.controller.openLink({ kind: "malformed" });
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "link-invalid" }));
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.read).toHaveBeenCalledTimes(2);
+    reverify(r); // nothing is left over for a later automatic start to send
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.read).toHaveBeenCalledTimes(2);
+    expect(r.state).toMatchObject({ phase: "failed", failure: "session-invalid" });
+  });
+
+  it("the link is spent by the paste, not kept for a later start: no exchange from a recheck that follows", async () => {
+    const r = await exhausted();
+    r.read.mockReset();
+    r.read.mockRejectedValue(invalid());
+    r.controller.openLink({ kind: "token", token: SECRET });
+    await refused(r);
+    for (let i = 0; i < 3; i += 1) { reverify(r); await tick(); }
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+  });
+
+  it("no parallel exchange: a second paste while the first exchange is out sends nothing more", async () => {
+    const r = await exhausted();
+    r.read.mockReset();
+    r.read.mockResolvedValue(RES);
+    const out = deferred<void>();
+    r.exchange.mockReturnValueOnce(out.promise);
+    r.controller.openLink({ kind: "token", token: SECRET });
+    await vi.waitFor(() => expect(r.state.phase).toBe("exchanging"));
+    r.controller.openLink({ kind: "token", token: SECRET_2 });
+    await tick();
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    out.resolve();
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+  });
+
+  it("with the allowance still available (the first refusal, no recheck yet) a pasted link is exchanged once and its refused read starts no second refresh", async () => {
+    const r = rig();
+    r.read.mockRejectedValue(invalid());
+    r.controller.bind(OWNER);
+    await refused(r);
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
+    r.controller.openLink({ kind: "token", token: SECRET });
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
+    await refused(r);
+    await tick();
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1);
+  });
+});
