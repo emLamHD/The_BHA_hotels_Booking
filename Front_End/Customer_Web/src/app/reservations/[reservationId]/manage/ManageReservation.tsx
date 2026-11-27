@@ -325,6 +325,21 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
     if (id) controller.bind({ reservationId: id, identityKey });
   }, [controller, id, identityKey]);
 
+  // PR09-C11: coming back to this tab (it may have been signed out, or switched to another account, elsewhere) hides the private details and asks the API again under a
+  // re-verified session. `focus` and `visibilitychange` of the same return reach the controller twice; the second finds nothing private left to hide and does nothing.
+  useEffect(() => {
+    const onReturn = () => {
+      if (document.visibilityState !== "visible") return;
+      controller.revalidate();
+    };
+    window.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
+    return () => {
+      window.removeEventListener("focus", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
+    };
+  }, [controller]);
+
   // The view is invalidated while the commit that removes (or re-keys) it is applied, not in the passive cleanup that follows: a token that resolves between the two
   // would otherwise still find the old view current and a pending exchange or arrival update would be handed to the transport after the visitor left (PR09-C6).
   // Starting the work stays in the passive `bind` effect above (deferred one microtask in the controller), so StrictMode's mount-unmount-mount costs no link.
@@ -332,6 +347,20 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
 
   const body = () => {
     if (!id) return <Problem failure="invalid-id" contact={contact} />;
+    // An explicit link open that stopped because the session could not be verified keeps its guidance (reopen the original e-mail link) while the identity is unverified,
+    // also when the provider says "unknown". The button only reads the session again: it never opens the link (the token is gone).
+    if (identityKey === null && state.openFailure?.reservationId === id) {
+      return (
+        <>
+          <Problem failure={state.openFailure.failure} contact={contact} loginHref={loginHref} />
+          {session.status === "unknown" && (
+            <div className="w-full px-0 sm:px-6 xl:px-8 pt-4">
+              <ButtonPrimary type="button" onClick={refreshSession}>{t(MANAGE.retry)}</ButtonPrimary>
+            </div>
+          )}
+        </>
+      );
+    }
     if (session.status === "unknown") {
       return (
         <Status messageKey={MANAGE.identityUnknown}>

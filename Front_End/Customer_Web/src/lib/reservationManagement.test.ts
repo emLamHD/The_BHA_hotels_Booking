@@ -1938,3 +1938,153 @@ describe("PR09-C10 P2: a tab whose identity is stale gets one session re-check f
     expect(account.exchange).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("PR09-C11 P2-1: revalidate (the tab came back to the foreground)", () => {
+  const ACCOUNT: ManageContext = { reservationId: ID, identityKey: "customer:aaaa" };
+
+  it("private details leave the view at once; the same identity then needs a fresh GET before they return; no POST", async () => {
+    const r = rig();
+    await ready(r, ACCOUNT);
+    const fresh = { ...RES, confirmationNumber: "BHA-FRESH" };
+    const held = deferred<ManagedReservation>();
+    r.read.mockImplementationOnce(() => held.promise);
+    r.controller.revalidate();
+    expect(r.state).toMatchObject({ phase: "loading", reservation: null }); // synchronously, before any request
+    expect(JSON.stringify(r.state)).not.toContain("BHA-1");
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
+    expect(r.verifySession).toHaveBeenCalledTimes(1);
+    expect(r.state.reservation).toBeNull(); // still hidden while the GET is out
+    held.resolve(fresh);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", reservation: { confirmationNumber: "BHA-FRESH" } }));
+    expect(r.update).not.toHaveBeenCalled();
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("a second event of the same return does nothing (nothing private is left to hide)", async () => {
+    const r = rig();
+    await ready(r, ACCOUNT);
+    r.controller.revalidate();
+    r.controller.revalidate();
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    expect(r.verifySession).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("the GET is refused (the account may no longer read it): the old details stay out", async () => {
+    const r = rig();
+    await ready(r, ACCOUNT);
+    r.read.mockRejectedValueOnce(problem(404, "reservation.not-found"));
+    r.controller.revalidate();
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "no-access", reservation: null }));
+  });
+
+  it("the session cannot be verified: the details stay hidden, a failure is shown, no GET", async () => {
+    const r = rig();
+    await ready(r, ACCOUNT);
+    r.verifySession.mockResolvedValue(null);
+    r.controller.revalidate();
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "network", reservation: null }));
+    expect(r.read).toHaveBeenCalledTimes(1);
+  });
+
+  it("another identity is verified: the bind that follows reads under it; revalidate itself reads nothing", async () => {
+    const r = rig();
+    await ready(r, ACCOUNT);
+    r.verifySession.mockImplementation(async () => { r.controller.bind(LOADING_CTX); r.controller.bind(GUEST); return "guest"; });
+    r.controller.revalidate();
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    expect(r.read).toHaveBeenCalledTimes(2); // one read for the new identity, none from revalidate
+  });
+
+  it("does nothing while no private details are shown, or while an explicit link open is under way", async () => {
+    const idle = rig();
+    idle.controller.bind(LOADING_CTX);
+    idle.controller.revalidate();
+    expect(idle.verifySession).not.toHaveBeenCalled();
+    const failed = rig();
+    failed.read.mockRejectedValueOnce(problem(403));
+    failed.controller.bind(GUEST);
+    await vi.waitFor(() => expect(failed.state.phase).toBe("failed"));
+    failed.controller.revalidate();
+    expect(failed.verifySession).not.toHaveBeenCalled();
+    const opening = rig();
+    opening.read.mockRejectedValueOnce(problem(404, "reservation.not-found"));
+    const verifying = deferred<string | null>();
+    opening.verifySession.mockReturnValue(verifying.promise);
+    opening.controller.offerLink({ kind: "token", token: SECRET });
+    opening.controller.bind(GUEST);
+    await vi.waitFor(() => expect(opening.verifySession).toHaveBeenCalledTimes(1)); // the link open's own session re-check is out
+    opening.controller.revalidate();
+    expect(opening.verifySession).toHaveBeenCalledTimes(1);
+    expect(opening.exchange).not.toHaveBeenCalled();
+  });
+
+  it("an unsettled arrival update keeps its hold: after the return the form is shut (not confirmed), and nothing is sent again", async () => {
+    const r = rig();
+    await ready(r, ACCOUNT);
+    const pending = deferred<ManagedReservation>();
+    r.update.mockReturnValueOnce(pending.promise);
+    r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "09:00" });
+    r.controller.revalidate();
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", save: { status: "unverified" } }));
+    r.controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "10:00" });
+    await tick();
+    expect(r.update).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PR09-C11 P2-2: the guidance of an open that stopped is kept across the provider's loading transition (failure and reservation only)", () => {
+  const notFound = () => problem(404, "reservation.not-found");
+  const open = (r: ReturnType<typeof rig>) => { r.controller.offerLink({ kind: "token", token: SECRET }); r.controller.bind(GUEST); };
+
+  async function failedVerification() {
+    const r = rig();
+    r.read.mockRejectedValueOnce(notFound());
+    const verifying = deferred<string | null>();
+    r.verifySession.mockReturnValue(verifying.promise);
+    open(r);
+    await vi.waitFor(() => expect(r.verifySession).toHaveBeenCalledTimes(1));
+    r.controller.bind(LOADING_CTX); // the provider published loading (then unknown)
+    verifying.resolve(null);
+    await vi.waitFor(() => expect(r.state.openFailure).toEqual({ reservationId: ID, failure: "link-not-sent" }));
+    return r;
+  }
+
+  it("verification fails after the page re-bound: link-not-sent is kept for this open and this reservation; no token in the state; 0 exchanges", async () => {
+    const r = await failedVerification();
+    expect(JSON.stringify(r.state)).not.toContain(SECRET);
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.state.reservation).toBeNull();
+  });
+
+  it("a verified identity ends it (the ordinary view takes over), and the link is not replayed", async () => {
+    const r = await failedVerification();
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.state.bound).toEqual(GUEST));
+    expect(r.state.openFailure).toBeNull();
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("another reservation never shows it", async () => {
+    const r = await failedVerification();
+    r.controller.bind({ reservationId: ID_B, identityKey: null });
+    expect(r.state.openFailure).toBeNull();
+  });
+
+  it("a newer explicit open replaces it", async () => {
+    const r = await failedVerification();
+    r.controller.openLink({ kind: "token", token: "Yq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwxyz" }); // the identity is not verified yet: the open waits for it
+    expect(r.state.openFailure).toBeNull();
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("when the identity stays verified, the ordinary failure is published (the state does not carry the notice)", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(notFound());
+    r.verifySession.mockResolvedValue(null);
+    open(r);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "link-not-sent" }));
+    expect(r.state.openFailure).toBeNull();
+  });
+});

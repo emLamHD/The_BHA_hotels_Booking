@@ -37,8 +37,8 @@ class FakeNode {
   removeAttribute(name: string) { delete this.attributes[name]; }
   getAttribute(name: string) { return this.attributes[name] ?? null; }
   hasAttribute(name: string) { return name in this.attributes; }
-  addEventListener() {}
-  removeEventListener() {}
+  addEventListener(_type?: string, _listener?: (event: unknown) => void) {}
+  removeEventListener(_type?: string, _listener?: (event: unknown) => void) {}
   get defaultValue() { return this.attributes.value ?? ""; }
   set defaultValue(value: string) { this.attributes.value = value; }
   /** The markup the tree would show (attributes sorted out; only for assertions). */
@@ -49,8 +49,21 @@ class FakeNode {
   }
 }
 
+/** A tiny event target for `window` and `document` (the page listens to `focus`, `visibilitychange` and `hashchange`): listeners are stored and `fire` calls them. */
+class Emitter {
+  private listeners = new Map<string, Set<(event: unknown) => void>>();
+  addEventListener(type: string, listener: (event: unknown) => void) { (this.listeners.get(type) ?? this.listeners.set(type, new Set()).get(type)!).add(listener); }
+  removeEventListener(type: string, listener: (event: unknown) => void) { this.listeners.get(type)?.delete(listener); }
+  fire(type: string) { Array.from(this.listeners.get(type) ?? []).forEach((listener) => listener({ type })); }
+}
+
 class FakeDocument extends FakeNode {
   activeElement: FakeNode | null = null;
+  visibilityState = "visible";
+  private events = new Emitter();
+  addEventListener(type: string, listener: (event: unknown) => void) { this.events.addEventListener(type, listener); }
+  removeEventListener(type: string, listener: (event: unknown) => void) { this.events.removeEventListener(type, listener); }
+  fire(type: string) { this.events.fire(type); }
   body: FakeNode;
   constructor() {
     super(9, "#document", null);
@@ -69,6 +82,10 @@ export interface MiniDom {
   render: (node: ReactNode) => void;
   html: () => string;
   restore: () => void;
+  /** Fires an event at `window` (`focus`, `hashchange`) or at `document` (`visibilitychange`; `setVisibility` changes `document.visibilityState`). */
+  fireWindow: (type: string) => void;
+  fireDocument: (type: string) => void;
+  setVisibility: (state: "visible" | "hidden") => void;
 }
 
 const GLOBALS = ["document", "window", "HTMLIFrameElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -80,7 +97,14 @@ export function mountMiniDom(extraWindow: Record<string, unknown> = {}): MiniDom
   const document = new FakeDocument();
   const container = document.createElement("div");
   document.body.appendChild(container);
-  const win: Record<string, unknown> = { document, HTMLIFrameElement: class {}, addEventListener() {}, removeEventListener() {}, ...extraWindow };
+  const windowEvents = new Emitter();
+  const win: Record<string, unknown> = {
+    document,
+    HTMLIFrameElement: class {},
+    addEventListener: (type: string, listener: (event: unknown) => void) => windowEvents.addEventListener(type, listener),
+    removeEventListener: (type: string, listener: (event: unknown) => void) => windowEvents.removeEventListener(type, listener),
+    ...extraWindow,
+  };
   g.document = document;
   g.window = win;
   g.HTMLIFrameElement = win.HTMLIFrameElement;
@@ -91,6 +115,9 @@ export function mountMiniDom(extraWindow: Record<string, unknown> = {}): MiniDom
     root,
     render: (node) => root.render(node),
     html: () => container.outerHTML,
+    fireWindow: (type) => windowEvents.fire(type),
+    fireDocument: (type) => document.fire(type),
+    setVisibility: (state) => { document.visibilityState = state; },
     restore: () => {
       root.unmount();
       for (const [name, value, had] of saved) { if (had) g[name] = value; else delete g[name]; }
