@@ -117,6 +117,34 @@ describe("reads and the arrival update", () => {
     expect(r.estimatedArrival?.arrivalTime).toBe("21:30");
   });
 
+  // BHA-CHECKOUT-001-PR09-C10 P3: a successful update answers the updated reservation, which must carry exactly the arrival that was sent.
+  describe("a 200 for the arrival update is usable only with the arrival that was sent (PR09-C10)", () => {
+    const sent = { arrivalDate: "2026-12-01", arrivalTime: "21:30" };
+    const answer = (estimatedArrival: unknown) => ({ status: 200, data: { ...DTO, estimatedArrival } });
+    const eta = (date: string, time: string) => ({ arrivalDate: date, arrivalTime: time, timeZoneId: "Asia/Ho_Chi_Minh", updatedAtUtc: "u" });
+
+    it("the same date and time: accepted", async () => {
+      once.mockResolvedValue(answer(eta("2026-12-01", "21:30")));
+      await expect(updateEstimatedArrival(ID, sent)).resolves.toMatchObject({ estimatedArrival: { arrivalDate: "2026-12-01", arrivalTime: "21:30" } });
+    });
+
+    it.each([
+      ["a null estimate", answer(null)],
+      ["a missing estimate", { status: 200, data: (({ estimatedArrival: _omitted, ...rest }) => rest)(DTO) }],
+      ["another date", answer(eta("2026-12-02", "21:30"))],
+      ["another time", answer(eta("2026-12-01", "21:31"))],
+      ["another date and time", answer(eta("2026-12-02", "01:00"))],
+    ])("%s: an unusable answer (ManagementContractError), never 'saved'", async (_name, response) => {
+      once.mockResolvedValue(response);
+      await expect(updateEstimatedArrival(ID, sent)).rejects.toBeInstanceOf(ManagementContractError);
+    });
+
+    it("a READ may still have no estimate (the read parser is unchanged)", async () => {
+      expect(toManagedReservation({ ...DTO, estimatedArrival: null }, ID).estimatedArrival).toBeNull();
+      expect(toManagedReservation((({ estimatedArrival: _omitted, ...rest }) => rest)(DTO), ID)).toMatchObject({ estimatedArrival: null });
+    });
+  });
+
   it("an HTTP failure of the update is passed through unchanged for the controller to classify", async () => {
     const refusal = new ApiHttpError(400, { title: "t", status: 400, code: "validation.arrival-out-of-window" });
     once.mockRejectedValue(refusal);

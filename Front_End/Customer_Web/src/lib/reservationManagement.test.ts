@@ -50,7 +50,9 @@ function rig() {
   });
   const update = vi.fn<[string, { arrivalDate: string; arrivalTime: string }], Promise<ManagedReservation>>();
   const requestSessionRefresh = vi.fn();
-  const controller = createReservationManagementController({ exchange, whenExchangeSettled, read, update, requestSessionRefresh });
+  // The session re-check of an open whose identity disagrees with the API (PR09-C10): by default it verifies the same identity again.
+  const verifySession = vi.fn<[], Promise<string | null>>().mockImplementation(async () => boundKey);
+  const controller = createReservationManagementController({ exchange, whenExchangeSettled, read, update, requestSessionRefresh, verifySession });
   const offerLink = controller.offerLink;
   const openLink = controller.openLink;
   const bind = controller.bind;
@@ -58,7 +60,7 @@ function rig() {
   controller.offerLink = (offer) => { if (offer.kind === "token") linkOpen = true; offerLink(offer); };
   controller.openLink = (offer) => { if (offer.kind === "token") linkOpen = true; openLink(offer); };
   const grantSession = () => { exchanged = true; }; // the server set the management cookie (even if the answer to the exchange was lost)
-  return { controller, exchange, whenExchangeSettled, read, update, requestSessionRefresh, signals, grantSession, get state() { return controller.getState(); } };
+  return { controller, exchange, whenExchangeSettled, read, update, requestSessionRefresh, verifySession, signals, grantSession, get state() { return controller.getState(); } };
 }
 async function ready(r: ReturnType<typeof rig>, ctx: ManageContext = GUEST) {
   r.controller.bind(ctx);
@@ -1750,5 +1752,189 @@ describe("PR09-C9: the read before an exchange covers every identity, and only t
     r.controller.bind(ACCOUNT);
     await tick();
     expect(r.exchange).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PR09-C10 P2: a tab whose identity is stale gets one session re-check for the visitor's explicit open", () => {
+  const ACCOUNT: ManageContext = { reservationId: ID, identityKey: "customer:aaaa" };
+  const notFound = () => problem(404, "reservation.not-found");
+  const open = (r: ReturnType<typeof rig>, ctx: ManageContext) => { r.controller.offerLink({ kind: "token", token: SECRET }); r.controller.bind(ctx); };
+  /** What the page does when the provider publishes a new identity: the identity goes through loading and the new one is verified. */
+  const publishIdentity = (r: ReturnType<typeof rig>, ctx: ManageContext) => { r.controller.bind(LOADING_CTX); r.controller.bind(ctx); };
+
+  it("guest in a stale tab, another tab signed in as a non-owner: GET 404 → one session re-check → GET as the account (404) → exactly one exchange → the booking", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(notFound()); // the API sees the other tab's customer cookie
+    r.verifySession.mockImplementation(async () => { publishIdentity(r, ACCOUNT); return "customer:aaaa"; });
+    open(r, GUEST);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: ACCOUNT }));
+    expect(r.verifySession).toHaveBeenCalledTimes(1);
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function));
+    expect(r.read).toHaveBeenCalledTimes(3);
+    const order = [r.read.mock.invocationCallOrder[0], r.verifySession.mock.invocationCallOrder[0], r.read.mock.invocationCallOrder[1], r.exchange.mock.invocationCallOrder[0], r.read.mock.invocationCallOrder[2]];
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(JSON.stringify(r.state)).not.toContain(SECRET);
+  });
+
+  it("the other direction: an account in a stale tab (the other tab signed out), GET 401 reservation.manage-session-invalid → one re-check → GET as a guest (401) → one exchange → the booking", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(problem(401, "reservation.manage-session-invalid"));
+    r.verifySession.mockImplementation(async () => { publishIdentity(r, GUEST); return "guest"; });
+    open(r, ACCOUNT);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    expect(r.verifySession).toHaveBeenCalledTimes(1);
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(3);
+  });
+
+  it("the re-check verifies a different identity that CAN read the booking: it is shown, 0 POSTs, the link is not spent", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(notFound()).mockResolvedValue(RES);
+    r.verifySession.mockImplementation(async () => { publishIdentity(r, ACCOUNT); return "customer:aaaa"; });
+    open(r, GUEST);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: ACCOUNT }));
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("the same identity comes back, with no frame in between: the contradiction is real, so the open stops, 0 POSTs, and the token is dropped", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(notFound());
+    r.verifySession.mockResolvedValue("guest"); // nothing is rebound: the re-check alone is awaited
+    open(r, GUEST);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "no-access" }));
+    expect(r.verifySession).toHaveBeenCalledTimes(1);
+    expect(r.exchange).not.toHaveBeenCalled();
+    publishIdentity(r, GUEST); // a later recheck is a read, never an exchange: the token is gone
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.verifySession).toHaveBeenCalledTimes(1);
+  });
+
+  it("the same identity comes back through a loading frame: the re-bound begin reads again, finds the contradiction again, stops, and does not loop", async () => {
+    const r = rig();
+    r.read.mockRejectedValue(notFound()); // every read says 404, whoever asks
+    r.verifySession.mockImplementation(async () => { publishIdentity(r, GUEST); return "guest"; });
+    open(r, GUEST);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "no-access" }));
+    await tick();
+    expect(r.verifySession).toHaveBeenCalledTimes(1); // one re-check for this open, never two
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("a mismatch that repeats after the identity changed: stops, 0 POSTs, one re-check only", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(notFound()).mockRejectedValue(problem(401, "reservation.manage-session-invalid")); // the account is now answered like a guest
+    r.verifySession.mockImplementation(async () => { publishIdentity(r, ACCOUNT); return "customer:aaaa"; });
+    open(r, GUEST);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "no-access", bound: ACCOUNT }));
+    await tick();
+    expect(r.verifySession).toHaveBeenCalledTimes(1);
+    expect(r.exchange).not.toHaveBeenCalled();
+    publishIdentity(r, ACCOUNT); // and nothing is replayed by a later recheck
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("the session cannot be verified (the refresh failed, was superseded, or a sign-in is under way): the open stops, link-not-sent, 0 POSTs, the token is dropped", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(notFound());
+    r.verifySession.mockResolvedValue(null);
+    open(r, GUEST);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "link-not-sent" }));
+    expect(r.exchange).not.toHaveBeenCalled();
+    publishIdentity(r, ACCOUNT); // a later verified identity does not resurrect it
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+
+    const q = rig();
+    q.read.mockRejectedValueOnce(notFound());
+    q.verifySession.mockRejectedValue(new Error("boom"));
+    open(q, GUEST);
+    await vi.waitFor(() => expect(q.state).toMatchObject({ phase: "failed", failure: "link-not-sent" }));
+    expect(q.exchange).not.toHaveBeenCalled();
+  });
+
+  it("the verification fails while the page already moved to a loading identity: the token is still dropped (not kept for a later verified identity)", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(notFound());
+    const verifying = deferred<string | null>();
+    r.verifySession.mockReturnValue(verifying.promise);
+    open(r, GUEST);
+    await vi.waitFor(() => expect(r.verifySession).toHaveBeenCalledTimes(1));
+    r.controller.bind(LOADING_CTX); // the provider published loading
+    verifying.resolve(null);
+    await tick();
+    publishIdentity(r, ACCOUNT);
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("the page is left while the verification is out: 0 POSTs", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(notFound());
+    const verifying = deferred<string | null>();
+    r.verifySession.mockReturnValue(verifying.promise);
+    open(r, GUEST);
+    await vi.waitFor(() => expect(r.verifySession).toHaveBeenCalledTimes(1));
+    r.controller.dispose();
+    verifying.resolve("customer:aaaa");
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("another reservation is opened while the verification is out: the old open is dropped, its token included", async () => {
+    const r = rig();
+    r.read.mockRejectedValueOnce(notFound());
+    const verifying = deferred<string | null>();
+    r.verifySession.mockReturnValue(verifying.promise);
+    open(r, GUEST);
+    await vi.waitFor(() => expect(r.verifySession).toHaveBeenCalledTimes(1));
+    r.controller.bind({ reservationId: ID_B, identityKey: "guest" });
+    await vi.waitFor(() => expect(r.state.bound).toMatchObject({ reservationId: ID_B }));
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled(); // the dropped open's token is not what the other reservation's view reads or sends
+    verifying.resolve("customer:aaaa");
+    await tick();
+    publishIdentity(r, ACCOUNT); // back to the first reservation, verified: the dropped open is not resumed
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("a new explicit open replaces the one that waits: only the new link is exchanged, once", async () => {
+    const r = rig();
+    const SECRET_2 = "Yq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwxyz";
+    r.read.mockRejectedValueOnce(notFound());
+    const verifying = deferred<string | null>();
+    r.verifySession.mockReturnValue(verifying.promise);
+    open(r, GUEST);
+    await vi.waitFor(() => expect(r.verifySession).toHaveBeenCalledTimes(1));
+    r.controller.openLink({ kind: "token", token: SECRET_2 }); // the rig answers a guest 401 manage-session-invalid: the new open may exchange
+    await vi.waitFor(() => expect(r.exchange).toHaveBeenCalledTimes(1));
+    verifying.resolve("guest");
+    await tick();
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET_2, expect.any(Function));
+    expect(r.exchange).not.toHaveBeenCalledWith(ID, SECRET, expect.any(Function));
+  });
+
+  it("the other answers keep their C8/C9 behaviour: auth.session-invalid is the guidance, and a guest's 401 / an account's 404 still exchange at once, with no re-check", async () => {
+    const expired = rig();
+    expired.read.mockRejectedValue(problem(401, "auth.session-invalid"));
+    open(expired, ACCOUNT);
+    await vi.waitFor(() => expect(expired.state).toMatchObject({ phase: "failed", failure: "link-session-expired" }));
+    expect(expired.verifySession).not.toHaveBeenCalled();
+    expect(expired.exchange).not.toHaveBeenCalled();
+    const guest = rig();
+    open(guest, GUEST);
+    await vi.waitFor(() => expect(guest.state.phase).toBe("ready"));
+    expect(guest.verifySession).not.toHaveBeenCalled();
+    expect(guest.exchange).toHaveBeenCalledTimes(1);
+    const account = rig();
+    open(account, ACCOUNT);
+    await vi.waitFor(() => expect(account.state.phase).toBe("ready"));
+    expect(account.verifySession).not.toHaveBeenCalled();
+    expect(account.exchange).toHaveBeenCalledTimes(1);
   });
 });

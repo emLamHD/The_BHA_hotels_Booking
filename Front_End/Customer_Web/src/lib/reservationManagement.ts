@@ -145,6 +145,16 @@ function exchangeMayFollow(error: unknown, identityKey: string): boolean {
   return identityKey.startsWith("customer:") && error.status === 404 && error.problem.code === "reservation.not-found";
 }
 
+/**
+ * The same two answers for the OTHER identity (PR09-C10): a guest answered `404 reservation.not-found`, or a verified account answered `401 reservation.manage-session-invalid`.
+ * The API sees different cookies than this tab believes (another tab signed in or out), so this tab's identity is stale; it is not a reason to spend the link, nor to guess the new one.
+ */
+function identityMismatch(error: unknown, identityKey: string): boolean {
+  if (!(error instanceof ApiHttpError)) return false;
+  if (identityKey === "guest") return error.status === 404 && error.problem.code === "reservation.not-found";
+  return identityKey.startsWith("customer:") && error.status === 401 && error.problem.code === "reservation.manage-session-invalid";
+}
+
 /** What the read before an exchange that was not one of those two refusals means: the link was not sent, and the page says why. */
 function classifyPreflightError(error: unknown): ManageFailure {
   const failure = classifyReadError(error);
@@ -220,6 +230,11 @@ export interface ReservationManagementDeps {
   update: (reservationId: string, input: ArrivalInput, stillCurrent: () => boolean) => Promise<ManagedReservation>;
   /** The customer session is read again (an invalid customer cookie asks for it). */
   requestSessionRefresh: () => void;
+  /**
+   * PR09-C10: reads the customer session again and answers with who it verified (`guest` / `customer:<id>`), or null when it could not be verified (the read failed or
+   * was superseded, or a sign-in/sign-out is under way). The same read as `requestSessionRefresh`, with its result; it never changes anything server-side.
+   */
+  verifySession: () => Promise<string | null>;
 }
 
 export interface ReservationManagementController {
@@ -247,6 +262,10 @@ export function createReservationManagementController(deps: ReservationManagemen
   let state: ManageState = { ...WAITING, bound: null };
   let epoch = 0;
   let link: LinkOffer = { kind: "none" };
+  /** Which explicit open `link` belongs to (bumped by every offer / open), and which open has used its one session re-check (PR09-C10). */
+  let openSeq = 0;
+  let linkOpen = 0;
+  let recheck: { open: number; reservationId: string } | null = null;
   let reading: AbortController | null = null;
   let saveLock = false;
   /**
@@ -346,9 +365,38 @@ export function createReservationManagementController(deps: ReservationManagemen
     }
   }
 
+  /**
+   * The read before an exchange answered as if this tab's identity were another one (PR09-C10). The visitor's explicit open gets ONE session re-check: its token stays in this
+   * controller's memory for that open only (never in the URL, storage or a log), the provider reads the session again, and when it verifies a different identity the page re-binds
+   * and its `begin()` runs the read again with the link kept. Nothing depends on a "loading" frame being rendered: the result of the re-check is awaited, not observed. If the
+   * same identity comes back, or the re-check fails, or the answers still contradict the identity, the open stops and the token is dropped: 0 POSTs, no loop.
+   */
+  async function recheckSessionOnce(at: number, myOpen: number, offer: LinkOffer, ctx: ManageContext): Promise<void> {
+    if (recheck?.open === myOpen) {
+      recheck = null; // still contradictory after one verification: stop; the token is not kept
+      if (current(at)) fail("no-access");
+      return;
+    }
+    recheck = { open: myOpen, reservationId: ctx.reservationId };
+    link = offer;
+    linkOpen = myOpen;
+    publish({ ...WAITING, phase: "loading" });
+    const verified = await deps.verifySession().catch(() => null);
+    // The provider published the new identity meanwhile and the page re-bound: that begin() took the link over (or a newer open replaced it).
+    if (link !== offer) return;
+    if (verified === null || verified === ctx.identityKey) {
+      link = { kind: "none" };
+      if (recheck?.open === myOpen) recheck = null;
+      if (current(at)) fail(verified === null ? "link-not-sent" : "no-access");
+    }
+    // else: another identity was verified; the bind that follows resumes this open with the link kept above.
+  }
+
   async function begin(at: number): Promise<void> {
     const ctx = context!;
     const offer = link;
+    const myOpen = linkOpen;
+    const finishOpen = () => { if (recheck?.open === myOpen) recheck = null; };
     if (sessionInvalid?.key === keyOf(ctx)) {
       if (offer.kind === "none") {
         // An automatic start (a recheck of the session): the recovery limit applies.
@@ -379,10 +427,16 @@ export function createReservationManagementController(deps: ReservationManagemen
       publish({ ...WAITING, phase: "loading" });
       try {
         const result = await read(at);
+        finishOpen();
         if (result && current(at)) showRead(result);
         return;
       } catch (error) {
         if (!current(at)) return;
+        if (identityMismatch(error, ctx.identityKey ?? "")) {
+          await recheckSessionOnce(at, myOpen, offer, ctx);
+          return;
+        }
+        finishOpen();
         if (!exchangeMayFollow(error, ctx.identityKey ?? "")) {
           fail(classifyPreflightError(error));
           return;
@@ -413,22 +467,32 @@ export function createReservationManagementController(deps: ReservationManagemen
       };
     },
     offerLink: (offer) => {
-      if (link.kind === "none") link = offer;
+      if (link.kind === "none") {
+        link = offer;
+        linkOpen = ++openSeq;
+      }
     },
     openLink: (offer) => {
       if (offer.kind === "none") return;
       if (!context || context.identityKey === null) {
         link = offer; // no verified identity yet: it is opened (once) when the identity settles, like the link of a fresh page
+        linkOpen = ++openSeq;
         return;
       }
       if (state.phase === "exchanging") return; // never a second exchange beside the one that is out
       invalidate(); // an unsettled arrival update keeps its hold (writeHolds); only the epoch-bound lock and answers are dropped
       link = offer;
+      linkOpen = ++openSeq;
       void begin(epoch);
     },
     bind: (next) => {
       if (context && context.reservationId === next.reservationId && context.identityKey === next.identityKey) return;
       invalidate();
+      if (recheck && recheck.reservationId !== next.reservationId) {
+        // another reservation: the open that was waiting for its session re-check is dropped, token included
+        if (linkOpen === recheck.open) link = { kind: "none" };
+        recheck = null;
+      }
       context = next;
       if (sessionInvalid && next.identityKey !== null && sessionInvalid.key !== keyOf(next)) sessionInvalid = null; // another identity or reservation: a fresh view
       publish(WAITING); // nothing private is kept or requested while the identity is not verified, and the old data is cleared in this very call

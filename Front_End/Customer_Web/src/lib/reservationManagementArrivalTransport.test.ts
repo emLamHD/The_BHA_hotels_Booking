@@ -34,7 +34,7 @@ describe("the arrival update when the CSRF token cannot be read (PR09-C3 P2-2)",
       throw new ApiNetworkError(); // the CSRF token request fails
     });
     const controller = createReservationManagementController({
-      exchange: async () => {}, whenExchangeSettled: async () => {}, requestSessionRefresh: () => {},
+      exchange: async () => {}, whenExchangeSettled: async () => {}, requestSessionRefresh: () => {}, verifySession: async () => null,
       read: (id, signal) => readManagedReservation(id, { signal }), update: updateEstimatedArrival,
     });
     controller.bind({ reservationId: ID, identityKey: "guest" });
@@ -51,6 +51,53 @@ describe("the arrival update when the CSRF token cannot be read (PR09-C3 P2-2)",
     await vi.waitFor(() => expect(controller.getState().save).toEqual({ status: "saved" }));
     expect(calls(apiUnsafeRequestMock, POST)).toBe(1);
     expect(calls(apiGetMock, MANAGE_PATH)).toBe(1);
+  });
+});
+
+// BHA-CHECKOUT-001-PR09-C10 P3: the REAL controller, service and CSRF helper; only the HTTP client is replaced. A 200 that does not carry the arrival that was sent is an unusable
+// answer: the result is unknown, the form stays shut, nothing is replayed, and a read that shows the submitted value still does not say "saved".
+describe("a 200 for the arrival update that does not carry the submitted arrival (PR09-C10 P3)", () => {
+  const eta = (date: string, time: string) => ({ arrivalDate: date, arrivalTime: time, timeZoneId: "Asia/Ho_Chi_Minh", updatedAtUtc: "u" });
+  const variants: [string, Record<string, unknown>][] = [
+    ["a null estimate", { ...DTO, estimatedArrival: null }],
+    ["a missing estimate", (({ estimatedArrival: _omitted, ...rest }) => rest)(DTO)],
+    ["another date", { ...DTO, estimatedArrival: eta("2026-12-01", "09:00") }],
+    ["another time", { ...DTO, estimatedArrival: eta("2026-12-02", "09:30") }],
+  ];
+
+  it.each(variants)("%s: unverified, the form stays shut, 1 POST in total, and a matching read does not confirm", async (_name, body) => {
+    apiGetMock.mockImplementation(async (path: string) => (path === MANAGE_PATH ? { ...DTO, estimatedArrival: eta("2026-12-02", "09:00") } : { token: "t", headerName: "X-CSRF-TOKEN" }));
+    apiUnsafeRequestMock.mockResolvedValue({ status: 200, data: body }); // a 200 of the wrong contract: a fixture, not the real API
+    const controller = createReservationManagementController({
+      exchange: async () => {}, whenExchangeSettled: async () => {}, requestSessionRefresh: () => {}, verifySession: async () => null,
+      read: (id, signal) => readManagedReservation(id, { signal }), update: updateEstimatedArrival,
+    });
+    controller.bind({ reservationId: ID, identityKey: "guest" });
+    await vi.waitFor(() => expect(controller.getState().phase).toBe("ready"));
+    controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "09:00" });
+    await vi.waitFor(() => expect(controller.getState().save).toEqual({ status: "unverified" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(controller.getState().save).not.toEqual({ status: "saved" });
+    expect(calls(apiUnsafeRequestMock, POST)).toBe(1);
+    controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "10:00" }); // the form is shut: nothing is sent
+    controller.verifySave(); // "Check again" is a read: it never says saved and never reopens the form while the update is unsettled
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls(apiUnsafeRequestMock, POST)).toBe(1);
+    expect(controller.getState().save).toEqual({ status: "unverified" });
+  });
+
+  it("control: a matching 200 is still 'saved', with exactly one POST", async () => {
+    apiGetMock.mockImplementation(async (path: string) => (path === MANAGE_PATH ? DTO : { token: "t", headerName: "X-CSRF-TOKEN" }));
+    apiUnsafeRequestMock.mockResolvedValue({ status: 200, data: { ...DTO, estimatedArrival: eta("2026-12-02", "09:00") } });
+    const controller = createReservationManagementController({
+      exchange: async () => {}, whenExchangeSettled: async () => {}, requestSessionRefresh: () => {}, verifySession: async () => null,
+      read: (id, signal) => readManagedReservation(id, { signal }), update: updateEstimatedArrival,
+    });
+    controller.bind({ reservationId: ID, identityKey: "guest" });
+    await vi.waitFor(() => expect(controller.getState().phase).toBe("ready"));
+    controller.submitArrival({ arrivalDate: "2026-12-02", arrivalTime: "09:00" });
+    await vi.waitFor(() => expect(controller.getState().save).toEqual({ status: "saved" }));
+    expect(calls(apiUnsafeRequestMock, POST)).toBe(1);
   });
 });
 
@@ -80,11 +127,16 @@ describe("a POST that waits for its CSRF token when the view changes (PR09-C5 P2
       if (!session && account !== "owner") throw new ApiHttpError(401, { title: "t", status: 401, code: "reservation.manage-session-invalid" });
       return DTO;
     });
-    apiUnsafeRequestMock.mockImplementation(async (path: string) => (path === EXCHANGE ? (session = true, { status: 200, data: { reservationId: ID, expiresAtUtc: "x" } }) : { status: 200, data: SAVED }));
+    // Like the API, the update answers the reservation with the arrival that was sent.
+    apiUnsafeRequestMock.mockImplementation(async (path: string, _method: string, body: { arrivalDate?: string; arrivalTime?: string }) =>
+      path === EXCHANGE
+        ? (session = true, { status: 200, data: { reservationId: ID, expiresAtUtc: "x" } })
+        : { status: 200, data: { ...DTO, estimatedArrival: { ...SAVED.estimatedArrival, arrivalDate: body.arrivalDate, arrivalTime: body.arrivalTime } } }
+    );
     const controller = createReservationManagementController({
       exchange: (rid, tok, stillCurrent) => exchangeOnce(rid, tok, (id, t) => exchangeManagementLink(id, t, stillCurrent)),
       whenExchangeSettled,
-      requestSessionRefresh: () => {},
+      requestSessionRefresh: () => {}, verifySession: async () => null,
       read: (id, signal) => readManagedReservation(id, { signal }),
       update: updateEstimatedArrival,
     });

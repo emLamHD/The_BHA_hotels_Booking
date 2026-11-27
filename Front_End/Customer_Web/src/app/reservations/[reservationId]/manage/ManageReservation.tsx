@@ -278,10 +278,12 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
   const id = canonicalReservationId(reservationId);
   const router = useRouter();
   const { t } = useI18n();
-  const { state: session, refreshSession } = useCustomerSession();
+  const { state: session, refreshSession, verifySession } = useCustomerSession();
   const stay = useStaySearch();
   const refreshRef = useRef(refreshSession);
   refreshRef.current = refreshSession;
+  const verifyRef = useRef(verifySession);
+  verifyRef.current = verifySession;
   const [controller] = useState(() =>
     createReservationManagementController({
       exchange: (rid, token, stillCurrent) => exchangeOnce(rid, token, (id, t) => exchangeManagementLink(id, t, stillCurrent)),
@@ -289,6 +291,7 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
       read: (rid, signal) => readManagedReservation(rid, { signal }),
       update: updateEstimatedArrival,
       requestSessionRefresh: () => refreshRef.current(),
+      verifySession: () => (verifyRef.current ? verifyRef.current() : Promise.resolve(null)),
     })
   );
   const state = useSyncExternalStore(controller.subscribe, controller.getState, controller.getState);

@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { getCustomerSession, loginCustomer, logoutCustomer } from "@/lib/api/authService";
 import { invalidateCsrfToken } from "@/lib/api/csrf";
+import { verifiedOwnerKey } from "@/lib/api/directBookingAttempt";
 import type { BookingIdentityGuard } from "@/lib/api/bookingHoldFlowController";
 import type { CustomerCredentials } from "@/lib/api/authService";
 import {
@@ -26,6 +27,11 @@ export interface CustomerSessionApi {
    * read early: it joins that read; after a failed recovery read it retries it. Changes nothing server-side.
    */
   refreshSession: () => void;
+  /**
+   * The same read as `refreshSession`, with its result (PR09-C10): the identity it verified (`guest` / `customer:<id>`), or null when it could not be verified (the read failed
+   * or was superseded, or a guarded login/logout is under way: it does not read early then). Read-only; it changes nothing server-side.
+   */
+  verifySession: () => Promise<string | null>;
   /**
    * The only way for UI to change the Customer identity. Refused, with no request and no state change,
    * while a booking is in progress, a receipt is not finished, or another identity change is running.
@@ -88,10 +94,15 @@ export function CustomerSessionProvider({ children }: { children: React.ReactNod
       state,
       identityChange,
       refreshSession: coordinator.requestRefresh,
+      verifySession: async () => {
+        if (coordinator.getState().phase !== "idle") return null;
+        const outcome = await controller.read();
+        return outcome === "authenticated" || outcome === "anonymous" ? verifiedOwnerKey(controller.getState()) : null;
+      },
       guardedLogin: coordinator.login,
       guardedLogout: coordinator.logout,
     }),
-    [state, identityChange, coordinator]
+    [state, identityChange, coordinator, controller]
   );
   const binding = useMemo<CustomerIdentityBinding>(
     () => ({

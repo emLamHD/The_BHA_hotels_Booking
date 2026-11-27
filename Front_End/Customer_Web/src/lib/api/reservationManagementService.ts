@@ -159,7 +159,11 @@ export async function updateEstimatedArrival(reservationId: string, input: Arriv
     stillCurrent
   );
   if (response.status !== 200) throw new ManagementContractError();
-  return toManagedReservation(response.data, reservationId);
+  const updated = toManagedReservation(response.data, reservationId);
+  // A successful update answers the updated reservation, so it must carry exactly the arrival that was sent (a read may have no estimate, this answer may not). Anything
+  // else (missing, null, another date or time) is not "saved": it is an unusable answer, and the caller takes its unknown-result path.
+  if (updated.estimatedArrival?.arrivalDate !== input.arrivalDate || updated.estimatedArrival?.arrivalTime !== input.arrivalTime) throw new ManagementContractError();
+  return updated;
 }
 
 /**

@@ -21,7 +21,8 @@ vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => 
 vi.mock("next/link", () => ({ default: (props: { href: string; children?: React.ReactNode }) => React.createElement("a", { href: String(props.href) }, props.children) }));
 vi.mock("@/components/StaySearchProvider", () => ({ useStaySearch: () => null }));
 let session: { status: string; customer: unknown } = { status: "anonymous", customer: null };
-vi.mock("@/app/CustomerSessionProvider", () => ({ useCustomerSession: () => ({ state: session, refreshSession: vi.fn() }) }));
+let verifyImpl: () => Promise<string | null> = async () => null; // the provider's `verifySession` (PR09-C10)
+vi.mock("@/app/CustomerSessionProvider", () => ({ useCustomerSession: () => ({ state: session, refreshSession: vi.fn(), verifySession: () => verifyImpl() }) }));
 
 import { resetCsrfStateForTests } from "@/lib/api/csrf";
 import { ApiHttpError } from "@/lib/api/errors";
@@ -322,5 +323,42 @@ describe("a signed-in visitor opening a guest link on the mounted page (PR09-C9)
     dom.render(tree({ page: true, armed: false }));
     await vi.waitFor(() => expect(dom.html()).toContain("BHA-1"));
     expect(posts(EXCHANGE)).toBe(1);
+  });
+});
+
+describe("a stale identity in a tab, on the mounted page (PR09-C10)", () => {
+  it("guest tab, another tab signed in as a non-owner: GET 404 → one session re-check → GET as the account → exactly one exchange POST → the booking", async () => {
+    stranger = true; // the API sees the other tab's customer cookie: 404 reservation.not-found for everyone until a management session exists
+    const order: string[] = [];
+    apiGetMock.mockImplementation(async (path: string) => {
+      if (path === CSRF) return { token: "t", headerName: "X-CSRF-TOKEN" };
+      order.push("GET manage");
+      if (!granted) throw new ApiHttpError(404, { title: "t", status: 404, code: "reservation.not-found" });
+      return DTO;
+    });
+    apiUnsafeRequestMock.mockImplementation(async (path: string) => { order.push("POST exchange"); granted = true; return { status: 200, data: { reservationId: ID, expiresAtUtc: "x" } }; });
+    verifyImpl = async () => {
+      order.push("verify session");
+      session = OWNER; // the provider publishes the account the other tab signed in as
+      dom.render(tree({ page: true, armed: false }));
+      return "customer:aaaaaaaa-0000-4000-8000-000000000001";
+    };
+    dom.render(tree({ page: true, armed: false }));
+    await vi.waitFor(() => expect(dom.html()).toContain("BHA-1"));
+    expect(order).toEqual(["GET manage", "verify session", "GET manage", "POST exchange", "GET manage"]);
+    expect(posts(EXCHANGE)).toBe(1);
+    expect(dom.html()).not.toContain(SECRET);
+  });
+
+  it("the session cannot be verified: the open stops (link-not-sent), 0 exchange POSTs", async () => {
+    apiGetMock.mockImplementation(async (path: string) => {
+      if (path === CSRF) return { token: "t", headerName: "X-CSRF-TOKEN" };
+      throw new ApiHttpError(404, { title: "t", status: 404, code: "reservation.not-found" });
+    });
+    verifyImpl = async () => null;
+    dom.render(tree({ page: true, armed: false }));
+    await vi.waitFor(() => expect(dom.html()).toContain('data-failure="link-not-sent"'));
+    await flush();
+    expect(posts(EXCHANGE)).toBe(0);
   });
 });
