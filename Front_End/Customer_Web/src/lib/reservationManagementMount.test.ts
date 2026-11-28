@@ -362,3 +362,70 @@ describe("a stale identity in a tab, on the mounted page (PR09-C10)", () => {
     expect(posts(EXCHANGE)).toBe(0);
   });
 });
+
+// BHA-CHECKOUT-001-PR09-C14: the REAL page catches the `hashchange` of a second link pasted into the same tab and removes B's fragment from the address, while A's exchange still waits for its CSRF
+// token. Synthetic links; the request counts and which link the one POST carried are asserted. `history.replaceState` here really clears the fragment (like a browser), so "the fragment is gone" is observed.
+describe("a second link pasted into the tab while the first exchange waits for its CSRF token, on the mounted page (PR09-C14)", () => {
+  const LINK_A = SECRET;
+  const LINK_B = "BbbbBbbbBbbbBbbbBbbbBbbbBbbbBbbbBbbbBbbbbbb";
+  const CLEAN = `/reservations/${ID}/manage`;
+  let csrfToken!: () => void;
+  const exchangeTokens = () => apiUnsafeRequestMock.mock.calls.filter((c) => c[0] === EXCHANGE).map((c) => (c[2] as { token: string }).token);
+
+  beforeEach(() => {
+    const held = new Promise<{ token: string; headerName: string }>((resolve) => { csrfToken = () => resolve({ token: "t", headerName: "X-CSRF-TOKEN" }); });
+    apiGetMock.mockImplementation(async (path: string) => {
+      if (path === CSRF) return held;
+      if (!granted) throw new ApiHttpError(401, { title: "t", status: 401, code: "reservation.manage-session-invalid" }); // a clean browser: no management session until an exchange succeeds
+      return DTO;
+    });
+    (window as unknown as { history: { replaceState: unknown } }).history.replaceState = vi.fn(() => { hash = ""; });
+    router.replace.mockClear();
+    hash = `#${LINK_A}`;
+  });
+  afterEach(() => { csrfToken(); }); // nothing is left waiting for the next test
+
+  it("A is read from the address and removed; B (hashchange) is removed too; releasing the response sends 0 POSTs for A and exactly 1 for B, then the booking is shown", async () => {
+    dom.render(tree({ page: true, armed: false }));
+    await vi.waitFor(() => expect(gets(CSRF)).toBe(1)); // A's exchange waits for its token
+    expect(hash).toBe(""); // A's fragment is gone from the address
+    expect(posts(EXCHANGE)).toBe(0);
+
+    hash = `#${LINK_B}`; // the visitor pastes B into the address bar of the same tab
+    dom.fireWindow("hashchange");
+    expect(hash).toBe(""); // the page removed B's fragment at once, before anything else
+    expect((window as unknown as { history: { replaceState: ReturnType<typeof vi.fn> } }).history.replaceState).toHaveBeenLastCalledWith(null, "", CLEAN);
+    expect(router.replace).toHaveBeenLastCalledWith(CLEAN);
+
+    csrfToken(); // the held CSRF response arrives
+    await vi.waitFor(() => expect(dom.html()).toContain("BHA-1"));
+    expect(exchangeTokens()).toEqual([LINK_B]); // A: 0 POSTs, B: 1
+    expect(dom.html()).not.toContain(LINK_A);
+    expect(dom.html()).not.toContain(LINK_B);
+    await flush();
+    expect(posts(EXCHANGE)).toBe(1);
+  });
+
+  it("control: A's POST was already handed over when B is pasted: B's fragment is removed, nothing else is sent, A's exchange settles the page", async () => {
+    csrfToken();
+    let answerPost!: () => void;
+    const postAnswer = new Promise<void>((resolve) => { answerPost = resolve; });
+    apiUnsafeRequestMock.mockImplementation(async (path: string) => {
+      if (path !== EXCHANGE) throw new Error("unexpected POST");
+      await postAnswer;
+      granted = true;
+      return { status: 200, data: { reservationId: ID, expiresAtUtc: "x" } };
+    });
+    dom.render(tree({ page: true, armed: false }));
+    await vi.waitFor(() => expect(posts(EXCHANGE)).toBe(1)); // handed over, unanswered
+    hash = `#${LINK_B}`;
+    dom.fireWindow("hashchange");
+    expect(hash).toBe(""); // B's fragment is still removed from the address
+    await flush();
+    expect(exchangeTokens()).toEqual([LINK_A]);
+    answerPost();
+    await vi.waitFor(() => expect(dom.html()).toContain("BHA-1"));
+    await flush();
+    expect(exchangeTokens()).toEqual([LINK_A]); // B was not sent later
+  });
+});

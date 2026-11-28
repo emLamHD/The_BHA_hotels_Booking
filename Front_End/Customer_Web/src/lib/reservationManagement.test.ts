@@ -970,10 +970,10 @@ describe("PR09-C4 P2-2: a link opened in the same tab", () => {
     expect(q.exchange).toHaveBeenCalledTimes(2); // a second refusal is not retried by itself
   });
 
-  it("an open while an exchange is already out sends nothing (no parallel exchange)", async () => {
+  it("an open while an exchange is already out (its POST handed to the transport) sends nothing (no parallel exchange)", async () => {
     const r = rig();
     const out = deferred<void>();
-    r.exchange.mockImplementationOnce(() => out.promise.then(() => r.grantSession()));
+    r.exchange.mockImplementationOnce((_id, _token, _stillCurrent, handedOver) => { handedOver?.(); return out.promise.then(() => r.grantSession()); });
     r.controller.offerLink({ kind: "token", token: SECRET });
     r.controller.bind(GUEST);
     await vi.waitFor(() => expect(r.state.phase).toBe("exchanging"));
@@ -983,6 +983,27 @@ describe("PR09-C4 P2-2: a link opened in the same tab", () => {
     out.resolve();
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.exchange).toHaveBeenCalledTimes(1);
+  });
+
+  // PR09-C14: an exchange that has not handed its POST to the transport has sent nothing: a new explicit open supersedes it (the old one is told it is no longer current) and is the one that exchanges.
+  it("an open while the exchange has not been handed over supersedes it: the old attempt is no longer current, the new link is the one exchanged", async () => {
+    const r = rig();
+    const out = deferred<void>();
+    let firstStillCurrent: (() => boolean) | undefined;
+    r.exchange.mockImplementationOnce((_id, _token, stillCurrent) => { firstStillCurrent = stillCurrent; return out.promise; }); // never calls handedOver: waiting for its CSRF token
+    r.controller.offerLink({ kind: "token", token: SECRET });
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.state.phase).toBe("exchanging"));
+    expect(firstStillCurrent?.()).toBe(true);
+    r.controller.openLink({ kind: "token", token: SECRET_2 });
+    expect(firstStillCurrent?.()).toBe(false); // superseded before anything of the old attempt is sent
+    await vi.waitFor(() => expect(r.exchange).toHaveBeenCalledTimes(2));
+    expect(r.exchange.mock.calls[1][1]).toBe(SECRET_2);
+    await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
+    out.resolve(); // the old attempt settles late: it changes nothing
+    await tick();
+    expect(r.state).toMatchObject({ phase: "ready", failure: null });
+    expect(r.exchange).toHaveBeenCalledTimes(2);
   });
 
   it("a malformed fragment in the same tab sends nothing; an empty one does nothing", async () => {

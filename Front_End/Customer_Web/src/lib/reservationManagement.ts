@@ -577,7 +577,9 @@ export function createReservationManagementController(deps: ReservationManagemen
         notify();
         return;
       }
-      if (state.phase === "exchanging") return; // never a second exchange beside the one that is out
+      // PR09-C14: an exchange whose POST was handed to the transport is out and is left alone (no cancel, no replay, nothing queued behind it): never a second exchange beside it. One that still
+      // waits for its CSRF token (`pending`: handed over clears it) has sent nothing: the new open supersedes it below (the epoch change makes it send 0 POSTs; its late cleanup is a no-op).
+      if (state.phase === "exchanging" && !(pending && current(pending.at))) return;
       invalidate(); // an unsettled arrival update keeps its hold (writeHolds); only the epoch-bound lock and answers are dropped
       link = offer;
       linkOpen = ++openSeq;

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
 
 // BHA-CHECKOUT-001-PR09-C3: the controller on the REAL service and the REAL CSRF helper; only the HTTP client is replaced, so what reaches the transport is counted.
@@ -504,5 +504,144 @@ describe("a return to the tab while the exchange POST has not been sent (PR09-C1
     r.releaseToken();
     await flush();
     expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+  });
+});
+
+// BHA-CHECKOUT-001-PR09-C14: a NEW link opened in the same tab (the page's hashchange -> openLink) while the earlier open's exchange has not handed its POST to the transport. Same real
+// controller, service, registry and CSRF helper as C13; only the HTTP client is replaced. Synthetic links A and B (distinct secrets); the POST body says which of them was sent.
+describe("a second link opened in the same tab before the first exchange POST was sent (PR09-C14)", () => {
+  const CSRF = "/api/v1/auth/csrf";
+  const EXCHANGE = `${MANAGE_PATH}/exchange`;
+  const LINK_A = "AaaaAaaaAaaaAaaaAaaaAaaaAaaaAaaaAaaaAaaaaaa";
+  const LINK_B = "BbbbBbbbBbbbBbbbBbbbBbbbBbbbBbbbBbbbBbbbbbb";
+  const LINK_C = "CcccCcccCcccCcccCcccCcccCcccCcccCcccCcccccc";
+  const GUEST: ManageContext = { reservationId: ID, identityKey: "guest" };
+  const NO_SESSION = new ApiHttpError(401, { title: "t", status: 401, code: "reservation.manage-session-invalid" });
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const sentTokens = () => apiUnsafeRequestMock.mock.calls.filter((c) => c[0] === EXCHANGE).map((c) => (c[2] as { token: string }).token);
+  // The exchange registry lives at module scope: whatever a test leaves waiting (a held CSRF response, a held POST) is released after it, so a failing test cannot leak a live entry into the next.
+  const settleLater: Array<() => void> = [];
+  afterEach(async () => {
+    settleLater.splice(0).forEach((settle) => settle());
+    await flush();
+  });
+
+  function rig() {
+    let releaseToken!: (value: unknown) => void;
+    const token = new Promise((resolve) => { releaseToken = resolve; });
+    let postAnswer!: (value: unknown) => void;
+    const postResponse = new Promise((resolve) => { postAnswer = resolve; });
+    let holdPost = false;
+    let answer: () => unknown = () => { throw NO_SESSION; };
+    let manageGets = 0;
+    let postsInFlight = 0;
+    let maxPostsInFlight = 0;
+    apiGetMock.mockImplementation(async (path: string) => {
+      if (path !== MANAGE_PATH) return token; // the CSRF token request: held until the test releases it
+      manageGets += 1;
+      return answer();
+    });
+    apiUnsafeRequestMock.mockImplementation(async (path: string) => {
+      if (path !== EXCHANGE) throw new Error("unexpected POST");
+      postsInFlight += 1;
+      maxPostsInFlight = Math.max(maxPostsInFlight, postsInFlight);
+      answer = () => DTO; // the link was consumed: the browser now holds the management session
+      try {
+        if (holdPost) await postResponse;
+        return { status: 200, data: { reservationId: ID, expiresAtUtc: "x" } };
+      } finally { postsInFlight -= 1; }
+    });
+    const controller = createReservationManagementController({
+      exchange: (rid, tok, stillCurrent, onHandedOver) => exchangeOnce(rid, tok, exchangeManagementLink, stillCurrent, onHandedOver),
+      whenExchangeSettled,
+      requestSessionRefresh: () => {}, verifySession: async () => "guest",
+      read: (id, signal) => readManagedReservation(id, { signal }),
+      update: updateEstimatedArrival,
+    });
+    settleLater.push(() => { controller.dispose(); releaseToken({ token: "t", headerName: "X-CSRF-TOKEN" }); postAnswer(undefined); });
+    return {
+      controller,
+      releaseToken: () => releaseToken({ token: "t", headerName: "X-CSRF-TOKEN" }),
+      answerPost: () => postAnswer(undefined),
+      holdThePost: () => { holdPost = true; },
+      serverAnswers: (next: () => unknown) => { answer = next; },
+      get manageGets() { return manageGets; },
+      get maxPostsInFlight() { return maxPostsInFlight; },
+      get state() { return controller.getState(); },
+    };
+  }
+  /** The page opened link A in a clean browser: the preflight GET is refused (no session yet), the exchange waits for its CSRF token. */
+  async function openAWaitingForToken(r: ReturnType<typeof rig>) {
+    r.controller.offerLink({ kind: "token", token: LINK_A });
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(calls(apiGetMock, CSRF)).toBe(1));
+    expect(r.state.phase).toBe("exchanging");
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+  }
+  const openWhenReady = async (r: ReturnType<typeof rig>, token: string, gets: number) => {
+    r.controller.openLink({ kind: "token", token });
+    await vi.waitFor(() => expect(r.manageGets).toBe(gets)); // the new open's own preflight GET
+    await vi.waitFor(() => expect(r.state.phase).toBe("exchanging"));
+  };
+
+  it("open A, hold the CSRF response, open B in the same tab, release: 0 POSTs for A, exactly 1 for B, then the booking is read (START_HEAD dropped B and A failed as expired)", async () => {
+    const r = rig();
+    await openAWaitingForToken(r);
+    await openWhenReady(r, LINK_B, 2);
+    r.releaseToken(); // one response: A's attempt is superseded, B's is handed over
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    expect(sentTokens()).toEqual([LINK_B]);
+    expect(r.maxPostsInFlight).toBe(1);
+    expect(r.manageGets).toBe(3); // A's preflight, B's preflight, the read after B's exchange: A's late cleanup read nothing and failed nothing
+    await flush();
+    expect(sentTokens()).toEqual([LINK_B]);
+    expect(r.state).toMatchObject({ phase: "ready", failure: null });
+    expect(JSON.stringify(r.state)).not.toContain(LINK_A);
+    expect(JSON.stringify(r.state)).not.toContain(LINK_B);
+  });
+
+  it("B's preflight GET answers 200 (the booking is readable): B shows it and sends no POST; A, released later, sends none either", async () => {
+    const r = rig();
+    await openAWaitingForToken(r);
+    r.serverAnswers(() => DTO); // e.g. another tab opened a link of this booking
+    r.controller.openLink({ kind: "token", token: LINK_B });
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    expect(r.manageGets).toBe(2);
+    r.releaseToken();
+    await flush();
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+    expect(r.state).toMatchObject({ phase: "ready", failure: null });
+  });
+
+  it("control: A's POST was already handed to the transport: B is not queued, A is not cancelled or replayed, there is never a second POST; A's answer settles the page", async () => {
+    const r = rig();
+    r.holdThePost();
+    await openAWaitingForToken(r);
+    r.releaseToken();
+    await vi.waitFor(() => expect(sentTokens()).toEqual([LINK_A])); // handed over, unanswered
+    const getsBefore = r.manageGets;
+    r.controller.openLink({ kind: "token", token: LINK_B }); // the page removed B from the address bar; the controller leaves the exchange that is out alone
+    await flush();
+    expect(sentTokens()).toEqual([LINK_A]);
+    expect(r.manageGets).toBe(getsBefore);
+    expect(r.state.phase).toBe("exchanging");
+    r.answerPost();
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    await flush();
+    expect(sentTokens()).toEqual([LINK_A]); // B was not kept to be sent later
+    expect(r.maxPostsInFlight).toBe(1);
+    expect(JSON.stringify(r.state)).not.toContain(LINK_B);
+  });
+
+  it("open A, then B, then C while the CSRF response is held: only C is ever sent, once", async () => {
+    const r = rig();
+    await openAWaitingForToken(r);
+    await openWhenReady(r, LINK_B, 2);
+    await openWhenReady(r, LINK_C, 3);
+    r.releaseToken();
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    await flush();
+    expect(sentTokens()).toEqual([LINK_C]);
+    expect(r.maxPostsInFlight).toBe(1);
   });
 });

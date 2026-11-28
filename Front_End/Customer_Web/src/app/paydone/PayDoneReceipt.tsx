@@ -163,12 +163,36 @@ const PayDoneReceipt: FC = () => {
     );
   };
 
+  // `closeError` is a message key: always shown through `t`, in the receipt and in the masked notice alike.
+  const renderCloseError = () =>
+    closeError && (
+      <div role="alert" data-testid="receipt-close-error" className="text-sm text-red-600 dark:text-red-400">
+        {t(closeError)}
+      </div>
+    );
+
+  // PR09-C14: a receipt hidden because the verified identity is not its owner can still be closed, so the visitor can sign in again from a clean management address. Nothing of the receipt
+  // is rendered here (the id below only goes to `finishBooking`, which refuses it if the receipt changed); nothing closes by itself. Not offered while the identity is only being verified.
   const renderOwnerNotice = (check: "verifying" | "mismatch") => (
     <div role="status" aria-live="polite" data-testid="receipt-owner-notice" className="w-full space-y-4 px-0 sm:p-6 xl:p-8">
       <p className="text-neutral-6000 dark:text-neutral-300">
         {check === "verifying" ? t("customer.receipt.owner.verifying") : t("customer.receipt.owner.mismatch")}
       </p>
-      <ButtonSecondary href="/#rooms">{t("customer.room.viewRooms")}</ButtonSecondary>
+      {renderCloseError()}
+      <div className="flex flex-wrap gap-3">
+        <ButtonSecondary href="/#rooms">{t("customer.room.viewRooms")}</ButtonSecondary>
+        {check === "mismatch" && receiptId && (
+          <ButtonSecondary
+            type="button"
+            onClick={() => {
+              setCloseError(null);
+              setClosingReservationId(receiptId);
+            }}
+          >
+            {t("customer.receipt.closeReceipt")}
+          </ButtonSecondary>
+        )}
+      </div>
     </div>
   );
 
@@ -345,11 +369,7 @@ const PayDoneReceipt: FC = () => {
           </div>
         )}
 
-        {closeError && (
-          <div role="alert" className="text-sm text-red-600 dark:text-red-400">
-            {closeError}
-          </div>
-        )}
+        {renderCloseError()}
 
         <div className="flex flex-wrap gap-3">
           {target && !confirmed && (
@@ -401,7 +421,7 @@ const PayDoneReceipt: FC = () => {
               <Dialog.Title className="text-xl font-semibold">{t("customer.receipt.closeQuestion")}</Dialog.Title>
               <Dialog.Description as="div" className="space-y-3 text-sm text-neutral-6000 dark:text-neutral-300">
                 <p>
-                  {reservation?.confirmationNumber
+                  {ownerCheck === "ok" && reservation?.confirmationNumber
                     ? t("customer.receipt.closeWarnWithCode", { code: reservation.confirmationNumber })
                     : t("customer.receipt.closeWarn")}
                 </p>
