@@ -97,6 +97,9 @@ afterEach(() => { dom.restore(); vi.unstubAllGlobals(); });
 const page = () => withI18n(React.createElement(CustomerSessionProvider, null, React.createElement(ManageReservation, { reservationId: ID })));
 const gate = () => { const g = deferred<void>(); return { promise: g.promise, open: () => g.resolve() }; };
 const showsOwnersBooking = () => /BHA-OWNER/.test(dom.html()) || dom.html().includes('data-testid="manage-money"');
+/** What the owner's booking renders (the confirmation number, the localized stay dates, the balance, the money block); each is asserted present in the positive control below. */
+const OWNERS_DETAILS = { confirmation: /BHA-OWNER-\d/, stay: /1 thg 12, 2026 → 3 thg 12, 2026/, balance: /3\.000\.000/, money: /data-testid="manage-money"/ };
+const leaksOwnersDetails = () => Object.values(OWNERS_DETAILS).some((re) => re.test(dom.html()));
 async function mountWithBooking() {
   dom.render(page());
   await vi.waitFor(() => expect(dom.html()).toContain("BHA-OWNER-1"));
@@ -152,6 +155,7 @@ describe("coming back to a tab that shows a booking (PR09-C11 P2-1, real session
     expect(showsOwnersBooking()).toBe(false);
     api.manageGate.open();
     await vi.waitFor(() => expect(dom.html()).toContain("BHA-OWNER-2"));
+    for (const [name, re] of Object.entries(OWNERS_DETAILS)) expect(re.test(dom.html()), `positive control: ${name}`).toBe(true); // the matchers do match what a shown booking renders
     expect(dom.html()).not.toContain("BHA-OWNER-1");
     await flush();
     expect(count("GET me")).toBe(before.me + 1); // focus and visibilitychange of one return: one verification
@@ -301,7 +305,7 @@ describe("PR09-C12 P2-1: a GET /manage still out when the tab returns (real sess
     await flush();
     first.open(); // the DTO of the owner's session, answered after the sign-out
     await flush();
-    expect(dom.html()).not.toMatch(/BHA-OWNER|2026-12-01|3\.000\.000|3,000,000/);
+    expect(leaksOwnersDetails()).toBe(false);
     expect(count("GET manage")).toBe(before.manage); // the new GET waits for the verified session
     api.manageGate = gate();
     const second = api.manageGate;
@@ -310,7 +314,7 @@ describe("PR09-C12 P2-1: a GET /manage still out when the tab returns (real sess
     expect(showsOwnersBooking()).toBe(false);
     second.open();
     await vi.waitFor(() => expect(dom.html()).toContain('data-failure="no-access"'));
-    expect(dom.html()).not.toMatch(/BHA-OWNER|2026-12-01/);
+    expect(leaksOwnersDetails()).toBe(false);
     expect(count("GET me")).toBe(before.me + 1);
     expect(count("GET manage")).toBe(before.manage + 1);
     expect(count("POST")).toBe(0);
@@ -326,10 +330,10 @@ describe("PR09-C12 P2-1: a GET /manage still out when the tab returns (real sess
     await vi.waitFor(() => expect(count("GET manage")).toBe(before.manage + 1)); // the new GET is out (verification done)
     first.open(); // the old DTO, now
     await flush();
-    expect(dom.html()).not.toMatch(/BHA-OWNER|2026-12-01|3\.000\.000|3,000,000/);
+    expect(leaksOwnersDetails()).toBe(false);
     second.open();
     await vi.waitFor(() => expect(dom.html()).toContain('data-failure="no-access"'));
-    expect(dom.html()).not.toMatch(/BHA-OWNER|2026-12-01/);
+    expect(leaksOwnersDetails()).toBe(false);
     expect(count("GET me")).toBe(before.me + 1);
     expect(count("GET manage")).toBe(before.manage + 1);
     expect(count("POST")).toBe(0);
@@ -352,6 +356,7 @@ describe("PR09-C12 P2-1: a GET /manage still out when the tab returns (real sess
     expect(showsOwnersBooking()).toBe(false);
     second.open();
     await vi.waitFor(() => expect(dom.html()).toContain("BHA-OWNER-2"));
+    for (const [name, re] of Object.entries(OWNERS_DETAILS)) expect(re.test(dom.html()), `positive control: ${name}`).toBe(true); // the matchers do match what a shown booking renders
     expect(dom.html()).not.toContain("BHA-OWNER-1");
     await flush();
     expect(count("GET me")).toBe(before.me + 1); // one return, one verification
@@ -382,7 +387,7 @@ describe("PR09-C12 P2-2: a link open waiting for its session verification (real 
     await flush();
     expect(count("POST")).toBe(0); // the code before C12 sent the exchange here
     await vi.waitFor(() => expect(dom.html()).toContain('data-failure="no-access"'));
-    expect(count("GET manage")).toBeLessThanOrEqual(before.manage + 1); // only the ordinary read of the re-bound view
+    expect(count("GET manage")).toBe(before.manage + 1); // only the ordinary read of the re-bound view
   });
 
   it("the identity really changed (account Y verified): exactly one new preflight GET, at most one exchange for this open, then the booking", async () => {

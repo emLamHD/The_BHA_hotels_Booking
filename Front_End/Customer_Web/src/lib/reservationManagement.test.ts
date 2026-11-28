@@ -2209,6 +2209,26 @@ describe("PR09-C12 P2-1: coming back invalidates a GET that is still out, and th
       expect(r.read).toHaveBeenCalledTimes(3);
     });
 
+    it("a return during the SECOND preflight does not give the open a second session re-check: the same contradiction stops it (verifySession exactly twice, 0 exchanges)", async () => {
+      const r = rig();
+      r.read.mockRejectedValueOnce(problem(404, "reservation.not-found")); // 1: the guest tab's GET sees another tab's cookie
+      r.verifySession.mockImplementationOnce(async () => { publishIdentity(r, ACCOUNT); return "customer:aaaa"; }); // re-check #1: a different identity
+      const second = deferred<ManagedReservation>();
+      r.read.mockImplementationOnce(() => second.promise); // 2: the account's preflight, held
+      r.controller.offerLink({ kind: "token", token: SECRET });
+      r.controller.bind(GUEST);
+      await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(2));
+      expect(r.verifySession).toHaveBeenCalledTimes(1);
+      r.verifySession.mockResolvedValueOnce("customer:aaaa"); // the return: the same identity is verified
+      r.read.mockRejectedValue(problem(401, "reservation.manage-session-invalid")); // and the resumed preflight contradicts again (an account answered like a guest)
+      r.controller.revalidate();
+      second.reject(problem(401, "reservation.manage-session-invalid"));
+      await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "no-access" }));
+      await tick();
+      expect(r.verifySession).toHaveBeenCalledTimes(2); // the open's own re-check and the return's verification: no third
+      expect(r.exchange).not.toHaveBeenCalled();
+    });
+
     it("the verification fails: link-not-sent, 0 exchanges, and the token is gone", async () => {
       const { r, old, verifying } = await openWithPreflightOut();
       old.reject(problem(401, "reservation.manage-session-invalid"));

@@ -493,8 +493,9 @@ export function createReservationManagementController(deps: ReservationManagemen
       try {
         const result = await read(at);
         if (preflight === out) preflight = null;
+        if (!result || !current(at)) return; // superseded (a return, a rebind): the open's re-check marker is not this call's to clear
         finishOpen();
-        if (result && current(at)) showRead(result);
+        showRead(result);
         return;
       } catch (error) {
         if (preflight === out) preflight = null;
