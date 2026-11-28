@@ -268,6 +268,16 @@ export interface ReservationManagementController {
   dispose: () => void;
 }
 
+/** A token that waits for a session verification (PR09-C12), see `held` in the controller. */
+interface Held {
+  open: number;
+  reservationId: string;
+  offer: LinkOffer;
+  from: string | null;
+  onSame: "stop" | "resume";
+  verified: string | undefined;
+}
+
 export function createReservationManagementController(deps: ReservationManagementDeps): ReservationManagementController {
   let context: ManageContext | null = null;
   let state: ManageState = { ...WAITING, bound: null, openFailure: null };
@@ -278,6 +288,16 @@ export function createReservationManagementController(deps: ReservationManagemen
   let openSeq = 0;
   let linkOpen = 0;
   let recheck: { open: number; reservationId: string } | null = null;
+  /**
+   * PR09-C12: the token of an open that waits for a session verification. It is NOT in `link` meanwhile, so no begin() (a rebind included) can take it: it is released to the
+   * bind of the identity the verification confirmed, once, or dropped. `verified` is undefined until the verification resolved; `onSame` says what the verification of the
+   * identity this view already had means: the open stops (a re-check that found no change) or resumes (a return that only needed the session confirmed).
+   */
+  let held: Held | null = null;
+  /** The explicit open whose read before the exchange is out (its token is only in begin()'s memory), and the epoch it belongs to. */
+  let preflight: { at: number; open: number; offer: LinkOffer } | null = null;
+  /** The epoch of the last return from the background: its focus and visibilitychange are one return while that view is still loading. */
+  let returning: number | null = null;
   let reading: AbortController | null = null;
   let saveLock = false;
   /**
@@ -396,24 +416,43 @@ export function createReservationManagementController(deps: ReservationManagemen
       return;
     }
     recheck = { open: myOpen, reservationId: ctx.reservationId };
-    link = offer;
-    linkOpen = myOpen;
+    const mine: Held = { open: myOpen, reservationId: ctx.reservationId, offer, from: ctx.identityKey, onSame: "stop", verified: undefined };
+    held = mine; // the token waits here, not in `link`: nothing can take it before the verification confirmed a different identity
     publish({ ...WAITING, phase: "loading" });
+    await awaitHeld(mine, at);
+  }
+
+  /**
+   * The verification of a held token resolves (PR09-C12). Not confirmed, or the same identity for an open that stops: the token is dropped, 0 POSTs. A different identity: the
+   * token is released to the bind of exactly that identity (now, if the page is already bound to it; otherwise the bind that follows does it), and its begin() reads first.
+   */
+  async function awaitHeld(mine: Held, at: number): Promise<void> {
     const verified = await deps.verifySession().catch(() => null);
-    // The provider published the new identity meanwhile and the page re-bound: that begin() took the link over (or a newer open replaced it).
-    if (link !== offer) return;
-    if (verified === null || verified === ctx.identityKey) {
-      link = { kind: "none" };
-      if (recheck?.open === myOpen) recheck = null;
+    if (held !== mine) return; // a newer open, another reservation or a different identity replaced this operation
+    if (verified === null || (verified === mine.from && mine.onSame === "stop")) {
+      held = null;
+      if (recheck?.open === mine.open) recheck = null;
       if (current(at)) fail(verified === null ? "link-not-sent" : "no-access");
-      else if (verified === null) {
+      else if (context && context.identityKey !== null) {
+        if (state.phase === "waiting") void begin(epoch); // the rebind waited for this answer: the view still needs its ordinary read (never a link)
+      } else if (verified === null) {
         // The provider went through loading to unknown (or the verification failed): the page was re-bound and this open's epoch is gone, but the guidance for THIS open is
         // kept (failure and reservation only, no token) so the page can show it while the identity is unverified.
-        linkNotice = { reservationId: ctx.reservationId, failure: "link-not-sent" };
+        linkNotice = { reservationId: mine.reservationId, failure: "link-not-sent" };
         notify();
       }
+      return;
     }
-    // else: another identity was verified; the bind that follows resumes this open with the link kept above.
+    mine.verified = verified;
+    if (context && context.reservationId === mine.reservationId && context.identityKey === verified) releaseHeld(mine);
+    // else: the bind that follows with this identity releases it (bind()).
+  }
+
+  function releaseHeld(mine: Held): void {
+    held = null;
+    link = mine.offer;
+    linkOpen = mine.open;
+    void begin(epoch);
   }
 
   async function begin(at: number): Promise<void> {
@@ -449,12 +488,16 @@ export function createReservationManagementController(deps: ReservationManagemen
       // spend the link for a booking that still cannot be read: nothing is sent. Any other answer stops this open. The time between this read and the POST is the limit of this
       // client-side check; the server's own rules (and the exchange's own check of the token) are unchanged.
       publish({ ...WAITING, phase: "loading" });
+      const out = { at, open: myOpen, offer };
+      preflight = out; // a return from the background while this read is out takes the open over (revalidate)
       try {
         const result = await read(at);
+        if (preflight === out) preflight = null;
         finishOpen();
         if (result && current(at)) showRead(result);
         return;
       } catch (error) {
+        if (preflight === out) preflight = null;
         if (!current(at)) return;
         if (identityMismatch(error, ctx.identityKey ?? "")) {
           await recheckSessionOnce(at, myOpen, offer, ctx);
@@ -495,6 +538,7 @@ export function createReservationManagementController(deps: ReservationManagemen
         link = offer;
         linkOpen = ++openSeq;
         linkNotice = null;
+        held = null;
       }
     },
     openLink: (offer) => {
@@ -503,6 +547,7 @@ export function createReservationManagementController(deps: ReservationManagemen
         link = offer; // no verified identity yet: it is opened (once) when the identity settles, like the link of a fresh page
         linkOpen = ++openSeq;
         linkNotice = null;
+        held = null;
         notify();
         return;
       }
@@ -511,21 +556,27 @@ export function createReservationManagementController(deps: ReservationManagemen
       link = offer;
       linkOpen = ++openSeq;
       linkNotice = null;
+      held = null; // a newer open replaces the one that waited for its verification
       void begin(epoch);
     },
     bind: (next) => {
       if (context && context.reservationId === next.reservationId && context.identityKey === next.identityKey) return;
       invalidate();
-      if (recheck && recheck.reservationId !== next.reservationId) {
-        // another reservation: the open that was waiting for its session re-check is dropped, token included
-        if (linkOpen === recheck.open) link = { kind: "none" };
-        recheck = null;
-      }
+      if (held && held.reservationId !== next.reservationId) held = null; // another reservation: the open that was waiting for its session check is dropped, token included
+      if (recheck && recheck.reservationId !== next.reservationId) recheck = null;
       if (linkNotice && (linkNotice.reservationId !== next.reservationId || next.identityKey !== null)) linkNotice = null; // another reservation, or a verified identity: the guidance has done its work
       context = next;
       if (sessionInvalid && next.identityKey !== null && sessionInvalid.key !== keyOf(next)) sessionInvalid = null; // another identity or reservation: a fresh view
       publish(WAITING); // nothing private is kept or requested while the identity is not verified, and the old data is cleared in this very call
       if (next.identityKey === null) return;
+      if (held) {
+        if (held.verified === undefined) return; // the verification decides first; its continuation starts this view's read (PR09-C12)
+        if (held.verified === next.identityKey) {
+          link = held.offer; // the identity the verification confirmed: this bind's begin() takes the token, once
+          linkOpen = held.open;
+        }
+        held = null; // any other identity: the token is dropped, 0 POSTs
+      }
       // The work starts one microtask later, only if this binding is still the current one. React StrictMode (development) mounts, unmounts and mounts again in one
       // synchronous flush: the first binding is then superseded before it starts, so it consumes no link and sends nothing, and the second one starts exactly once.
       const at = epoch;
@@ -535,12 +586,23 @@ export function createReservationManagementController(deps: ReservationManagemen
     },
     revalidate: () => {
       const ctx = context;
-      if (!ctx || ctx.identityKey === null || state.phase !== "ready" || !state.reservation) return; // nothing private is shown
-      if (recheck || link.kind !== "none") return; // an explicit open is in charge: it verifies the session and reads by itself
-      invalidate(); // aborts reads and drops answers on their way; an unsettled arrival update keeps its hold (writeHolds)
-      publish({ ...WAITING, phase: "loading" }); // the old details leave the view before any request
+      if (!ctx || ctx.identityKey === null || held || link.kind !== "none") return; // not verified; or an open waits for its own session check (nothing private is shown then)
+      if (returning !== null && current(returning) && state.phase === "loading") return; // the second event of the same return
+      if (!(state.phase === "loading" || (state.phase === "ready" && state.reservation))) return; // exchanging, waiting or failed: nothing private is shown or being read
+      // Details shown, or a GET /manage still out (its answer was authorized by the session of before the return): both are invalidated now (the epoch changes and the read is aborted;
+      // an answer that still arrives is dropped), and nothing is shown again before a GET that STARTS after the session is verified. An unsettled arrival update keeps its hold.
+      const open = preflight && current(preflight.at) ? preflight : null; // an explicit open whose read before the exchange was out
+      invalidate();
       const at = epoch;
+      returning = at;
+      const mine: Held | null = open ? { open: open.open, reservationId: ctx.reservationId, offer: open.offer, from: ctx.identityKey, onSame: "resume", verified: undefined } : null;
+      held = mine; // the open continues (same open, no new one, no second exchange for it) only after the verification
+      publish({ ...WAITING, phase: "loading" }); // the old details leave the view before any request
       void (async () => {
+        if (mine) {
+          await awaitHeld(mine, at);
+          return;
+        }
         const verified = await deps.verifySession().catch(() => null);
         // If the provider published loading or a new identity meanwhile, the page re-bound and that begin() reads; this continuation then has nothing to do.
         if (!current(at)) return;

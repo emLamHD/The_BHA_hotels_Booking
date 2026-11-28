@@ -2088,3 +2088,233 @@ describe("PR09-C11 P2-2: the guidance of an open that stopped is kept across the
     expect(r.state.openFailure).toBeNull();
   });
 });
+
+describe("PR09-C12 P2-1: coming back invalidates a GET that is still out, and the open that owns it is coordinated", () => {
+  const ACCOUNT: ManageContext = { reservationId: ID, identityKey: "customer:aaaa" };
+  const OLD = { ...RES, confirmationNumber: "BHA-OLD" };
+  const FRESH = { ...RES, confirmationNumber: "BHA-FRESH" };
+  const publishIdentity = (r: ReturnType<typeof rig>, ctx: ManageContext) => { r.controller.bind(LOADING_CTX); r.controller.bind(ctx); };
+  const shows = (r: ReturnType<typeof rig>, text: string) => JSON.stringify(r.state).includes(text);
+
+  it("a plain GET /manage still out: the return aborts it, its late answer (even if the transport returns it) is dropped, and only a GET that starts after the verification can show details", async () => {
+    const r = rig();
+    const old = deferred<ManagedReservation>();
+    let signal!: AbortSignal;
+    r.read.mockImplementationOnce((_id, s) => { signal = s; return old.promise; });
+    r.controller.bind(ACCOUNT);
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(1));
+    const verifying = deferred<string | null>();
+    r.verifySession.mockReturnValue(verifying.promise);
+    r.read.mockResolvedValue(FRESH);
+    r.controller.revalidate();
+    r.controller.revalidate(); // the second event of the same return
+    expect(signal.aborted).toBe(true);
+    old.resolve(OLD); // the transport answers anyway
+    await tick();
+    expect(shows(r, "BHA-OLD")).toBe(false);
+    expect(r.state.phase).toBe("loading");
+    expect(r.read).toHaveBeenCalledTimes(1); // no GET before the session is verified
+    verifying.resolve("customer:aaaa");
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", reservation: { confirmationNumber: "BHA-FRESH" } }));
+    expect(shows(r, "BHA-OLD")).toBe(false);
+    expect(r.verifySession).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(2);
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("the verification fails, or the new GET fails: the details stay hidden", async () => {
+    const a = rig();
+    const old = deferred<ManagedReservation>();
+    a.read.mockImplementationOnce(() => old.promise);
+    a.controller.bind(ACCOUNT);
+    await vi.waitFor(() => expect(a.read).toHaveBeenCalledTimes(1));
+    a.verifySession.mockResolvedValue(null);
+    a.controller.revalidate();
+    old.resolve(OLD);
+    await vi.waitFor(() => expect(a.state).toMatchObject({ phase: "failed", failure: "network", reservation: null }));
+    expect(a.read).toHaveBeenCalledTimes(1);
+    const b = rig();
+    const old2 = deferred<ManagedReservation>();
+    b.read.mockImplementationOnce(() => old2.promise).mockRejectedValueOnce(problem(404, "reservation.not-found"));
+    b.controller.bind(ACCOUNT);
+    await vi.waitFor(() => expect(b.read).toHaveBeenCalledTimes(1));
+    b.controller.revalidate();
+    old2.resolve(OLD);
+    await vi.waitFor(() => expect(b.state).toMatchObject({ phase: "failed", failure: "no-access", reservation: null }));
+    expect(shows(b, "BHA-OLD")).toBe(false);
+  });
+
+  it("another identity is verified while a GET was out: the old answer is dropped and the bind that follows reads under the new identity", async () => {
+    const r = rig();
+    const old = deferred<ManagedReservation>();
+    r.read.mockImplementationOnce(() => old.promise);
+    r.controller.bind(ACCOUNT);
+    await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(1));
+    r.verifySession.mockImplementation(async () => { publishIdentity(r, GUEST); return "guest"; });
+    r.controller.revalidate();
+    old.resolve(OLD);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    expect(shows(r, "BHA-OLD")).toBe(false);
+    expect(r.read).toHaveBeenCalledTimes(2);
+  });
+
+  describe("an explicit link open whose preflight GET is out", () => {
+    async function openWithPreflightOut() {
+      const r = rig();
+      const old = deferred<ManagedReservation>();
+      r.read.mockImplementationOnce(() => old.promise);
+      r.controller.offerLink({ kind: "token", token: SECRET });
+      r.controller.bind(GUEST);
+      await vi.waitFor(() => expect(r.read).toHaveBeenCalledTimes(1));
+      const verifying = deferred<string | null>();
+      r.verifySession.mockReturnValue(verifying.promise);
+      r.controller.revalidate();
+      r.controller.revalidate();
+      return { r, old, verifying };
+    }
+
+    it("the stale GET cannot exchange; after the same identity is verified the SAME open reads again and applies the C9/C10 table: one GET, one exchange", async () => {
+      const { r, old, verifying } = await openWithPreflightOut();
+      old.reject(problem(401, "reservation.manage-session-invalid")); // "no access yet": the old code would exchange on this
+      await tick();
+      expect(r.exchange).not.toHaveBeenCalled();
+      expect(r.read).toHaveBeenCalledTimes(1);
+      verifying.resolve("guest");
+      await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready" }));
+      expect(r.exchange).toHaveBeenCalledTimes(1);
+      expect(r.read).toHaveBeenCalledTimes(3); // the stale one, the fresh preflight, the read after the exchange
+      expect(r.verifySession).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(r.state)).not.toContain(SECRET);
+    });
+
+    it("the same identity, and the fresh GET already shows the booking: shown, the link is not spent", async () => {
+      const { r, old, verifying } = await openWithPreflightOut();
+      old.resolve(OLD);
+      r.read.mockResolvedValue(FRESH);
+      verifying.resolve("guest");
+      await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", reservation: { confirmationNumber: "BHA-FRESH" } }));
+      expect(r.exchange).not.toHaveBeenCalled();
+    });
+
+    it("another identity is verified: the token follows the bind of that identity (one fresh preflight, at most one exchange)", async () => {
+      const { r, old, verifying } = await openWithPreflightOut();
+      old.reject(problem(401, "reservation.manage-session-invalid"));
+      publishIdentity(r, ACCOUNT);
+      await tick();
+      expect(r.read).toHaveBeenCalledTimes(1); // nothing before the verification resolves
+      expect(r.exchange).not.toHaveBeenCalled();
+      verifying.resolve("customer:aaaa");
+      await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: ACCOUNT }));
+      expect(r.exchange).toHaveBeenCalledTimes(1);
+      expect(r.read).toHaveBeenCalledTimes(3);
+    });
+
+    it("the verification fails: link-not-sent, 0 exchanges, and the token is gone", async () => {
+      const { r, old, verifying } = await openWithPreflightOut();
+      old.reject(problem(401, "reservation.manage-session-invalid"));
+      verifying.resolve(null);
+      await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "link-not-sent" }));
+      publishIdentity(r, GUEST);
+      await tick();
+      expect(r.exchange).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe("PR09-C12 P2-2: a token waiting for its session re-check is not available to begin() until a different identity is verified", () => {
+  const ACCOUNT: ManageContext = { reservationId: ID, identityKey: "customer:aaaa" };
+  const OTHER: ManageContext = { reservationId: ID, identityKey: "customer:bbbb" };
+  const notFound = () => problem(404, "reservation.not-found");
+  const publishIdentity = (r: ReturnType<typeof rig>, ctx: ManageContext) => { r.controller.bind(LOADING_CTX); r.controller.bind(ctx); };
+  async function pendingRecheck() {
+    const r = rig();
+    r.read.mockRejectedValueOnce(notFound()); // the first GET of the open: this tab's identity is stale
+    const verifying = deferred<string | null>();
+    r.verifySession.mockReturnValue(verifying.promise);
+    r.controller.offerLink({ kind: "token", token: SECRET });
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.verifySession).toHaveBeenCalledTimes(1));
+    return { r, verifying };
+  }
+
+  it("the provider publishes loading → the ORIGINAL identity before the verification resolves: no GET, no POST meanwhile; the same identity then stops the open (0 POST)", async () => {
+    const { r, verifying } = await pendingRecheck();
+    publishIdentity(r, GUEST); // the rebind runs first; the next GET would answer 401 "no access yet" and let the old code exchange
+    await tick();
+    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(r.exchange).not.toHaveBeenCalled();
+    verifying.resolve("guest");
+    await vi.waitFor(() => expect(r.state.phase).toBe("failed"));
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+    expect(r.read).toHaveBeenCalledTimes(2); // only the ordinary read of the re-bound view, never a link read
+    expect(r.state.failure).toBe("no-access");
+  });
+
+  it("a different identity, bind BEFORE the promise resolves: exactly one fresh preflight GET and one exchange, only after the verification", async () => {
+    const { r, verifying } = await pendingRecheck();
+    publishIdentity(r, ACCOUNT);
+    await tick();
+    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(r.exchange).not.toHaveBeenCalled();
+    verifying.resolve("customer:aaaa");
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: ACCOUNT }));
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(3); // the stale tab's GET, the fresh preflight, the read after the exchange
+    const order = [r.read.mock.invocationCallOrder[1], r.exchange.mock.invocationCallOrder[0]];
+    expect(r.verifySession.mock.invocationCallOrder[0]).toBeLessThan(order[0]);
+    expect(order[0]).toBeLessThan(order[1]);
+  });
+
+  it("a different identity, bind AFTER the promise resolves: the same single preflight and single exchange", async () => {
+    const { r, verifying } = await pendingRecheck();
+    verifying.resolve("customer:aaaa");
+    await tick();
+    expect(r.read).toHaveBeenCalledTimes(1);
+    expect(r.exchange).not.toHaveBeenCalled();
+    publishIdentity(r, ACCOUNT);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: ACCOUNT }));
+    expect(r.exchange).toHaveBeenCalledTimes(1);
+    expect(r.read).toHaveBeenCalledTimes(3);
+  });
+
+  it("the bind that follows carries another identity than the one verified: the token is dropped, 0 POST", async () => {
+    const { r, verifying } = await pendingRecheck();
+    verifying.resolve("customer:aaaa");
+    await tick();
+    publishIdentity(r, OTHER);
+    await vi.waitFor(() => expect(r.state.phase).not.toBe("loading"));
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+
+  it("the verification fails or a newer open replaces the operation: the token is dropped, 0 exchange of the old one", async () => {
+    const { r, verifying } = await pendingRecheck();
+    publishIdentity(r, GUEST);
+    verifying.resolve(null);
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+    publishIdentity(r, ACCOUNT); // a later identity does not resurrect the token
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+    const { r: r2, verifying: v2 } = await pendingRecheck();
+    const NEWER = "Yq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwxyz";
+    r2.read.mockRejectedValueOnce(notFound());
+    r2.controller.openLink({ kind: "token", token: NEWER }); // a newer explicit open of the verified guest
+    await vi.waitFor(() => expect(r2.read.mock.calls.length).toBeGreaterThanOrEqual(2));
+    v2.resolve("customer:aaaa");
+    publishIdentity(r2, ACCOUNT);
+    await tick();
+    expect(r2.exchange.mock.calls.filter((c) => c[1] === SECRET)).toHaveLength(0);
+  });
+
+  it("another reservation drops the token: it is not carried to the other reservation or a later open", async () => {
+    const { r, verifying } = await pendingRecheck();
+    r.controller.bind({ reservationId: ID_B, identityKey: "guest" });
+    verifying.resolve("customer:aaaa");
+    await tick();
+    r.controller.bind(ACCOUNT);
+    await tick();
+    expect(r.exchange).not.toHaveBeenCalled();
+  });
+});

@@ -74,10 +74,12 @@ beforeEach(() => {
     }
     if (path === MANAGE_PATH) {
       api.log.push("GET manage");
+      // The API decides when the request ARRIVES (what the browser's cookie said then); a gate only delays the answer, so a held response can be a stale one.
+      const { cookie, granted, confirmation } = api;
       if (api.manageGate) await api.manageGate.promise;
       if (api.manageMode === "fail") throw new ApiNetworkError();
-      if (api.cookie === "X" || api.granted) return dto(api.confirmation);
-      if (api.cookie === "Y") throw problem(404, "reservation.not-found");
+      if (cookie === "X" || granted) return dto(confirmation);
+      if (cookie === "Y") throw problem(404, "reservation.not-found");
       throw problem(401, "reservation.manage-session-invalid");
     }
     throw new Error(`unexpected GET ${path}`);
@@ -275,5 +277,121 @@ describe("an explicit link open whose session verification fails (PR09-C11 P2-2,
     expect(dom.html()).not.toContain('data-failure="link-not-sent"');
     expect(dom.html()).not.toContain(guidance());
     expect(count("POST")).toBe(0);
+  });
+});
+
+describe("PR09-C12 P2-1: a GET /manage still out when the tab returns (real session provider)", () => {
+  /** The owner's tab: its FIRST GET /manage is held, so no booking is in the DOM yet. */
+  async function mountWithFirstGetOut() {
+    const first = gate();
+    api.manageGate = first;
+    dom.render(page());
+    await vi.waitFor(() => expect(count("GET manage")).toBe(1));
+    expect(showsOwnersBooking()).toBe(false);
+    api.manageGate = null;
+    return first;
+  }
+
+  it("another tab signed out: the old DTO arrives while the verification is pending, and again while the new GET is pending: confirmation, dates and balance never appear; GET me +1, GET manage +1, POST 0", async () => {
+    const first = await mountWithFirstGetOut();
+    const before = { me: count("GET me"), manage: count("GET manage") };
+    api.cookie = "none";
+    api.meGate = gate();
+    comeBack(); // focus + visibilitychange, dispatched by the harness
+    await flush();
+    first.open(); // the DTO of the owner's session, answered after the sign-out
+    await flush();
+    expect(dom.html()).not.toMatch(/BHA-OWNER|2026-12-01|3\.000\.000|3,000,000/);
+    expect(count("GET manage")).toBe(before.manage); // the new GET waits for the verified session
+    api.manageGate = gate();
+    const second = api.manageGate;
+    api.meGate.open();
+    await vi.waitFor(() => expect(count("GET manage")).toBe(before.manage + 1));
+    expect(showsOwnersBooking()).toBe(false);
+    second.open();
+    await vi.waitFor(() => expect(dom.html()).toContain('data-failure="no-access"'));
+    expect(dom.html()).not.toMatch(/BHA-OWNER|2026-12-01/);
+    expect(count("GET me")).toBe(before.me + 1);
+    expect(count("GET manage")).toBe(before.manage + 1);
+    expect(count("POST")).toBe(0);
+  });
+
+  it("another tab switched to an account that may not read it: the old DTO arrives while the NEW GET is pending: still nothing of it; then no-access", async () => {
+    const first = await mountWithFirstGetOut();
+    const before = { me: count("GET me"), manage: count("GET manage") };
+    api.cookie = "Y";
+    api.manageGate = gate();
+    const second = api.manageGate;
+    comeBack();
+    await vi.waitFor(() => expect(count("GET manage")).toBe(before.manage + 1)); // the new GET is out (verification done)
+    first.open(); // the old DTO, now
+    await flush();
+    expect(dom.html()).not.toMatch(/BHA-OWNER|2026-12-01|3\.000\.000|3,000,000/);
+    second.open();
+    await vi.waitFor(() => expect(dom.html()).toContain('data-failure="no-access"'));
+    expect(dom.html()).not.toMatch(/BHA-OWNER|2026-12-01/);
+    expect(count("GET me")).toBe(before.me + 1);
+    expect(count("GET manage")).toBe(before.manage + 1);
+    expect(count("POST")).toBe(0);
+  });
+
+  it("the same account: hidden through the verification and the new GET (the old DTO is dropped), shown only from the new GET (its confirmation number proves it)", async () => {
+    const first = await mountWithFirstGetOut();
+    const before = { me: count("GET me"), manage: count("GET manage") };
+    api.confirmation = "BHA-OWNER-2";
+    api.meGate = gate();
+    comeBack();
+    await flush();
+    first.open(); // BHA-OWNER-1, while the verification is pending
+    await flush();
+    expect(showsOwnersBooking()).toBe(false);
+    api.manageGate = gate();
+    const second = api.manageGate;
+    api.meGate.open();
+    await vi.waitFor(() => expect(count("GET manage")).toBe(before.manage + 1));
+    expect(showsOwnersBooking()).toBe(false);
+    second.open();
+    await vi.waitFor(() => expect(dom.html()).toContain("BHA-OWNER-2"));
+    expect(dom.html()).not.toContain("BHA-OWNER-1");
+    await flush();
+    expect(count("GET me")).toBe(before.me + 1); // one return, one verification
+    expect(count("GET manage")).toBe(before.manage + 1);
+    expect(count("POST")).toBe(0);
+  });
+});
+
+describe("PR09-C12 P2-2: a link open waiting for its session verification (real session provider)", () => {
+  /** Tab A is a guest; another tab signed in as account Y (the API answers the guest tab 404); the link is pasted; the session re-check is held at /auth/me. */
+  async function staleGuestTabWithRecheckOut() {
+    api.cookie = "none";
+    dom.render(page());
+    await vi.waitFor(() => expect(dom.html()).toContain('data-failure="no-access"'));
+    api.cookie = "Y";
+    api.meGate = gate();
+    pasteLink();
+    await vi.waitFor(() => expect(count("GET me")).toBe(2)); // initial + the re-check, held; the provider has published loading
+    return { before: { manage: count("GET manage") } };
+  }
+
+  it("loading → the ORIGINAL identity (the provider republishes the guest) → the next GET would answer 'no access yet': the link is not exchanged, 0 POST", async () => {
+    const { before } = await staleGuestTabWithRecheckOut();
+    api.cookie = "none"; // the other tab signed out again: /auth/me answers the guest, and the API answers a guest's GET 401 (which would allow the exchange)
+    api.meGate!.open();
+    await vi.waitFor(() => expect(count("GET me")).toBe(2));
+    await flush();
+    await flush();
+    expect(count("POST")).toBe(0); // the code before C12 sent the exchange here
+    await vi.waitFor(() => expect(dom.html()).toContain('data-failure="no-access"'));
+    expect(count("GET manage")).toBeLessThanOrEqual(before.manage + 1); // only the ordinary read of the re-bound view
+  });
+
+  it("the identity really changed (account Y verified): exactly one new preflight GET, at most one exchange for this open, then the booking", async () => {
+    const { before } = await staleGuestTabWithRecheckOut();
+    api.meGate!.open(); // Y is verified; the API answers Y's preflight 404 -> the exchange may follow
+    await vi.waitFor(() => expect(dom.html()).toContain("BHA-OWNER-1"));
+    expect(count("POST exchange")).toBe(1);
+    expect(count("POST")).toBe(1);
+    expect(count("GET manage")).toBe(before.manage + 2); // the fresh preflight, then the read after the exchange
+    expect(dom.html()).not.toContain(SECRET);
   });
 });
