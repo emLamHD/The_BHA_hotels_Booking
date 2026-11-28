@@ -578,8 +578,9 @@ export function createReservationManagementController(deps: ReservationManagemen
         return;
       }
       // PR09-C14: an exchange whose POST was handed to the transport is out and is left alone (no cancel, no replay, nothing queued behind it): never a second exchange beside it. One that still
-      // waits for its CSRF token (`pending`: handed over clears it) has sent nothing: the new open supersedes it below (the epoch change makes it send 0 POSTs; its late cleanup is a no-op).
-      if (state.phase === "exchanging" && !(pending && current(pending.at))) return;
+      // waits for its CSRF token (`pending`: handed over clears it) has sent nothing: a new VALID link supersedes it below (the epoch change makes it send 0 POSTs; its late cleanup is a no-op).
+      // A malformed fragment is not a link: it never cancels an exchange that is waiting (as before C14, it is dropped here and the exchange goes on).
+      if (state.phase === "exchanging" && !(offer.kind === "token" && pending && current(pending.at))) return;
       invalidate(); // an unsettled arrival update keeps its hold (writeHolds); only the epoch-bound lock and answers are dropped
       link = offer;
       linkOpen = ++openSeq;

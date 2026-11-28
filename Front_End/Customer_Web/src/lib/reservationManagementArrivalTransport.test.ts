@@ -633,6 +633,21 @@ describe("a second link opened in the same tab before the first exchange POST wa
     expect(JSON.stringify(r.state)).not.toContain(LINK_B);
   });
 
+  // Lock (passes on START_HEAD too): a malformed fragment is not a link, so it must not cancel the exchange that is waiting.
+  it("lock: a malformed fragment pasted while A waits for its CSRF token does not cancel A: exactly one POST, A's, then the booking; no link-invalid", async () => {
+    const r = rig();
+    await openAWaitingForToken(r);
+    r.controller.openLink({ kind: "malformed" });
+    await flush();
+    expect(r.state.phase).toBe("exchanging"); // untouched
+    expect(r.manageGets).toBe(1); // no new preflight
+    r.releaseToken();
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    await flush();
+    expect(sentTokens()).toEqual([LINK_A]);
+    expect(r.state).toMatchObject({ phase: "ready", failure: null });
+  });
+
   it("open A, then B, then C while the CSRF response is held: only C is ever sent, once", async () => {
     const r = rig();
     await openAWaitingForToken(r);

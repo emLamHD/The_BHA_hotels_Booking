@@ -184,6 +184,7 @@ describe("a receipt hidden because the account changed can be closed, so the vis
     comeBack();
     await vi.waitFor(() => expect(dom.html()).toContain('data-failure="no-access"'));
     expect(dom.html()).not.toContain("BHA-OWNER-1");
+    expect(dom.html()).toContain(`href="/login?returnTo=/reservations/${ID}/manage"`); // the sign-in entry returns to the clean management path: no fragment, no query
 
     // the guard refuses while the receipt is open: no request, nothing changed (the guard itself is unchanged)
     const blocked = await probe.session!.guardedLogin({ email: "x@example.test", password: "synthetic" });
