@@ -15,6 +15,7 @@ import { useStaySearch } from "@/components/StaySearchProvider";
 import { useUnresolvedDirectAttempt } from "@/components/UnresolvedDirectAttemptNotice";
 import { verifiedOwnerKey } from "@/lib/api/directBookingAttempt";
 import { formatAsGiven } from "@/lib/i18n/display";
+import { MANAGE, manageHref, receiptManageId } from "@/lib/reservationManagement";
 import PriceBreakdown from "@/components/PriceBreakdown";
 import { useApiMessage } from "@/lib/i18n/apiMessage";
 import { useDateFormat } from "@/lib/i18n/dates";
@@ -115,6 +116,14 @@ const PayDoneReceipt: FC = () => {
         ? "verifying"
         : "mismatch";
   const isDirect = reservation?.paymentMethod === "PayAtProperty";
+  // BHA-CHECKOUT-001-PR09: the management page for a Direct reservation that belongs to the signed-in account that booked it. The session must be
+  // that verified account right now; a guest has no link here (theirs is in the confirmation e-mail), and a Hold receipt has none.
+  const manageId = receiptManageId({
+    isDirect,
+    receiptOwnerKey: ownerCheck === "ok" ? receiptOwnerKey : null,
+    sessionOwnerKey,
+    reservationId: reservation?.reservationId,
+  });
   const cancelled = reservation?.status === "Cancelled";
   const target = inProgressBookingTarget(state);
   const receiptId = receiptCloseTarget(state);
@@ -154,12 +163,36 @@ const PayDoneReceipt: FC = () => {
     );
   };
 
+  // `closeError` is a message key: always shown through `t`, in the receipt and in the masked notice alike.
+  const renderCloseError = () =>
+    closeError && (
+      <div role="alert" data-testid="receipt-close-error" className="text-sm text-red-600 dark:text-red-400">
+        {t(closeError)}
+      </div>
+    );
+
+  // PR09-C14: a receipt hidden because the verified identity is not its owner can still be closed, so the visitor can sign in again from a clean management address. Nothing of the receipt
+  // is rendered here (the id below only goes to `finishBooking`, which refuses it if the receipt changed); nothing closes by itself. Not offered while the identity is only being verified.
   const renderOwnerNotice = (check: "verifying" | "mismatch") => (
     <div role="status" aria-live="polite" data-testid="receipt-owner-notice" className="w-full space-y-4 px-0 sm:p-6 xl:p-8">
       <p className="text-neutral-6000 dark:text-neutral-300">
         {check === "verifying" ? t("customer.receipt.owner.verifying") : t("customer.receipt.owner.mismatch")}
       </p>
-      <ButtonSecondary href="/#rooms">{t("customer.room.viewRooms")}</ButtonSecondary>
+      {renderCloseError()}
+      <div className="flex flex-wrap gap-3">
+        <ButtonSecondary href="/#rooms">{t("customer.room.viewRooms")}</ButtonSecondary>
+        {check === "mismatch" && receiptId && (
+          <ButtonSecondary
+            type="button"
+            onClick={() => {
+              setCloseError(null);
+              setClosingReservationId(receiptId);
+            }}
+          >
+            {t("customer.receipt.closeReceipt")}
+          </ButtonSecondary>
+        )}
+      </div>
     </div>
   );
 
@@ -336,16 +369,13 @@ const PayDoneReceipt: FC = () => {
           </div>
         )}
 
-        {closeError && (
-          <div role="alert" className="text-sm text-red-600 dark:text-red-400">
-            {closeError}
-          </div>
-        )}
+        {renderCloseError()}
 
         <div className="flex flex-wrap gap-3">
           {target && !confirmed && (
             <ButtonSecondary href={buildRoomDetailsHref(target) as Route}>{t("customer.receipt.backToRoom")}</ButtonSecondary>
           )}
+          {manageId && <ButtonPrimary href={manageHref(manageId) as Route}>{t(MANAGE.cta)}</ButtonPrimary>}
           <ButtonPrimary href="/">{t("customer.receipt.moreProperties")}</ButtonPrimary>
           {receiptId && (
             <ButtonSecondary
@@ -391,7 +421,7 @@ const PayDoneReceipt: FC = () => {
               <Dialog.Title className="text-xl font-semibold">{t("customer.receipt.closeQuestion")}</Dialog.Title>
               <Dialog.Description as="div" className="space-y-3 text-sm text-neutral-6000 dark:text-neutral-300">
                 <p>
-                  {reservation?.confirmationNumber
+                  {ownerCheck === "ok" && reservation?.confirmationNumber
                     ? t("customer.receipt.closeWarnWithCode", { code: reservation.confirmationNumber })
                     : t("customer.receipt.closeWarn")}
                 </p>

@@ -161,7 +161,7 @@ const LoginForm: FC = () => {
         <AuthPresentationView presentation={logout.presentation} />
         {redirecting ? (
           <p role="status" className="text-sm text-neutral-600 dark:text-neutral-300">
-            {redirecting === ACCOUNT_PAGE ? t("customer.auth.redirecting.account") : t("customer.auth.redirecting.home")}
+            {redirecting === ACCOUNT_PAGE ? t("customer.auth.redirecting.account") : redirecting === HOME_PAGE ? t("customer.auth.redirecting.home") : t("customer.auth.redirecting.reservation")}
           </p>
         ) : checking ? null : logout.pending ? (
           <p role="status" className="text-sm text-neutral-600 dark:text-neutral-300">{t("customer.login.loginForm.signingOut")}</p>

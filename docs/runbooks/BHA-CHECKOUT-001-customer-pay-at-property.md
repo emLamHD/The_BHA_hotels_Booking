@@ -15,7 +15,7 @@ Turn both on for the pilot property only (Riverside `a1000000-0000-0000-0000-000
 
 1. Offer card button **Đặt phòng / Book / Réserver** (pilot property only) opens a dialog: **Thanh toán khi nhận phòng** (enabled) and **Thanh toán hoặc đặt cọc** (visible, `aria-disabled`, "not available yet"). Two columns from `md`, stacked below. Headless UI supplies the focus trap, Esc and focus return; after choosing, focus moves to the form heading.
 2. A confirmation form: price just confirmed, "you pay nothing now", who the booking is for (account e-mail / guest), name, e-mail, phone.
-3. `/paydone` receipt (the existing page): returned number, status, property, dates, total, **collected** and **balance due**; a replay of a cancelled reservation shows the returned status and a "cancelled" title. No e-mail claim and no link to a management page (PR09).
+3. `/paydone` receipt (the existing page): returned number, status, property, dates, total, **collected** and **balance due**; a replay of a cancelled reservation shows the returned status and a "cancelled" title. No e-mail claim. Since PR09, an **account-owned** Direct receipt also offers **Quản lý đặt phòng / Manage booking / Gérer la réservation** (a clean link to `/reservations/{id}/manage`, only while the verified session is the account that booked it); a guest receipt and a Hold receipt do not (the guest's link is in the e-mail).
 
 ## Rules the code enforces (tests: `directBookingFlowController.test.ts`)
 
@@ -32,4 +32,4 @@ All Customer_Web texts are served by `/api/v1/website/dictionary` from `Back_End
 
 ## Not in PR08
 
-PR09 management page and links, deposits/QR/card payments, fees, reservation-hold policy, any backend, schema, auth or API change. The management link for a guest-owned Direct reservation arrives by e-mail (PR07); the browser token of this page is never kept after the receipt and never shown.
+The PR09 management page (done: `BHA-CHECKOUT-001-customer-reservation-management-page.md`), deposits/QR/card payments, fees, reservation-hold policy, any backend, schema, auth or API change. The management link for a guest-owned Direct reservation arrives by e-mail (PR07); the browser token of this page is never kept after the receipt and never shown.

@@ -1,6 +1,6 @@
 # Runbook — Booking confirmation e-mails (BHA-CHECKOUT-001-PR07)
 
-What is sent when a Direct (pay at the property) reservation is created, to whom, how to switch it on and off, and how to read what happened. It joins the `ReservationConfirmed` event (PR05), the e-mail outbox (PR03), the recipient resolver (PR04) and the guest management link (PR06). The pilot Property is The BHA Riverside. **Nothing is sent until the switches below are turned on; PR09 must be live at the link's origin first.**
+What is sent when a Direct (pay at the property) reservation is created, to whom, how to switch it on and off, and how to read what happened. It joins the `ReservationConfirmed` event (PR05), the e-mail outbox (PR03), the recipient resolver (PR04) and the guest management link (PR06). The pilot Property is The BHA Riverside. **Nothing is sent until the switches below are turned on; PR09 (the management page, now implemented in Customer_Web) must be live at the link's origin first, and its headers checked: see "Before enabling for real".**
 
 ## What is sent
 
@@ -39,7 +39,7 @@ Switching `Booking:ConfirmationEmail:Enabled` off only stops **new fan-out**: de
 
 ## Before enabling for real (Owner / operator, not done by this PR)
 
-1. PR09's management page is deployed at the origin you will put in `CustomerWebOrigin` and answers `Referrer-Policy: no-referrer`.
+1. PR09's management page (`BHA-CHECKOUT-001-customer-reservation-management-page.md`) is deployed at the origin you will put in `CustomerWebOrigin`, over HTTPS, and `curl -sI https://<origin>/reservations/<guid>/manage` answers `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex, nofollow` and a `Cache-Control` with `private` and `no-store` (no CDN/proxy rewriting or caching it). The page opens the link by itself (one exchange): a mail scanner that executes JavaScript would spend the link — decide whether that risk is acceptable for the mailbox providers you mail. If Customer_Web and the API are different sites, `Authentication:Cookie:SameSite` must be `None`.
 2. The sending domain is verified at the provider and **click tracking is turned off for that domain**, so the secret URL goes straight to Customer_Web and is not rewritten through a tracking redirect ([Resend: custom tracking domain](https://resend.com/blog/introducing-custom-tracking-domain)). Open tracking is irrelevant to the link.
 3. The key ring (`DataProtection:KeysPath`) is shared by every process that runs the dispatcher.
 4. At least one Property recipient is configured for the Property (otherwise only the guest is mailed).
@@ -70,4 +70,4 @@ No migration. Set `Booking:ConfirmationEmail:Enabled=false` (new events wait aga
 
 ## Not done in PR07
 
-No checkout UI (PR08), no management page (PR09), no resend route or button, no mailbox provisioning, no prepaid checkout, deposit, QR or card, no hold or surcharge policy, no production rollout, no stored locale, no balance or ETA in the mail, no change to Hold, Newsletter or the dispatcher's send, retry and reconciliation rules (it gained only the per-purpose guard and a handler-supplied safe outcome code for a refused event).
+No checkout UI (PR08), no management page (PR09 added it later), no resend route or button, no mailbox provisioning, no prepaid checkout, deposit, QR or card, no hold or surcharge policy, no production rollout, no stored locale, no balance or ETA in the mail, no change to Hold, Newsletter or the dispatcher's send, retry and reconciliation rules (it gained only the per-purpose guard and a handler-supplied safe outcome code for a refused event).

@@ -1,0 +1,763 @@
+import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
+import { isRequestCancelledError } from "@/lib/api/httpClient";
+import { CsrfTokenUnavailableError, RequestSupersededError } from "@/lib/api/csrf";
+import { ManagementContractError, canonicalReservationId, type ArrivalInput, type ManagedReservation } from "@/lib/api/reservationManagementService";
+
+/**
+ * BHA-CHECKOUT-001-PR09: the logic behind `/reservations/{id}/manage`, free of React so it can be tested (the house pattern:
+ * `customerSession.ts`, `bookingHoldFlowController.ts`). It never renders, stores or logs the link secret: the secret enters through
+ * {@link ReservationManagementController.offerLink}, leaves the controller's memory as it is handed to the single exchange request, and
+ * appears nowhere in state, errors or keys.
+ */
+
+/** The text keys of the page (all in the `customer` scope except the shared API errors). */
+export const MANAGE = {
+  meta: "customer.meta.manage",
+  title: "customer.manage.title",
+  intro: "customer.manage.intro",
+  cta: "customer.receipt.manageBooking",
+  loadingSession: "customer.receipt.owner.verifying",
+  loadingLink: "customer.manage.loading.link",
+  loadingReservation: "customer.manage.loading.reservation",
+  identityUnknown: "customer.manage.identity.unknown",
+  property: "customer.manage.property",
+  cancelledNotice: "customer.manage.cancelledNotice",
+  ledgerNotRecorded: "customer.manage.ledger.notRecorded",
+  moneyTitle: "customer.manage.money.title",
+  payAtPropertyNote: "customer.manage.money.payAtProperty",
+  etaTitle: "customer.manage.eta.title",
+  etaHelp: "customer.manage.eta.help",
+  etaCurrent: "customer.manage.eta.current",
+  etaNone: "customer.manage.eta.none",
+  etaDate: "customer.manage.eta.date",
+  etaTime: "customer.manage.eta.time",
+  etaSave: "customer.manage.eta.save",
+  etaSaving: "customer.manage.eta.saving",
+  etaSaved: "customer.manage.eta.saved",
+  etaVerifying: "customer.manage.eta.verifying",
+  etaUnverified: "customer.manage.eta.unverified",
+  etaCheckAgain: "customer.manage.eta.checkAgain",
+  etaCancelled: "customer.manage.eta.cancelled",
+  etaInvalidDate: "customer.manage.eta.error.date",
+  etaInvalidTime: "customer.manage.eta.error.time",
+  etaNotSent: "customer.manage.eta.error.notSent",
+  retry: "customer.manage.retry",
+  signIn: "customer.manage.signIn",
+  contact: "customer.manage.contact",
+  contactUnavailable: "customer.manage.contactUnavailable",
+  moreProperties: "customer.receipt.moreProperties",
+} as const;
+
+/** What went wrong, as the page tells it. Each has its own text; none quotes the server or the link. */
+export type ManageFailure =
+  | "invalid-id" // the address is not a reservation id: nothing was requested
+  | "link-invalid" // the link is malformed, used or expired: a new link is needed
+  | "link-not-sent" // nothing reached the server (security check / configuration): the link is NOT spent
+  | "link-rate-limited" // 429 before the link was read: NOT spent
+  | "link-session-expired" // this browser carries a customer session that is no longer valid: the link was NOT sent (PR09-C8); open the original link in a private window or a clean browser
+  | "exchange-uncertain" // the answer was lost or unusable: the link may be spent
+  | "no-access" // generic: this browser/account may not open this reservation (never says whether it exists)
+  | "session-invalid" // the customer session cookie is invalid: never treated as a guest
+  | "rate-limited"
+  | "network"
+  | "config"
+  | "server";
+
+export const FAILURE_KEY: Readonly<Record<ManageFailure, string>> = {
+  "invalid-id": "customer.manage.error.invalidId",
+  "link-invalid": "customer.manage.error.linkInvalid",
+  "link-not-sent": "customer.manage.error.linkNotSent",
+  "link-rate-limited": "customer.manage.error.linkRateLimited",
+  "link-session-expired": "customer.manage.error.linkSessionExpired",
+  "exchange-uncertain": "customer.manage.error.exchangeUncertain",
+  "no-access": "customer.manage.error.noAccess",
+  "session-invalid": "shared.apiError.auth.session-invalid",
+  "rate-limited": "customer.manage.error.rateLimited",
+  network: "shared.apiError.network",
+  config: "shared.apiError.config",
+  server: "customer.manage.error.server",
+};
+
+/** Failures after which only a read (never an exchange) can be repeated by the visitor. */
+export const READ_RETRYABLE: ReadonlySet<ManageFailure> = new Set<ManageFailure>(["exchange-uncertain", "rate-limited", "network", "server"]);
+
+export type LinkOffer = { kind: "none" } | { kind: "token"; token: string } | { kind: "malformed" };
+
+/** The e-mail link carries the raw 43-character base64url secret after `#`. Anything else that is present is malformed and is never sent. */
+export function parseManageFragment(hash: string): LinkOffer {
+  if (hash === "" || hash === "#") return { kind: "none" };
+  const match = /^#([A-Za-z0-9_-]{43})$/.exec(hash);
+  return match ? { kind: "token", token: match[1] } : { kind: "malformed" };
+}
+
+/** The management address of a reservation: clean, canonical id, no token (what an account owner's receipt links to). */
+export const manageHref = (canonicalId: string) => `/reservations/${canonicalId}/manage`;
+
+/**
+ * The receipt's "Manage booking" target: only for a Direct reservation of the signed-in account that booked it, while the VERIFIED session is that very
+ * account. A guest (their link is in the e-mail), an unverified or different session, a Hold receipt or an unusable id gets none. Nothing maps a guest token to an account.
+ */
+export function receiptManageId(input: { isDirect: boolean; receiptOwnerKey: string | null; sessionOwnerKey: string | null; reservationId: unknown }): string | null {
+  const { isDirect, receiptOwnerKey, sessionOwnerKey, reservationId } = input;
+  if (!isDirect || !receiptOwnerKey || !receiptOwnerKey.startsWith("customer:") || sessionOwnerKey !== receiptOwnerKey) return null;
+  return canonicalReservationId(reservationId);
+}
+
+/** The day after a `yyyy-MM-dd` calendar date (UTC arithmetic on the text: no browser time zone is involved). */
+export function nextDay(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
+/** The dates the API accepts for an arrival: the check-in date and the one after (overnight arrivals). */
+export const arrivalDates = (checkIn: string): [string, string] => [checkIn, nextDay(checkIn)];
+
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Local check before sending; the API still decides (DST, window, status, permission). */
+export function validateArrival(input: ArrivalInput, checkIn: string): "date" | "time" | null {
+  if (!arrivalDates(checkIn).includes(input.arrivalDate)) return "date";
+  return TIME.test(input.arrivalTime) ? null : "time";
+}
+
+/** An exchange that ended without a usable 200. Certain refusals leave the link unspent; everything else is "may be spent" and is never retried. */
+export function classifyExchangeError(error: unknown): ManageFailure {
+  if (error instanceof ApiConfigError) return "config";
+  // Nothing reached the server in either case: no token, or the view that wanted to send was gone (a joined exchange of another view whose POST was never sent).
+  if (error instanceof CsrfTokenUnavailableError || error instanceof RequestSupersededError) return "link-not-sent";
+  if (error instanceof ApiHttpError) {
+    if (error.status === 401) return "link-invalid";
+    if (error.status === 429) return "link-rate-limited";
+    if (error.status === 400) return error.problem.code === "auth.csrf-invalid" ? "link-not-sent" : "link-invalid";
+  }
+  // network, 5xx, 403/404, a 2xx that is not the documented answer: the outcome is unknown.
+  return "exchange-uncertain";
+}
+
+/**
+ * The only two refusals of the read before an exchange that let a link be exchanged (PR09-C9), each the API's own "this caller has no access yet": a guest holding no valid
+ * management session of this reservation gets `401 reservation.manage-session-invalid`; a verified account that neither owns the reservation nor holds such a session gets
+ * `404 reservation.not-found` (a guest is never answered 404: the API hides it). Anything else — a 200 included — is not a reason to spend the link.
+ */
+function exchangeMayFollow(error: unknown, identityKey: string): boolean {
+  if (!(error instanceof ApiHttpError)) return false;
+  if (identityKey === "guest") return error.status === 401 && error.problem.code === "reservation.manage-session-invalid";
+  return identityKey.startsWith("customer:") && error.status === 404 && error.problem.code === "reservation.not-found";
+}
+
+/**
+ * The same two answers for the OTHER identity (PR09-C10): a guest answered `404 reservation.not-found`, or a verified account answered `401 reservation.manage-session-invalid`.
+ * The API sees different cookies than this tab believes (another tab signed in or out), so this tab's identity is stale; it is not a reason to spend the link, nor to guess the new one.
+ */
+function identityMismatch(error: unknown, identityKey: string): boolean {
+  if (!(error instanceof ApiHttpError)) return false;
+  if (identityKey === "guest") return error.status === 404 && error.problem.code === "reservation.not-found";
+  return identityKey.startsWith("customer:") && error.status === 401 && error.problem.code === "reservation.manage-session-invalid";
+}
+
+/** What the read before an exchange that was not one of those two refusals means: the link was not sent, and the page says why. */
+function classifyPreflightError(error: unknown): ManageFailure {
+  const failure = classifyReadError(error);
+  if (failure === "session-invalid") return "link-session-expired"; // an invalid customer cookie is never a guest: the link would be spent for nothing
+  if (failure === "rate-limited") return "link-rate-limited";
+  if (failure === "network" || failure === "server") return "link-not-sent";
+  return failure; // no-access (another 401, 403, 404) and config
+}
+
+/** A failed read or an access-losing write. */
+export function classifyReadError(error: unknown): ManageFailure {
+  if (error instanceof ApiHttpError) {
+    if (error.problem.code === "auth.session-invalid") return "session-invalid";
+    if (error.status === 401 || error.status === 403 || error.status === 404) return "no-access";
+    if (error.status === 429) return "rate-limited";
+    return "server";
+  }
+  if (error instanceof ApiNetworkError) return "network";
+  if (error instanceof ApiConfigError) return "config";
+  return "server"; // includes a ManagementContractError
+}
+
+export type SaveState =
+  | { status: "idle" }
+  | { status: "saving" }
+  /** The result was unknown; the server is being read before anything is reported. Nothing can be submitted. */
+  | { status: "verifying" }
+  | { status: "saved" }
+  /** A known refusal (text key); the form stays open for the visitor's own correction or retry. */
+  | { status: "error"; messageKey: string }
+  /**
+   * The outcome of a lost update is not established and a read cannot establish it (even one that shows the submitted value: it may have been stored before).
+   * Nothing can be submitted for the rest of this view; only another read ("Check again") is offered, and it never turns this into "saved".
+   */
+  | { status: "unverified" }
+  /** A 409 was shown and the booking is being read again (`checking`) or that read failed (`!checking`: only another read is offered). Nothing can be submitted. */
+  | { status: "conflict"; messageKey: string; checking: boolean };
+
+export interface ManageContext {
+  /** Canonical lowercase id. */
+  reservationId: string;
+  /** `verifiedOwnerKey(session)` (`guest` / `customer:<id>`), or null while the customer session is not settled. Nothing is requested for null. */
+  identityKey: string | null;
+}
+
+export interface ManageState {
+  phase: "waiting" | "exchanging" | "loading" | "ready" | "failed";
+  failure: ManageFailure | null;
+  reservation: ManagedReservation | null;
+  save: SaveState;
+  /** The context this state belongs to. A render for any other reservation or identity must not show `reservation` (it may be one frame behind). */
+  bound: ManageContext | null;
+  /**
+   * PR09-C11: what the page says about an explicit link open that stopped while the session was not verified (the provider was loading, then unknown): only the failure and the
+   * reservation it is for, never the token. It is shown instead of the generic "session unknown" text while the identity stays unverified; a verified identity, another
+   * reservation, or a newer open clears it.
+   */
+  openFailure: { reservationId: string; failure: ManageFailure } | null;
+}
+
+type Draft = Omit<ManageState, "bound" | "openFailure">;
+const WAITING: Draft = { phase: "waiting", failure: null, reservation: null, save: { status: "idle" } };
+
+/** True when `state` was produced for exactly this reservation and verified identity. */
+export function isStateFor(state: ManageState, reservationId: string, identityKey: string | null): boolean {
+  return !!state.bound && identityKey !== null && state.bound.reservationId === reservationId && state.bound.identityKey === identityKey;
+}
+
+export interface ReservationManagementDeps {
+  /**
+   * The single exchange request (joins one already in flight for the id). `stillCurrent` says whether the view that asked is still the current one; it is asked
+   * right before the POST is handed to the transport, and a view that is gone sends nothing. `onHandedOver` (PR09-C13) is called at that very hand-over (synchronously, right after
+   * `stillCurrent` said yes), and for a request that joined one already handed over: before it the exchange is still an unsent attempt the controller may invalidate, after it the
+   * POST can neither be recalled nor sent again.
+   */
+  exchange: (reservationId: string, token: string, stillCurrent: () => boolean, onHandedOver: () => void) => Promise<void>;
+  /** Resolves when an exchange of this id that is under way has finished (so a read never races its own cookie). */
+  whenExchangeSettled: (reservationId: string) => Promise<void>;
+  read: (reservationId: string, signal: AbortSignal) => Promise<ManagedReservation>;
+  /** The arrival update, with the same `stillCurrent` rule: a superseded request is never sent (it rejects with `RequestSupersededError`). */
+  update: (reservationId: string, input: ArrivalInput, stillCurrent: () => boolean) => Promise<ManagedReservation>;
+  /** The customer session is read again (an invalid customer cookie asks for it). */
+  requestSessionRefresh: () => void;
+  /**
+   * PR09-C10: reads the customer session again and answers with who it verified (`guest` / `customer:<id>`), or null when it could not be verified (the read failed or
+   * was superseded, or a sign-in/sign-out is under way). The same read as `requestSessionRefresh`, with its result; it never changes anything server-side.
+   */
+  verifySession: () => Promise<string | null>;
+}
+
+export interface ReservationManagementController {
+  getState: () => ManageState;
+  subscribe: (listener: () => void) => () => void;
+  /** Hands over what the address fragment held, once, when the page opens. */
+  offerLink: (offer: LinkOffer) => void;
+  /**
+   * The visitor opens a link while the page is already open (a fragment-only navigation in this tab): an explicit open, handled like a fresh one, with at most
+   * one exchange for it. Nothing is sent while an exchange of this view is already out, and nothing is replayed by this or by any render, refresh or read.
+   */
+  openLink: (offer: LinkOffer) => void;
+  /** The reservation and verified identity this view is for. A change clears everything private and invalidates answers still on their way. */
+  bind: (context: ManageContext) => void;
+  /** A visitor's own repeat of the READ (never an exchange). */
+  retry: () => void;
+  /**
+   * PR09-C11: the tab came back to the foreground (focus / visibility). When private details are shown, they leave the view at once, the session is verified again, and a fresh
+   * `GET /manage` under the verified session decides what may be shown (the same identity included). Sends no POST; does nothing while an explicit link open is under way.
+   */
+  revalidate: () => void;
+  submitArrival: (input: ArrivalInput) => void;
+  /** Reads the server again to settle an unknown arrival result. */
+  verifySave: () => void;
+  dispose: () => void;
+}
+
+/** A token that waits for a session verification (PR09-C12), see `held` in the controller. */
+interface Held {
+  open: number;
+  reservationId: string;
+  offer: LinkOffer;
+  from: string | null;
+  onSame: "stop" | "resume";
+  verified: string | undefined;
+}
+
+export function createReservationManagementController(deps: ReservationManagementDeps): ReservationManagementController {
+  let context: ManageContext | null = null;
+  let state: ManageState = { ...WAITING, bound: null, openFailure: null };
+  let linkNotice: { reservationId: string; failure: ManageFailure } | null = null;
+  let epoch = 0;
+  let link: LinkOffer = { kind: "none" };
+  /** Which explicit open `link` belongs to (bumped by every offer / open), and which open has used its one session re-check (PR09-C10). */
+  let openSeq = 0;
+  let linkOpen = 0;
+  let recheck: { open: number; reservationId: string } | null = null;
+  /**
+   * PR09-C12: the token of an open that waits for a session verification. It is NOT in `link` meanwhile, so no begin() (a rebind included) can take it: it is released to the
+   * bind of the identity the verification confirmed, once, or dropped. `verified` is undefined until the verification resolved; `onSame` says what the verification of the
+   * identity this view already had means: the open stops (a re-check that found no change) or resumes (a return that only needed the session confirmed).
+   */
+  let held: Held | null = null;
+  /**
+   * PR09-C13: the explicit open that has NOT sent its POST yet, from the read before the exchange until the POST is handed to the transport (so it covers the exchange that waits for
+   * its CSRF token too), with the epoch it belongs to. It keeps the token in the memory of exactly this open, for this reservation; it is gone as soon as the POST is handed over,
+   * the open ends without sending, or the epoch changes (a newer open, a rebind, a dispose). A return from the background takes it over (revalidate).
+   */
+  let pending: { at: number; open: number; reservationId: string; offer: LinkOffer } | null = null;
+  /** The epoch of the last return from the background: its focus and visibilitychange are one return while that view is still loading. */
+  let returning: number | null = null;
+  let reading: AbortController | null = null;
+  let saveLock = false;
+  /**
+   * Arrival updates whose result is not settled, per view key (`reservationId|verified identity`): set when the POST is handed over, released only by a
+   * definite answer of THAT request (never by a read, never by a change of epoch). Unlike `saveLock` it survives the identity going through loading/unknown
+   * and coming back (a session recheck), because the request may still be applied. It holds an empty token: no reservation data, nothing about the guest.
+   */
+  const writeHolds = new Map<string, object>();
+  /**
+   * A view whose read was refused for an invalid customer session (PR09-C6). The refresh that is asked for passes through "loading", and when the SAME signed-in account is
+   * verified again the view gets exactly ONE recovery read (`recovery` "available" -> "used"), e.g. the visitor signed in again in another tab. A refusal of that read, or any
+   * refusal for a guest view, ends the pass: the error stays, the session is not refreshed again and no further read starts for this key. The marker survives the loading
+   * transition (and `dispose()`); it is reset by a successful read or by a different verified identity or reservation.
+   */
+  let sessionInvalid: { key: string; recovery: "available" | "used" } | null = null;
+  const listeners = new Set<() => void>();
+
+  const keyOf = (c: ManageContext) => `${c.reservationId}|${c.identityKey}`;
+
+  function publish(next: Draft): void {
+    state = { phase: next.phase, failure: next.failure, reservation: next.reservation, save: next.save, bound: context, openFailure: linkNotice };
+    listeners.forEach((listener) => listener());
+  }
+
+  /** Publishes the current state again with the present `linkNotice` (an answer that came after the page had already moved on). */
+  function notify(): void {
+    state = { ...state, openFailure: linkNotice };
+    listeners.forEach((listener) => listener());
+  }
+
+  function invalidate(): void {
+    epoch += 1;
+    pending = null; // an unsent open is invalidated with the epoch: its token leaves this memory (revalidate reads it before it invalidates)
+    reading?.abort();
+    reading = null;
+    saveLock = false;
+  }
+
+  const current = (at: number) => at === epoch;
+
+  /**
+   * What a freshly read view of the current context shows for saving: shut ("not confirmed") while an update of this very view is unsettled, and also when the read
+   * itself BEGAN while one was (`underHold`): such a GET may predate the POST's effect, so it cannot open the form even if the POST's answer arrived first.
+   * Only a successful read that began after the hold was gone opens it.
+   */
+  const saveStateOf = (result: ReadResult): SaveState => (result.underHold || writeHolds.has(keyOf(context!)) ? { status: "unverified" } : { status: "idle" });
+
+  function fail(failure: ManageFailure): void {
+    publish({ phase: "failed", failure, reservation: null, save: { status: "idle" } });
+  }
+
+  function failRead(error: unknown): void {
+    const failure = classifyReadError(error);
+    if (failure === "session-invalid") {
+      const key = keyOf(context!);
+      fail(failure);
+      if (sessionInvalid?.key === key && sessionInvalid.recovery === "used") return; // the recovery read was refused too: the pass is over, no further refresh
+      sessionInvalid = { key, recovery: context!.identityKey?.startsWith("customer:") ? "available" : "used" };
+      deps.requestSessionRefresh(); // never treated as a guest; the session is read again
+      return;
+    }
+    fail(failure);
+  }
+
+  /** A successful read of the current view, and whether an arrival update of this view was unsettled when the request was handed over. */
+  interface ReadResult {
+    reservation: ManagedReservation;
+    underHold: boolean;
+  }
+
+  async function read(at: number): Promise<ReadResult | null> {
+    const ctx = context!;
+    await deps.whenExchangeSettled(ctx.reservationId);
+    if (!current(at)) return null;
+    reading?.abort();
+    const controller = new AbortController();
+    reading = controller;
+    const underHold = writeHolds.has(keyOf(ctx));
+    try {
+      const reservation = await deps.read(ctx.reservationId, controller.signal);
+      if (!current(at)) return null;
+      // Defence in depth (the service already checks): an answer for any other reservation is never shown.
+      if (reservation.reservationId !== ctx.reservationId) throw new ManagementContractError();
+      return { reservation, underHold };
+    } catch (error) {
+      if (!current(at) || isRequestCancelledError(error)) return null;
+      throw error;
+    }
+  }
+
+  function showRead(result: ReadResult): void {
+    sessionInvalid = null; // a successful read ends any session-recovery pass
+    publish({ phase: "ready", failure: null, reservation: result.reservation, save: saveStateOf(result) });
+  }
+
+  async function load(at: number): Promise<void> {
+    publish({ ...WAITING, phase: "loading" });
+    try {
+      const result = await read(at);
+      // `read` checked the epoch before it returned, but this continuation runs later: the view may have changed in between, and then nothing is published.
+      if (result && current(at)) showRead(result);
+    } catch (error) {
+      if (current(at)) failRead(error);
+    }
+  }
+
+  /**
+   * The read before an exchange answered as if this tab's identity were another one (PR09-C10). The visitor's explicit open gets ONE session re-check: its token stays in this
+   * controller's memory for that open only (never in the URL, storage or a log), the provider reads the session again, and when it verifies a different identity the page re-binds
+   * and its `begin()` runs the read again with the link kept. Nothing depends on a "loading" frame being rendered: the result of the re-check is awaited, not observed. If the
+   * same identity comes back, or the re-check fails, or the answers still contradict the identity, the open stops and the token is dropped: 0 POSTs, no loop.
+   */
+  async function recheckSessionOnce(at: number, myOpen: number, offer: LinkOffer, ctx: ManageContext): Promise<void> {
+    if (recheck?.open === myOpen) {
+      recheck = null; // still contradictory after one verification: stop; the token is not kept
+      if (current(at)) fail("no-access");
+      return;
+    }
+    recheck = { open: myOpen, reservationId: ctx.reservationId };
+    const mine: Held = { open: myOpen, reservationId: ctx.reservationId, offer, from: ctx.identityKey, onSame: "stop", verified: undefined };
+    held = mine; // the token waits here, not in `link`: nothing can take it before the verification confirmed a different identity
+    publish({ ...WAITING, phase: "loading" });
+    await awaitHeld(mine, at);
+  }
+
+  /**
+   * The verification of a held token resolves (PR09-C12). Not confirmed, or the same identity for an open that stops: the token is dropped, 0 POSTs. A different identity: the
+   * token is released to the bind of exactly that identity (now, if the page is already bound to it; otherwise the bind that follows does it), and its begin() reads first.
+   */
+  async function awaitHeld(mine: Held, at: number): Promise<void> {
+    const verified = await deps.verifySession().catch(() => null);
+    if (held !== mine) return; // a newer open, another reservation or a different identity replaced this operation
+    if (verified === null || (verified === mine.from && mine.onSame === "stop")) {
+      held = null;
+      if (recheck?.open === mine.open) recheck = null;
+      if (current(at)) fail(verified === null ? "link-not-sent" : "no-access");
+      else if (context && context.identityKey !== null) {
+        if (state.phase === "waiting") void begin(epoch); // the rebind waited for this answer: the view still needs its ordinary read (never a link)
+      } else if (verified === null) {
+        // The provider went through loading to unknown (or the verification failed): the page was re-bound and this open's epoch is gone, but the guidance for THIS open is
+        // kept (failure and reservation only, no token) so the page can show it while the identity is unverified.
+        linkNotice = { reservationId: mine.reservationId, failure: "link-not-sent" };
+        notify();
+      }
+      return;
+    }
+    mine.verified = verified;
+    if (context && context.reservationId === mine.reservationId && context.identityKey === verified) releaseHeld(mine);
+    // else: the bind that follows with this identity releases it (bind()).
+  }
+
+  function releaseHeld(mine: Held): void {
+    held = null;
+    link = mine.offer;
+    linkOpen = mine.open;
+    void begin(epoch);
+  }
+
+  async function begin(at: number): Promise<void> {
+    const ctx = context!;
+    const offer = link;
+    const myOpen = linkOpen;
+    const finishOpen = () => { if (recheck?.open === myOpen) recheck = null; };
+    if (sessionInvalid?.key === keyOf(ctx)) {
+      if (offer.kind === "none") {
+        // An automatic start (a recheck of the session): the recovery limit applies.
+        if (sessionInvalid.recovery === "used") {
+          fail("session-invalid");
+          return;
+        }
+        sessionInvalid.recovery = "used"; // the same account was verified again: this one read is the recovery; no link is exchanged by it
+      }
+      // A link the visitor opened on purpose (PR09-C7) is not limited: it gets its own single exchange and, once that succeeded, the read that follows it. That read is
+      // marked as the used allowance below (never reset by a paste). A malformed link, or an exchange that failed, leaves the marker as it was.
+    }
+    link = { kind: "none" }; // the secret leaves the controller here; it can be sent at most once
+    if (offer.kind === "malformed") {
+      fail("link-invalid");
+      return;
+    }
+    if (offer.kind === "none") {
+      await load(at);
+      return;
+    }
+    {
+      // PR09-C8/C9: before ANY link is spent, ask the server what this browser may already read (a GET: no secret, the cookies as they are). A readable booking — for a guest
+      // with a management session, a signed-in owner, or any account that also holds one — is shown and the link is left unspent, used or fresh. Only the API's "no access yet"
+      // for this identity lets the link be exchanged (`exchangeMayFollow`). A customer cookie that no longer validates is never a guest, and the exchange that would follow would
+      // spend the link for a booking that still cannot be read: nothing is sent. Any other answer stops this open. The time between this read and the POST is the limit of this
+      // client-side check; the server's own rules (and the exchange's own check of the token) are unchanged.
+      publish({ ...WAITING, phase: "loading" });
+      const out = { at, open: myOpen, reservationId: ctx.reservationId, offer };
+      pending = out; // a return from the background while this open has not sent its POST takes the open over (revalidate)
+      const done = () => { if (pending === out) pending = null; };
+      try {
+        const result = await read(at);
+        done();
+        if (!result || !current(at)) return; // superseded (a return, a rebind): the open's re-check marker is not this call's to clear
+        finishOpen();
+        showRead(result);
+        return;
+      } catch (error) {
+        if (!current(at)) {
+          done();
+          return;
+        }
+        if (identityMismatch(error, ctx.identityKey ?? "")) {
+          done();
+          await recheckSessionOnce(at, myOpen, offer, ctx);
+          return;
+        }
+        if (!exchangeMayFollow(error, ctx.identityKey ?? "")) {
+          done();
+          finishOpen();
+          fail(classifyPreflightError(error));
+          return;
+        }
+        // The exchange follows: the open stays `pending` and keeps its re-check marker until the POST is handed over, so a return that takes the unsent exchange over cannot earn a second re-check.
+      }
+      if (!current(at)) {
+        done();
+        return;
+      }
+    }
+    publish({ ...WAITING, phase: "exchanging" });
+    const clear = () => { if (pending?.open === myOpen && pending.at === at) pending = null; };
+    const sent = () => {
+      clear(); // handed to the transport: no longer recallable, so no longer this controller's to take over; the token leaves
+      finishOpen();
+    };
+    try {
+      await deps.exchange(ctx.reservationId, offer.token, () => current(at), sent);
+    } catch (error) {
+      if (!current(at)) return; // superseded: an open that took it over owns the marker and the token now
+      clear();
+      finishOpen();
+      fail(classifyExchangeError(error));
+      return;
+    }
+    clear();
+    if (current(at)) {
+      if (sessionInvalid?.key === keyOf(ctx)) sessionInvalid.recovery = "used"; // the read after a link the visitor opened is the allowance: a refusal of it ends the pass, no refresh, no loop
+      await load(at);
+    }
+    // If the view changed while the exchange was out, the new context's own read waits for it (whenExchangeSettled).
+  }
+
+  return {
+    getState: () => state,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    offerLink: (offer) => {
+      if (link.kind === "none") {
+        link = offer;
+        linkOpen = ++openSeq;
+        linkNotice = null;
+        held = null;
+      }
+    },
+    openLink: (offer) => {
+      if (offer.kind === "none") return;
+      if (!context || context.identityKey === null) {
+        link = offer; // no verified identity yet: it is opened (once) when the identity settles, like the link of a fresh page
+        linkOpen = ++openSeq;
+        linkNotice = null;
+        held = null;
+        notify();
+        return;
+      }
+      // PR09-C14: an exchange whose POST was handed to the transport is out and is left alone (no cancel, no replay, nothing queued behind it): never a second exchange beside it. One that still
+      // waits for its CSRF token (`pending`: handed over clears it) has sent nothing: a new VALID link supersedes it below (the epoch change makes it send 0 POSTs; its late cleanup is a no-op).
+      // A malformed fragment is not a link: it never cancels an exchange that is waiting (as before C14, it is dropped here and the exchange goes on).
+      if (state.phase === "exchanging" && !(offer.kind === "token" && pending && current(pending.at))) return;
+      invalidate(); // an unsettled arrival update keeps its hold (writeHolds); only the epoch-bound lock and answers are dropped
+      link = offer;
+      linkOpen = ++openSeq;
+      linkNotice = null;
+      held = null; // a newer open replaces the one that waited for its verification
+      void begin(epoch);
+    },
+    bind: (next) => {
+      if (context && context.reservationId === next.reservationId && context.identityKey === next.identityKey) return;
+      invalidate();
+      if (held && held.reservationId !== next.reservationId) held = null; // another reservation: the open that was waiting for its session check is dropped, token included
+      if (recheck && recheck.reservationId !== next.reservationId) recheck = null;
+      if (linkNotice && (linkNotice.reservationId !== next.reservationId || next.identityKey !== null)) linkNotice = null; // another reservation, or a verified identity: the guidance has done its work
+      context = next;
+      if (sessionInvalid && next.identityKey !== null && sessionInvalid.key !== keyOf(next)) sessionInvalid = null; // another identity or reservation: a fresh view
+      publish(WAITING); // nothing private is kept or requested while the identity is not verified, and the old data is cleared in this very call
+      if (next.identityKey === null) return;
+      if (held) {
+        if (held.verified === undefined) return; // the verification decides first; its continuation starts this view's read (PR09-C12)
+        if (held.verified === next.identityKey) {
+          link = held.offer; // the identity the verification confirmed: this bind's begin() takes the token, once
+          linkOpen = held.open;
+        }
+        held = null; // any other identity: the token is dropped, 0 POSTs
+      }
+      // The work starts one microtask later, only if this binding is still the current one. React StrictMode (development) mounts, unmounts and mounts again in one
+      // synchronous flush: the first binding is then superseded before it starts, so it consumes no link and sends nothing, and the second one starts exactly once.
+      const at = epoch;
+      queueMicrotask(() => {
+        if (current(at)) void begin(at);
+      });
+    },
+    revalidate: () => {
+      const ctx = context;
+      if (!ctx || ctx.identityKey === null || held || link.kind !== "none") return; // not verified; or an open waits for its own session check (nothing private is shown then)
+      if (returning !== null && current(returning) && state.phase === "loading") return; // the second event of the same return
+      // An explicit open that has not handed its POST to the transport (PR09-C13): its read is out, or its exchange still waits for the CSRF token. Nothing was sent, so it is not "exchanging" in
+      // the sense that matters; whatever authorized it (the preflight GET) predates the return. An exchange that WAS handed over is not in `pending`: it cannot be recalled and is left alone.
+      const open = pending && current(pending.at) && pending.reservationId === ctx.reservationId ? pending : null;
+      if (!open && !(state.phase === "loading" || (state.phase === "ready" && state.reservation))) return; // exchanging (POST handed over), waiting or failed: nothing private is shown or being read
+      // Details shown, or a GET /manage still out (its answer was authorized by the session of before the return): both are invalidated now (the epoch changes and the read is aborted;
+      // an answer that still arrives is dropped), and nothing is shown again before a GET that STARTS after the session is verified. An unsettled arrival update keeps its hold.
+      invalidate();
+      const at = epoch;
+      returning = at;
+      const mine: Held | null = open ? { open: open.open, reservationId: ctx.reservationId, offer: open.offer, from: ctx.identityKey, onSame: "resume", verified: undefined } : null;
+      held = mine; // the open continues (same open, no new one, no second exchange for it) only after the verification
+      publish({ ...WAITING, phase: "loading" }); // the old details leave the view before any request
+      void (async () => {
+        if (mine) {
+          await awaitHeld(mine, at);
+          return;
+        }
+        const verified = await deps.verifySession().catch(() => null);
+        // If the provider published loading or a new identity meanwhile, the page re-bound and that begin() reads; this continuation then has nothing to do.
+        if (!current(at)) return;
+        if (verified === null) {
+          fail("network"); // the session could not be verified: the details stay hidden and a read can be repeated
+          return;
+        }
+        if (verified !== ctx.identityKey) return; // another identity was verified: the bind that follows reads under it
+        await begin(at); // the same identity: only a fresh GET decides what may be shown again
+      })();
+    },
+    retry: () => {
+      if (!context || context.identityKey === null || state.phase !== "failed" || !state.failure || !READ_RETRYABLE.has(state.failure)) return;
+      invalidate();
+      void load(epoch);
+    },
+    submitArrival: (input) => {
+      const reservation = state.reservation;
+      const ctx = context;
+      if (!ctx || state.phase !== "ready" || !reservation || reservation.status === "Cancelled" || saveLock) return;
+      const viewKey = keyOf(ctx);
+      if (writeHolds.has(viewKey) || ["saving", "verifying", "unverified", "conflict"].includes(state.save.status)) return;
+      const invalid = validateArrival(input, reservation.checkIn);
+      if (invalid) {
+        publish({ ...state, save: { status: "error", messageKey: invalid === "date" ? MANAGE.etaInvalidDate : MANAGE.etaInvalidTime } });
+        return;
+      }
+      saveLock = true; // synchronous: a second click or Enter in the same tick sends nothing
+      const at = epoch;
+      const mine = {};
+      writeHolds.set(viewKey, mine);
+      // Only a definite answer of THIS request frees the hold, and it does so even when the view it came from is gone (hidden, rebound, another identity):
+      // then nothing is shown or rebuilt from the answer, and no other view's lock is touched.
+      const release = () => {
+        if (writeHolds.get(viewKey) === mine) writeHolds.delete(viewKey);
+      };
+      publish({ ...state, save: { status: "saving" } });
+      void (async () => {
+        try {
+          const updated = await deps.update(ctx.reservationId, { arrivalDate: input.arrivalDate, arrivalTime: input.arrivalTime }, () => current(at));
+          release();
+          if (!current(at)) return;
+          saveLock = false;
+          publish({ phase: "ready", failure: null, reservation: updated, save: { status: "saved" } });
+        } catch (error) {
+          // Definite: a refusal, an access refusal, or a request that never left (no token was read, or the view was gone before the hand-over). Anything else (network, 5xx, unusable answer) is unknown and keeps the hold.
+          const neverSent = error instanceof CsrfTokenUnavailableError || error instanceof RequestSupersededError;
+          if ((error instanceof ApiHttpError && [400, 401, 403, 404, 409, 429].includes(error.status)) || neverSent) release();
+          if (!current(at)) return;
+          if (error instanceof ApiHttpError && [400, 409, 429].includes(error.status)) {
+            // A refusal before anything was written: shown, and the visitor decides. A 409 means the reservation is no longer changeable: it is read again with the form shut.
+            const key = error.status === 429 ? "shared.apiError.auth.rate-limited" : error.problem.code ? `shared.apiError.${error.problem.code}` : "shared.apiError.error.unknown";
+            if (error.status === 409) {
+              await refreshAfterRefusal(at, key);
+              return;
+            }
+            saveLock = false;
+            publish({ ...state, save: { status: "error", messageKey: key } });
+            return;
+          }
+          if (error instanceof ApiHttpError && [401, 403, 404].includes(error.status)) {
+            saveLock = false;
+            failRead(error); // access lost: nothing private stays on screen
+            return;
+          }
+          if (neverSent) {
+            // The POST never reached the transport (no token; a superseded view never gets here, it returned above): nothing can be applied later. Retryable by the visitor, with their input kept.
+            saveLock = false;
+            publish({ ...state, save: { status: "error", messageKey: MANAGE.etaNotSent } });
+            return;
+          }
+          await settle(at); // network, 5xx or an unusable answer: unknown, so the server is read before anything is reported
+        }
+      })();
+    },
+    // Only ever a READ: it never sends the update again, and a press while a read is out starts nothing.
+    verifySave: () => {
+      if (!context || state.phase !== "ready") return;
+      if (state.save.status === "unverified") void settle(epoch);
+      else if (state.save.status === "conflict" && !state.save.checking) void refreshAfterRefusal(epoch, state.save.messageKey);
+    },
+    // Unmount: answers still on their way are dropped. The controller can be bound again (a re-mount), it is never poisoned.
+    dispose: () => {
+      invalidate();
+      context = null;
+    },
+  };
+
+  /**
+   * The submitted result is unknown: read the server and show what it holds, nothing more. Even a read equal to what was sent proves nothing: the same value
+   * may have been stored before the request, and the lost POST may still be on its way. So this never reports "saved" and never opens the form while the update is unsettled (`writeHolds`; only that request's own answer releases it).
+   */
+  async function settle(at: number): Promise<void> {
+    saveLock = true;
+    publish({ ...state, save: { status: "verifying" } });
+    try {
+      const result = await read(at);
+      if (!result || !current(at)) return; // the view changed after read() returned: no state and no lock is touched
+      // Still not confirmed while the update is unsettled, or when this read began while it was. Only a read that began after its own answer came opens the form: the read content never decides.
+      const save = saveStateOf(result);
+      saveLock = save.status !== "idle";
+      publish({ phase: "ready", failure: null, reservation: result.reservation, save });
+    } catch (error) {
+      if (!current(at)) return;
+      const failure = classifyReadError(error);
+      if (failure === "no-access" || failure === "session-invalid") failRead(error);
+      else publish({ ...state, save: { status: "unverified" } });
+    }
+  }
+
+  /** After a 409 the form is shut (controller lock + UI) before the read starts and opens again only when a read says the booking is still editable. */
+  async function refreshAfterRefusal(at: number, messageKey: string): Promise<void> {
+    saveLock = true;
+    publish({ ...state, save: { status: "conflict", messageKey, checking: true } });
+    try {
+      const result = await read(at);
+      if (!result || !current(at)) return;
+      saveLock = false; // a Cancelled booking stays shut by its status
+      publish({ phase: "ready", failure: null, reservation: result.reservation, save: { status: "error", messageKey } });
+    } catch (error) {
+      if (!current(at)) return;
+      const failure = classifyReadError(error);
+      if (failure === "no-access" || failure === "session-invalid") failRead(error);
+      else publish({ ...state, save: { status: "conflict", messageKey, checking: false } });
+    }
+  }
+}
