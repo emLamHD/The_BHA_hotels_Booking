@@ -226,9 +226,11 @@ export function isStateFor(state: ManageState, reservationId: string, identityKe
 export interface ReservationManagementDeps {
   /**
    * The single exchange request (joins one already in flight for the id). `stillCurrent` says whether the view that asked is still the current one; it is asked
-   * right before the POST is handed to the transport, and a view that is gone sends nothing.
+   * right before the POST is handed to the transport, and a view that is gone sends nothing. `onHandedOver` (PR09-C13) is called at that very hand-over (synchronously, right after
+   * `stillCurrent` said yes), and for a request that joined one already handed over: before it the exchange is still an unsent attempt the controller may invalidate, after it the
+   * POST can neither be recalled nor sent again.
    */
-  exchange: (reservationId: string, token: string, stillCurrent: () => boolean) => Promise<void>;
+  exchange: (reservationId: string, token: string, stillCurrent: () => boolean, onHandedOver: () => void) => Promise<void>;
   /** Resolves when an exchange of this id that is under way has finished (so a read never races its own cookie). */
   whenExchangeSettled: (reservationId: string) => Promise<void>;
   read: (reservationId: string, signal: AbortSignal) => Promise<ManagedReservation>;
@@ -294,8 +296,12 @@ export function createReservationManagementController(deps: ReservationManagemen
    * identity this view already had means: the open stops (a re-check that found no change) or resumes (a return that only needed the session confirmed).
    */
   let held: Held | null = null;
-  /** The explicit open whose read before the exchange is out (its token is only in begin()'s memory), and the epoch it belongs to. */
-  let preflight: { at: number; open: number; offer: LinkOffer } | null = null;
+  /**
+   * PR09-C13: the explicit open that has NOT sent its POST yet, from the read before the exchange until the POST is handed to the transport (so it covers the exchange that waits for
+   * its CSRF token too), with the epoch it belongs to. It keeps the token in the memory of exactly this open, for this reservation; it is gone as soon as the POST is handed over,
+   * the open ends without sending, or the epoch changes (a newer open, a rebind, a dispose). A return from the background takes it over (revalidate).
+   */
+  let pending: { at: number; open: number; reservationId: string; offer: LinkOffer } | null = null;
   /** The epoch of the last return from the background: its focus and visibilitychange are one return while that view is still loading. */
   let returning: number | null = null;
   let reading: AbortController | null = null;
@@ -330,6 +336,7 @@ export function createReservationManagementController(deps: ReservationManagemen
 
   function invalidate(): void {
     epoch += 1;
+    pending = null; // an unsent open is invalidated with the epoch: its token leaves this memory (revalidate reads it before it invalidates)
     reading?.abort();
     reading = null;
     saveLock = false;
@@ -488,37 +495,55 @@ export function createReservationManagementController(deps: ReservationManagemen
       // spend the link for a booking that still cannot be read: nothing is sent. Any other answer stops this open. The time between this read and the POST is the limit of this
       // client-side check; the server's own rules (and the exchange's own check of the token) are unchanged.
       publish({ ...WAITING, phase: "loading" });
-      const out = { at, open: myOpen, offer };
-      preflight = out; // a return from the background while this read is out takes the open over (revalidate)
+      const out = { at, open: myOpen, reservationId: ctx.reservationId, offer };
+      pending = out; // a return from the background while this open has not sent its POST takes the open over (revalidate)
+      const done = () => { if (pending === out) pending = null; };
       try {
         const result = await read(at);
-        if (preflight === out) preflight = null;
+        done();
         if (!result || !current(at)) return; // superseded (a return, a rebind): the open's re-check marker is not this call's to clear
         finishOpen();
         showRead(result);
         return;
       } catch (error) {
-        if (preflight === out) preflight = null;
-        if (!current(at)) return;
+        if (!current(at)) {
+          done();
+          return;
+        }
         if (identityMismatch(error, ctx.identityKey ?? "")) {
+          done();
           await recheckSessionOnce(at, myOpen, offer, ctx);
           return;
         }
-        finishOpen();
         if (!exchangeMayFollow(error, ctx.identityKey ?? "")) {
+          done();
+          finishOpen();
           fail(classifyPreflightError(error));
           return;
         }
+        // The exchange follows: the open stays `pending` and keeps its re-check marker until the POST is handed over, so a return that takes the unsent exchange over cannot earn a second re-check.
       }
-      if (!current(at)) return;
+      if (!current(at)) {
+        done();
+        return;
+      }
     }
     publish({ ...WAITING, phase: "exchanging" });
+    const clear = () => { if (pending?.open === myOpen && pending.at === at) pending = null; };
+    const sent = () => {
+      clear(); // handed to the transport: no longer recallable, so no longer this controller's to take over; the token leaves
+      finishOpen();
+    };
     try {
-      await deps.exchange(ctx.reservationId, offer.token, () => current(at));
+      await deps.exchange(ctx.reservationId, offer.token, () => current(at), sent);
     } catch (error) {
-      if (current(at)) fail(classifyExchangeError(error));
+      if (!current(at)) return; // superseded: an open that took it over owns the marker and the token now
+      clear();
+      finishOpen();
+      fail(classifyExchangeError(error));
       return;
     }
+    clear();
     if (current(at)) {
       if (sessionInvalid?.key === keyOf(ctx)) sessionInvalid.recovery = "used"; // the read after a link the visitor opened is the allowance: a refusal of it ends the pass, no refresh, no loop
       await load(at);
@@ -589,10 +614,12 @@ export function createReservationManagementController(deps: ReservationManagemen
       const ctx = context;
       if (!ctx || ctx.identityKey === null || held || link.kind !== "none") return; // not verified; or an open waits for its own session check (nothing private is shown then)
       if (returning !== null && current(returning) && state.phase === "loading") return; // the second event of the same return
-      if (!(state.phase === "loading" || (state.phase === "ready" && state.reservation))) return; // exchanging, waiting or failed: nothing private is shown or being read
+      // An explicit open that has not handed its POST to the transport (PR09-C13): its read is out, or its exchange still waits for the CSRF token. Nothing was sent, so it is not "exchanging" in
+      // the sense that matters; whatever authorized it (the preflight GET) predates the return. An exchange that WAS handed over is not in `pending`: it cannot be recalled and is left alone.
+      const open = pending && current(pending.at) && pending.reservationId === ctx.reservationId ? pending : null;
+      if (!open && !(state.phase === "loading" || (state.phase === "ready" && state.reservation))) return; // exchanging (POST handed over), waiting or failed: nothing private is shown or being read
       // Details shown, or a GET /manage still out (its answer was authorized by the session of before the return): both are invalidated now (the epoch changes and the read is aborted;
       // an answer that still arrives is dropped), and nothing is shown again before a GET that STARTS after the session is verified. An unsettled arrival update keeps its hold.
-      const open = preflight && current(preflight.at) ? preflight : null; // an explicit open whose read before the exchange was out
       invalidate();
       const at = epoch;
       returning = at;

@@ -40,7 +40,7 @@ describe("exchangeManagementLink", () => {
     once.mockResolvedValue({ status: 200, data: { reservationId: ID, expiresAtUtc: "2026-11-26T00:00:00Z" } });
     await exchangeManagementLink(ID, "S".repeat(43));
     expect(once).toHaveBeenCalledTimes(1);
-    expect(once).toHaveBeenCalledWith(`/api/v1/reservations/${ID}/manage/exchange`, "POST", { token: "S".repeat(43) }, {}, undefined);
+    expect(once).toHaveBeenCalledWith(`/api/v1/reservations/${ID}/manage/exchange`, "POST", { token: "S".repeat(43) }, {}, undefined, undefined);
   });
 
   it("a 2xx that is not this reservation's answer is a contract error (unknown outcome), never success", async () => {
@@ -83,6 +83,68 @@ describe("exchangeOnce", () => {
     const send = vi.fn().mockRejectedValue(new Error("x"));
     await expect(exchangeOnce(ID, "t", send)).rejects.toThrow("x");
     await expect(whenExchangeSettled(ID)).resolves.toBeUndefined();
+  });
+});
+
+// BHA-CHECKOUT-001-PR09-C13: a registry entry is live (handed over, or waiting while its view is current) or dead (not handed over and its view is gone).
+describe("exchangeOnce: live and dead entries (PR09-C13)", () => {
+  const gate = () => { let finish!: () => void; let fail!: (e: unknown) => void; const promise = new Promise<void>((a, b) => { finish = a; fail = b; }); return { promise, finish, fail }; };
+
+  it("an unsent attempt whose view is gone is not joined and not waited for; the new attempt sends its own, and the old one's late cleanup does not remove it", async () => {
+    const old = gate();
+    const fresh = gate();
+    let oldCurrent = true;
+    const send = vi.fn()
+      .mockReturnValueOnce(old.promise)
+      .mockReturnValueOnce(fresh.promise);
+    exchangeOnce(ID, "t1", send, () => oldCurrent).catch(() => undefined);
+
+    // control: while its view is current it IS joined and waited for
+    const joined = exchangeOnce(ID, "t2", send, () => true);
+    expect(send).toHaveBeenCalledTimes(1);
+    let waited = false;
+    void whenExchangeSettled(ID).then(() => { waited = true; });
+    await Promise.resolve();
+    expect(waited).toBe(false);
+
+    oldCurrent = false; // the epoch moved on: it can never send
+    await whenExchangeSettled(ID); // not stuck behind it
+    const second = exchangeOnce(ID, "t3", send, () => true);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(second).not.toBe(joined);
+
+    old.fail(new Error("superseded")); // the old attempt ends late
+    await joined.catch(() => undefined);
+    let stillWaiting = true;
+    void whenExchangeSettled(ID).then(() => { stillWaiting = false; });
+    await Promise.resolve();
+    expect(stillWaiting).toBe(true); // the new attempt's entry is still registered
+    expect(exchangeOnce(ID, "t4", send, () => true)).toBe(second); // and is joined (dedup of a valid exchange)
+    expect(send).toHaveBeenCalledTimes(2);
+    fresh.finish();
+    await second;
+  });
+
+  it("a request handed over stays live and is joined even if its view is gone afterwards; a joiner is told it was handed over", async () => {
+    const running = gate();
+    let handOver!: () => void;
+    const send = vi.fn((_id: string, _t: string, _c: () => boolean, onHandedOver: () => void) => { handOver = onHandedOver; return running.promise; });
+    const early = vi.fn();
+    const late = vi.fn();
+    exchangeOnce(ID, "t1", send, () => false, early); // its view is gone, but nothing is handed over yet and `send` was entered while it was current in this test's sense
+    // not handed over and gone: dead, so a joiner would replace it (the sender above is still the only call so far)
+    expect(early).not.toHaveBeenCalled();
+    handOver(); // the transport got it
+    expect(early).toHaveBeenCalledTimes(1);
+    const joiner = exchangeOnce(ID, "t2", send, () => true, late); // live (handed over): joined, nothing more is sent
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(late).toHaveBeenCalledTimes(1);
+    let waited = false;
+    void whenExchangeSettled(ID).then(() => { waited = true; });
+    await Promise.resolve();
+    expect(waited).toBe(false); // waited for: the POST is out
+    running.finish();
+    await joiner;
   });
 });
 

@@ -122,10 +122,10 @@ export function toManagedReservation(data: unknown, reservationId: string): Mana
  * `POST /manage/exchange` with `{ token }`: consumes the one-time link and sets the session cookie. Handed to the transport ONCE through the
  * no-retry CSRF path (the shared helper would replay it after an antiforgery failure). No signal: aborting cannot un-consume a link, it would only
  * lose the answer. A 2xx whose body is not this reservation's is a {@link ManagementContractError} (unknown outcome). `stillCurrent` is the initiating view's
- * validity, asked right before the hand-over (see `submitCsrfProtectedRequestOnce`): a view that is gone sends nothing.
+ * validity, asked right before the hand-over (see `submitCsrfProtectedRequestOnce`): a view that is gone sends nothing. `onHandedOver` (PR09-C13) is called at that hand-over, never otherwise.
  */
-export async function exchangeManagementLink(reservationId: string, token: string, stillCurrent?: () => boolean): Promise<void> {
-  const response = await submitCsrfProtectedRequestOnce<unknown>(`${managePath(reservationId)}/exchange`, "POST", { token }, {}, stillCurrent);
+export async function exchangeManagementLink(reservationId: string, token: string, stillCurrent?: () => boolean, onHandedOver?: () => void): Promise<void> {
+  const response = await submitCsrfProtectedRequestOnce<unknown>(`${managePath(reservationId)}/exchange`, "POST", { token }, {}, stillCurrent, onHandedOver);
   const body = response.data as { reservationId?: unknown; expiresAtUtc?: unknown } | undefined;
   if (
     response.status !== 200 ||
@@ -169,22 +169,54 @@ export async function updateEstimatedArrival(reservationId: string, input: Arriv
 /**
  * One exchange per link-open, even if the page is mounted again while the request is out: the second mount joins the first's request instead of
  * sending anything, and a read that starts meanwhile waits for it (a read before the cookie exists would answer 401 for a link that is about to work).
- * Kept at module scope on purpose; it holds a promise, never the token.
+ * Kept at module scope on purpose; it holds a promise and two flags, never the token.
+ *
+ * PR09-C13: an entry is either LIVE or DEAD. Live: its POST was handed to the transport (`handedOver`, can no longer be recalled), or it still waits for its CSRF token and its
+ * initiating view is current. Dead: not handed over and `stillCurrent()` is false; the view's epoch only goes up, so it can never send. A dead entry is not joined, not waited for
+ * (a read that waited would be stuck behind a held CSRF response) and is replaced by the next attempt; its late cleanup removes only its own entry.
  */
-const exchangesInFlight = new Map<string, Promise<void>>();
-
-export function exchangeOnce(reservationId: string, token: string, send: (id: string, token: string) => Promise<void> = exchangeManagementLink): Promise<void> {
-  const running = exchangesInFlight.get(reservationId);
-  if (running) return running;
-  const request = send(reservationId, token).finally(() => {
-    if (exchangesInFlight.get(reservationId) === request) exchangesInFlight.delete(reservationId);
-  });
-  exchangesInFlight.set(reservationId, request);
-  return request;
+interface ExchangeEntry {
+  promise: Promise<void>;
+  handedOver: boolean;
+  stillCurrent: () => boolean;
+  onHandedOver: Set<() => void>;
 }
 
-/** Resolves when no exchange of this reservation is outstanding (its failure is the exchanging caller's to report, not this waiter's). */
+const exchangesInFlight = new Map<string, ExchangeEntry>();
+
+const isDead = (entry: ExchangeEntry) => !entry.handedOver && !entry.stillCurrent();
+
+type ExchangeSender = (id: string, token: string, stillCurrent: () => boolean, onHandedOver: () => void) => Promise<void>;
+
+/** `onHandedOver` is called when the POST this call belongs to is handed to the transport (at once, for a joined request that already was). */
+export function exchangeOnce(
+  reservationId: string,
+  token: string,
+  send: ExchangeSender = exchangeManagementLink,
+  stillCurrent: () => boolean = () => true,
+  onHandedOver?: () => void
+): Promise<void> {
+  const running = exchangesInFlight.get(reservationId);
+  if (running && !isDead(running)) {
+    if (onHandedOver) {
+      if (running.handedOver) onHandedOver();
+      else running.onHandedOver.add(onHandedOver);
+    }
+    return running.promise;
+  }
+  const entry: ExchangeEntry = { promise: Promise.resolve(), handedOver: false, stillCurrent, onHandedOver: new Set(onHandedOver ? [onHandedOver] : []) };
+  entry.promise = send(reservationId, token, stillCurrent, () => {
+    entry.handedOver = true;
+    entry.onHandedOver.forEach((notify) => notify());
+  }).finally(() => {
+    if (exchangesInFlight.get(reservationId) === entry) exchangesInFlight.delete(reservationId);
+  });
+  exchangesInFlight.set(reservationId, entry);
+  return entry.promise;
+}
+
+/** Resolves when no live exchange of this reservation is outstanding (its failure is the exchanging caller's to report, not this waiter's). A dead one will send nothing and is not waited for. */
 export function whenExchangeSettled(reservationId: string): Promise<void> {
   const running = exchangesInFlight.get(reservationId);
-  return running ? running.then(() => undefined, () => undefined) : Promise.resolve();
+  return running && !isDead(running) ? running.promise.then(() => undefined, () => undefined) : Promise.resolve();
 }

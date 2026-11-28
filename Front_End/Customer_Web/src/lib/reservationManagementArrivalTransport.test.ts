@@ -333,3 +333,176 @@ describe("a POST that waits for its CSRF token when the view changes (PR09-C5 P2
     expect(apiUnsafeRequestMock.mock.calls.find((c) => c[0] === EXCHANGE)?.[2]).toEqual({ token: SECRET });
   });
 });
+
+// BHA-CHECKOUT-001-PR09-C13: the REAL controller, service, registry and CSRF helper; only the HTTP client is replaced. A return to the tab while the exchange has NOT been handed to the
+// transport (it waits for its CSRF token) invalidates that attempt and reruns the open's read; a POST that was already handed over is left alone.
+describe("a return to the tab while the exchange POST has not been sent (PR09-C13)", () => {
+  const CSRF = "/api/v1/auth/csrf";
+  const EXCHANGE = `${MANAGE_PATH}/exchange`;
+  const SECRET = "Zq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwZq9xK2pwabc";
+  const GUEST: ManageContext = { reservationId: ID, identityKey: "guest" };
+  const OWNER: ManageContext = { reservationId: ID, identityKey: "customer:aaaa" };
+  const TOKEN = { token: "t", headerName: "X-CSRF-TOKEN" };
+  const NO_SESSION = new ApiHttpError(401, { title: "t", status: 401, code: "reservation.manage-session-invalid" });
+  const NOT_FOUND = new ApiHttpError(404, { title: "t", status: 404, code: "reservation.not-found" });
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  function rig() {
+    let releaseToken!: (value: unknown) => void;
+    const token = new Promise((resolve) => { releaseToken = resolve; });
+    let postAnswer!: (value: unknown) => void;
+    const postResponse = new Promise((resolve) => { postAnswer = resolve; });
+    let holdPost = false;
+    /** What the API answers the next reads of /manage with: a function of the identity script of the test. */
+    let answer: () => unknown = () => { throw NO_SESSION; };
+    let manageGets = 0;
+    apiGetMock.mockImplementation(async (path: string) => {
+      if (path !== MANAGE_PATH) return token; // the CSRF token request: held until the test releases it
+      manageGets += 1;
+      return answer();
+    });
+    apiUnsafeRequestMock.mockImplementation(async (path: string) => {
+      if (path !== EXCHANGE) throw new Error("unexpected POST");
+      answer = () => DTO; // the link was consumed: the browser now holds the management session
+      if (holdPost) await postResponse;
+      return { status: 200, data: { reservationId: ID, expiresAtUtc: "x" } };
+    });
+    let verified: string | null = "guest";
+    const verifySession = vi.fn(async () => verified);
+    const controller = createReservationManagementController({
+      exchange: (rid, tok, stillCurrent, onHandedOver) => exchangeOnce(rid, tok, exchangeManagementLink, stillCurrent, onHandedOver),
+      whenExchangeSettled,
+      requestSessionRefresh: () => {}, verifySession,
+      read: (id, signal) => readManagedReservation(id, { signal }),
+      update: updateEstimatedArrival,
+    });
+    return {
+      controller, verifySession,
+      releaseToken: () => releaseToken(TOKEN),
+      answerPost: () => postAnswer(undefined),
+      holdThePost: () => { holdPost = true; },
+      /** What the API answers /manage with from now on. */
+      serverAnswers: (next: () => unknown) => { answer = next; },
+      setVerified: (next: string | null) => { verified = next; },
+      get manageGets() { return manageGets; },
+      get state() { return controller.getState(); },
+    };
+  }
+  /** A guest opens the link: the preflight GET is refused (no session yet), the exchange waits for its CSRF token. */
+  async function exchangeWaitingForToken(r: ReturnType<typeof rig>, ctx: ManageContext = GUEST) {
+    r.controller.offerLink({ kind: "token", token: SECRET });
+    r.controller.bind(ctx);
+    await vi.waitFor(() => expect(calls(apiGetMock, CSRF)).toBe(1));
+    expect(r.state.phase).toBe("exchanging");
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+  }
+  /** The tab comes back: window focus and visibilitychange, as the page fires them (the second finds the view loading and does nothing). */
+  const comeBack = (r: ReturnType<typeof rig>) => { r.controller.revalidate(); r.controller.revalidate(); };
+
+  it("the booking became readable before the return: the fresh GET shows it at once (not stuck behind the unsent attempt), and the old attempt, released later, sends 0 POSTs", async () => {
+    const r = rig();
+    await exchangeWaitingForToken(r);
+    r.serverAnswers(() => DTO); // e.g. another tab opened a link of this booking / signed in as its owner
+    comeBack(r);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    expect(r.manageGets).toBe(2); // the preflight and the fresh one, in that order
+    expect(r.verifySession).toHaveBeenCalledTimes(1);
+    r.releaseToken(); // the CSRF response of the superseded attempt arrives
+    await flush();
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+    expect(r.state).toMatchObject({ phase: "ready", failure: null });
+    expect(JSON.stringify(r.state)).not.toContain(SECRET);
+  });
+
+  it("the CSRF response of the superseded attempt arrives right after the return, before anything else: 0 POSTs although the booking is already readable (START_HEAD sent 1)", async () => {
+    const r = rig();
+    await exchangeWaitingForToken(r);
+    r.serverAnswers(() => DTO);
+    comeBack(r);
+    r.releaseToken(); // the held response is released while the verification and the fresh GET are still on their way
+    await flush();
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+  });
+
+  it("the fresh GET still allows the exchange: the whole open sends exactly one POST (the new attempt, released with the same CSRF response), then the booking is read", async () => {
+    const r = rig();
+    await exchangeWaitingForToken(r);
+    comeBack(r); // nothing changed: the API still says "no access yet"
+    await vi.waitFor(() => expect(r.manageGets).toBe(2));
+    await vi.waitFor(() => expect(r.state.phase).toBe("exchanging"));
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+    r.releaseToken(); // one response settles both attempts: the old one is superseded, the new one is handed over
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(1);
+    expect(apiUnsafeRequestMock.mock.calls.find((c) => c[0] === EXCHANGE)?.[2]).toEqual({ token: SECRET });
+    expect(calls(apiGetMock, CSRF)).toBe(1); // the token was read once; the return did not ask for another
+    await flush();
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(1);
+  });
+
+  it("control: the POST was handed over before the return: not cancelled, not replayed, no second read; the page settles when the POST answers", async () => {
+    const r = rig();
+    r.holdThePost();
+    await exchangeWaitingForToken(r);
+    r.releaseToken();
+    await vi.waitFor(() => expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(1)); // handed over, unanswered
+    const getsBefore = r.manageGets;
+    comeBack(r);
+    await flush();
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(1);
+    expect(r.manageGets).toBe(getsBefore); // no read of the return, no takeover
+    expect(r.verifySession).not.toHaveBeenCalled();
+    expect(r.state.phase).toBe("exchanging");
+    r.answerPost();
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: GUEST }));
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(1);
+  });
+
+  it("the identity changed while the exchange waited: the token goes to the bind of that identity, whose fresh GET decides; the old attempt sends 0 POSTs", async () => {
+    const r = rig();
+    await exchangeWaitingForToken(r);
+    r.setVerified("customer:aaaa"); // another tab signed in as the booking's owner
+    r.serverAnswers(() => DTO);
+    comeBack(r);
+    await vi.waitFor(() => expect(r.verifySession).toHaveBeenCalledTimes(1));
+    r.controller.bind(OWNER); // the provider re-binds the page to the verified identity
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: OWNER }));
+    r.releaseToken();
+    await flush();
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+  });
+
+  it("a verification that fails after the return: the open stops with the link not sent, 0 POSTs, no token left", async () => {
+    const r = rig();
+    await exchangeWaitingForToken(r);
+    r.setVerified(null);
+    comeBack(r);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "link-not-sent" }));
+    r.releaseToken();
+    await flush();
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+    expect(JSON.stringify(r.state)).not.toContain(SECRET);
+  });
+
+  it("the open's one session re-check is kept: re-check used, then exchanging, then a return and the same contradiction again stops it (0 POSTs, two verifications in all)", async () => {
+    const r = rig();
+    // A guest tab whose identity is stale: the API answers 404 (the browser is signed in as a stranger). The one re-check verifies that account, the page re-binds to it.
+    r.serverAnswers(() => { throw NOT_FOUND; });
+    r.setVerified("customer:aaaa");
+    r.controller.offerLink({ kind: "token", token: SECRET });
+    r.controller.bind(GUEST);
+    await vi.waitFor(() => expect(r.verifySession).toHaveBeenCalledTimes(1));
+    r.controller.bind(OWNER);
+    await vi.waitFor(() => expect(calls(apiGetMock, CSRF)).toBe(1)); // as the account: 404 reservation.not-found → the exchange waits for its token
+    expect(r.state.phase).toBe("exchanging");
+    r.serverAnswers(() => { throw NO_SESSION; }); // after the return the API contradicts the account again (it sees a guest)
+    comeBack(r);
+    await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "failed", failure: "no-access" }));
+    expect(r.verifySession).toHaveBeenCalledTimes(2); // the re-check, and the return's verification: no second re-check
+    r.releaseToken();
+    await flush();
+    expect(calls(apiUnsafeRequestMock, EXCHANGE)).toBe(0);
+  });
+});

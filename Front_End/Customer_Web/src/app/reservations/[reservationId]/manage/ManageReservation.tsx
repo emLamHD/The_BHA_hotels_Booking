@@ -286,7 +286,7 @@ const ManageReservation: FC<{ reservationId: string }> = ({ reservationId }) => 
   verifyRef.current = verifySession;
   const [controller] = useState(() =>
     createReservationManagementController({
-      exchange: (rid, token, stillCurrent) => exchangeOnce(rid, token, (id, t) => exchangeManagementLink(id, t, stillCurrent)),
+      exchange: (rid, token, stillCurrent, onHandedOver) => exchangeOnce(rid, token, exchangeManagementLink, stillCurrent, onHandedOver),
       whenExchangeSettled,
       read: (rid, signal) => readManagedReservation(rid, { signal }),
       update: updateEstimatedArrival,

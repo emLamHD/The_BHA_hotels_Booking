@@ -97,7 +97,8 @@ function acquireCsrfToken(): Promise<CsrfMemory> {
  */
 async function dispatchWithCurrentToken<T>(
   send: (csrf: CsrfMemory) => Promise<T>,
-  stillCurrent?: () => boolean
+  stillCurrent?: () => boolean,
+  onHandedOver?: () => void
 ): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
   for (;;) {
     const requestedIn = generation;
@@ -115,6 +116,7 @@ async function dispatchWithCurrentToken<T>(
       if (stillCurrent && !stillCurrent()) {
         throw new RequestSupersededError();
       }
+      onHandedOver?.(); // PR09-C13: the one place a request becomes "handed to the transport", marked in the same synchronous continuation as the guard above
       return send(memory).then(
         (value) => ({ ok: true as const, value }),
         (error: unknown) => ({ ok: false as const, error })
@@ -158,17 +160,20 @@ export class RequestSupersededError extends Error {
  * token is dropped so the caller's next, deliberate attempt reads a fresh one. Every other error is the transport's own.
  * `stillCurrent` (optional) is asked synchronously right before the hand-over, once the current generation's token is in hand: when it says the initiating view
  * is gone, nothing is sent and {@link RequestSupersededError} is thrown, distinct from a token failure ({@link CsrfTokenUnavailableError}) and from a request that was handed over.
+ * `onHandedOver` (optional, PR09-C13) is called synchronously right after that check passed and right before the transport gets the request: from then on the request cannot be recalled,
+ * before it the caller may still invalidate it. It is never called for a request that is not sent.
  */
 export async function submitCsrfProtectedRequestOnce<T>(
   path: string,
   method: "POST" | "PUT" | "PATCH" | "DELETE",
   body: unknown,
   options: ApiRequestOptions = {},
-  stillCurrent?: () => boolean
+  stillCurrent?: () => boolean,
+  onHandedOver?: () => void
 ): Promise<ApiUnsafeResponse<T>> {
   let outcome: Awaited<ReturnType<typeof dispatchWithCurrentToken<ApiUnsafeResponse<T>>>>;
   try {
-    outcome = await dispatchWithCurrentToken((csrf) => sendWithToken<T>(path, method, body, options, csrf), stillCurrent);
+    outcome = await dispatchWithCurrentToken((csrf) => sendWithToken<T>(path, method, body, options, csrf), stillCurrent, onHandedOver);
   } catch (error) {
     throw error instanceof RequestSupersededError ? error : new CsrfTokenUnavailableError();
   }

@@ -40,7 +40,7 @@ function rig() {
   let linkOpen = false;
   let exchanged = false;
   let boundKey: string | null = null; // who the page is verified as: a guest is answered 401, a signed-in account that has no access yet is answered 404 (PR09-C9)
-  const exchange = vi.fn<[string, string, (() => boolean)?], Promise<void>>().mockImplementation(async () => { exchanged = true; });
+  const exchange = vi.fn<[string, string, (() => boolean)?, (() => void)?], Promise<void>>().mockImplementation(async (_id, _token, _stillCurrent, handedOver) => { handedOver?.(); exchanged = true; });
   const whenExchangeSettled = vi.fn<[string], Promise<void>>().mockResolvedValue(undefined);
   const signals: AbortSignal[] = [];
   const read = vi.fn<[string, AbortSignal], Promise<ManagedReservation>>().mockImplementation(async (id, signal) => {
@@ -138,7 +138,7 @@ describe("opening the link: one exchange, never replayed", () => {
     r.controller.bind(GUEST); // a re-render or a second effect run
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.exchange).toHaveBeenCalledTimes(1);
-    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function)); // the third argument is the view's validity (C5)
+    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function), expect.any(Function)); // the third argument is the view's validity (C5)
     expect(r.read).toHaveBeenCalledTimes(2); // the read before the exchange (PR09-C8: it decides whether the link may be spent) and the read after it
     expect(r.read.mock.invocationCallOrder[0]).toBeLessThan(r.exchange.mock.invocationCallOrder[0]);
     expect(r.exchange.mock.invocationCallOrder[0]).toBeLessThan(r.read.mock.invocationCallOrder[1]);
@@ -934,7 +934,7 @@ describe("PR09-C4 P2-2: a link opened in the same tab", () => {
     r.controller.openLink({ kind: "token", token: SECRET_2 });
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.exchange).toHaveBeenCalledTimes(2);
-    expect(r.exchange).toHaveBeenLastCalledWith(ID, SECRET_2, expect.any(Function));
+    expect(r.exchange).toHaveBeenLastCalledWith(ID, SECRET_2, expect.any(Function), expect.any(Function));
     expect(r.read).toHaveBeenCalledTimes(3); // one read before each exchange (PR09-C8) and the read after the second
     expect(JSON.stringify(r.state)).not.toContain(SECRET_2);
     // nothing afterwards replays it: a re-render, a re-bind, a read
@@ -1005,7 +1005,7 @@ describe("PR09-C4 P2-2: a link opened in the same tab", () => {
     r.controller.bind(GUEST);
     await vi.waitFor(() => expect(r.state.phase).toBe("ready"));
     expect(r.exchange).toHaveBeenCalledTimes(1);
-    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function)); // the third argument is the view's validity (C5)
+    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function), expect.any(Function)); // the third argument is the view's validity (C5)
   });
 
   it("after an exchange whose answer was lost, Try again is a read; only an explicit open sends one more POST", async () => {
@@ -1421,7 +1421,7 @@ describe("PR09-C7: a link the visitor opens on purpose is not held back by the s
     r.controller.openLink({ kind: "token", token: SECRET });
     await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: OWNER }));
     expect(r.exchange).toHaveBeenCalledTimes(1);
-    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function));
+    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function), expect.any(Function));
     expect(r.read).toHaveBeenCalledTimes(2); // the read before the exchange (PR09-C9) and the read after it
     expect(r.requestSessionRefresh).toHaveBeenCalledTimes(1); // no refresh was asked for
     expect(JSON.stringify(r.state)).not.toContain(SECRET);
@@ -1770,7 +1770,7 @@ describe("PR09-C10 P2: a tab whose identity is stale gets one session re-check f
     await vi.waitFor(() => expect(r.state).toMatchObject({ phase: "ready", bound: ACCOUNT }));
     expect(r.verifySession).toHaveBeenCalledTimes(1);
     expect(r.exchange).toHaveBeenCalledTimes(1);
-    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function));
+    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET, expect.any(Function), expect.any(Function));
     expect(r.read).toHaveBeenCalledTimes(3);
     const order = [r.read.mock.invocationCallOrder[0], r.verifySession.mock.invocationCallOrder[0], r.read.mock.invocationCallOrder[1], r.exchange.mock.invocationCallOrder[0], r.read.mock.invocationCallOrder[2]];
     expect([...order].sort((a, b) => a - b)).toEqual(order);
@@ -1915,8 +1915,8 @@ describe("PR09-C10 P2: a tab whose identity is stale gets one session re-check f
     verifying.resolve("guest");
     await tick();
     expect(r.exchange).toHaveBeenCalledTimes(1);
-    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET_2, expect.any(Function));
-    expect(r.exchange).not.toHaveBeenCalledWith(ID, SECRET, expect.any(Function));
+    expect(r.exchange).toHaveBeenCalledWith(ID, SECRET_2, expect.any(Function), expect.any(Function));
+    expect(r.exchange).not.toHaveBeenCalledWith(ID, SECRET, expect.any(Function), expect.any(Function));
   });
 
   it("the other answers keep their C8/C9 behaviour: auth.session-invalid is the guidance, and a guest's 401 / an account's 404 still exchange at once, with no re-check", async () => {

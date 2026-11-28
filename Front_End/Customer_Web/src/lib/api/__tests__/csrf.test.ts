@@ -643,3 +643,25 @@ describe("submitCsrfProtectedRequestOnce: the initiating view is checked at disp
     expect(apiUnsafeRequestMock).not.toHaveBeenCalled();
   });
 });
+
+describe("submitCsrfProtectedRequestOnce: the hand-over mark (BHA-CHECKOUT-001-PR09-C13)", () => {
+  it("is called once, after the view check and before the transport gets the request; never for a request that is not sent", async () => {
+    const { submitCsrfProtectedRequestOnce } = await import("../csrf");
+    const order: string[] = [];
+    apiGetMock.mockResolvedValue(CSRF_RESPONSE);
+    apiUnsafeRequestMock.mockImplementation(async () => { order.push("transport"); return { status: 200, data: {} }; });
+    await submitCsrfProtectedRequestOnce("/x", "POST", {}, {}, () => { order.push("check"); return true; }, () => order.push("handed-over"));
+    expect(order).toEqual(["check", "handed-over", "transport"]);
+
+    order.length = 0;
+    const outcome = await submitCsrfProtectedRequestOnce("/x", "POST", {}, {}, () => false, () => order.push("handed-over")).catch((e: unknown) => e);
+    expect((outcome as Error).name).toBe("RequestSupersededError");
+    expect(order).toEqual([]);
+
+    apiGetMock.mockReset().mockRejectedValue(new ApiNetworkError()); // the token cannot be read: nothing is sent, nothing is marked
+    const { invalidateCsrfToken } = await import("../csrf");
+    invalidateCsrfToken();
+    await submitCsrfProtectedRequestOnce("/x", "POST", {}, {}, () => true, () => order.push("handed-over")).catch(() => undefined);
+    expect(order).toEqual([]);
+  });
+});
